@@ -1,65 +1,23 @@
-# reply_generator.py
-import os
 import json
+import logging
+import os
+from pathlib import Path
+
 import faiss
 import numpy as np
-from openai import OpenAI
-from sentence_transformers import SentenceTransformer
 import torch
 from dotenv import load_dotenv
 from huggingface_hub import hf_hub_download
+from openai import OpenAI
+from sentence_transformers import SentenceTransformer
 
-HF_REPO_ID = "Username/dataset_name"    #paste your location of the dataset (the dataset is uploaded in hugging face in my case)
-
-INDEX_PATH = hf_hub_download(
-    repo_id=HF_REPO_ID,
-    filename="faiss.index",
-    repo_type="dataset"
-)
-
-CHUNKS_PATH = hf_hub_download(
-    repo_id=HF_REPO_ID,
-    filename="policy_chunks.json",
-    repo_type="dataset"
-)
+logger = logging.getLogger(__name__)
 
 # ---------- CONFIG ----------
-
 TOP_K = 5
 SIMILARITY_THRESHOLD = 0.60
 LLM_MODEL = "gpt-4o-mini"
-
-# ---------- OPENAI ----------
-load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY not set. Please add it to your .env file")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# ---------- EMBEDDING ----------
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {device} for embeddings")
-embedder = SentenceTransformer(
-    "all-MiniLM-L6-v2",
-    device=device
-)
-
-# ---------- LOAD DATA ----------
-try:
-    index = faiss.read_index(INDEX_PATH)
-    with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
-        policy_chunks = json.load(f)
-
-    if index.ntotal != len(policy_chunks):
-        raise RuntimeError("FAISS index and policy chunks count mismatch")
-    
-    print(f"✅ Loaded RAG model with {len(policy_chunks)} policy chunks")
-except Exception as e:
-    print(f"⚠️ Warning: Could not load RAG model: {e}")
-    print("Reply generation will use fallback mode")
-    index = None
-    policy_chunks = []
+HF_REPO_ID = os.getenv("HF_REPO_ID", "")
 
 SYSTEM_PROMPT = """
 You are a strict policy-bound compliance assistant for a Higher Education Department grievance redressal system.
@@ -72,11 +30,97 @@ Rules:
 - Address the specific grievance raised in the email.
 """
 
+FALLBACK_SYSTEM_PROMPT = """
+You are a formal grievance support assistant for the Department of Higher Education, Government of West Bengal.
+If no exact policy context is available, provide professional guidance without inventing policy clauses.
+"""
+
+load_dotenv()
+
+client = None
+embedder = None
+index = None
+policy_chunks = []
+_rag_initialized = False
+
+
+def _resolve_data_paths():
+    # Prefer local checked-in data path in this repository.
+    base_dir = Path(__file__).resolve().parent.parent / "reply-generator-main" / "reply-generator-main" / "data"
+    local_index = base_dir / "faiss.index"
+    local_chunks = base_dir / "policy_chunks.json"
+
+    if local_index.exists() and local_chunks.exists():
+        return str(local_index), str(local_chunks)
+
+    # Fallback to Hugging Face if configured.
+    if HF_REPO_ID and "Username/dataset_name" not in HF_REPO_ID:
+        downloaded_index = hf_hub_download(
+            repo_id=HF_REPO_ID,
+            filename="faiss.index",
+            repo_type="dataset"
+        )
+        downloaded_chunks = hf_hub_download(
+            repo_id=HF_REPO_ID,
+            filename="policy_chunks.json",
+            repo_type="dataset"
+        )
+        return downloaded_index, downloaded_chunks
+
+    return None, None
+
+
+def _ensure_rag_loaded():
+    global client, embedder, index, policy_chunks, _rag_initialized
+
+    if _rag_initialized:
+        return
+
+    _rag_initialized = True
+
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if openai_api_key:
+        client = OpenAI(api_key=openai_api_key)
+    else:
+        logger.warning("OPENAI_API_KEY not set. Reply generation will use static fallback response.")
+
+    try:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info("Using device '%s' for embeddings", device)
+        embedder = SentenceTransformer("all-MiniLM-L6-v2", device=device)
+    except Exception as e:
+        logger.warning("Could not initialize embedding model: %s", e)
+        embedder = None
+
+    try:
+        index_path, chunks_path = _resolve_data_paths()
+        if not index_path or not chunks_path:
+            raise RuntimeError("RAG data files not found in local data directory and HF_REPO_ID is not configured")
+
+        index = faiss.read_index(index_path)
+        with open(chunks_path, "r", encoding="utf-8") as f:
+            policy_chunks = json.load(f)
+
+        if index.ntotal != len(policy_chunks):
+            raise RuntimeError("FAISS index and policy chunks count mismatch")
+
+        logger.info("Loaded RAG model with %s policy chunks", len(policy_chunks))
+    except Exception as e:
+        logger.warning("Could not load RAG model: %s", e)
+        logger.warning("Reply generation will use no-context fallback mode")
+        index = None
+        policy_chunks = []
+
 def retrieve_policy_chunks(email_text: str):
     """Retrieve relevant policy chunks based on email content"""
+    _ensure_rag_loaded()
+
     if not index or not policy_chunks:
         return []
-    
+
+    if embedder is None:
+        return []
+
     query_emb = embedder.encode(
         [email_text],
         normalize_embeddings=True
@@ -99,7 +143,7 @@ def retrieve_policy_chunks(email_text: str):
     return results
 
 
-def generate_suggested_reply(email_text: str, subject: str = "", sender: str = "") -> str:
+def generate_suggested_reply(email_content: str, email_subject: str = "", sender: str = "") -> str:
     """
     Generate a policy-based reply using retrieved grievance policies.
     Ensures replies reference clause numbers, provide reasoning,
@@ -107,10 +151,14 @@ def generate_suggested_reply(email_text: str, subject: str = "", sender: str = "
     """
 
     try:
+        _ensure_rag_loaded()
+
+        email_text = email_content
+        subject = email_subject
         retrieved = retrieve_policy_chunks(email_text)
 
         # ---------- CASE 1: POLICY MATCH FOUND ----------
-        if retrieved:
+        if retrieved and client is not None:
 
             context = "\n\n".join(
                 f"Clause {c['metadata']['clause_id']} ({c['metadata']['section']}): {c['text']}"
@@ -151,9 +199,12 @@ IMPORTANT RULES:
                 ]
             )
 
-            return response.choices[0].message.content.strip()
+            return (response.choices[0].message.content or "").strip()
 
         # ---------- CASE 2: NO POLICY MATCH ----------
+        if client is None:
+            raise RuntimeError("OpenAI client unavailable")
+
         fallback_user_prompt = f"""
 Email Sender: {sender if sender else "Not specified"}
 Email Subject: {subject if subject else "Not specified"}
@@ -180,10 +231,10 @@ RULES:
             ]
         )
 
-        return response.choices[0].message.content.strip()
+        return (response.choices[0].message.content or "").strip()
 
     except Exception as e:
-        logger.exception("Policy reply generation failed")
+        logger.exception("Policy reply generation failed: %s", e)
 
         return """
 Dear Sir/Madam,

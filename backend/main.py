@@ -118,9 +118,18 @@ def run():
 app = FastAPI()
 
 # Enable CORS for frontend
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -163,6 +172,20 @@ def get_emails(category: str):
         print(f"Total records in Excel: {len(df)}")
         print(f"Unique categories: {df['category'].unique().tolist()}")
         
+        # Backward compatibility for previously generated datasets.
+        if "priority" not in df.columns:
+            df["priority"] = 99
+        if "followup_count" not in df.columns:
+            df["followup_count"] = 0
+        if "parent_email_id" not in df.columns:
+            df["parent_email_id"] = ""
+        if "attachments" not in df.columns:
+            df["attachments"] = "[]"
+        if "content" not in df.columns:
+            df["content"] = ""
+        if "eml_file" not in df.columns:
+            df["eml_file"] = ""
+
         filtered = df[df["category"] == category]
         filtered = filtered.sort_values(by="priority", ascending=True)
         print(f"Found {len(filtered)} emails for category '{category}'")
@@ -296,19 +319,15 @@ def generate_reply(request: GenerateReplyRequest):
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
     import sys
-    import os
-    port = int(os.environ.get("PORT", 7860))
+    import uvicorn
 
-    print(f"🚀 Starting FastAPI on port {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
     # If script is run directly, process emails first
     if len(sys.argv) > 1 and sys.argv[1] == "process":
         run()
     else:
-        # Start the FastAPI server with uvicorn
-        import uvicorn
+        port = int(os.environ.get("PORT", 8000))
         print("\n🚀 Starting FastAPI server...")
-        print("📍 Backend running at: http://localhost:8000")
-        print("📊 API Documentation at: http://localhost:8000/docs")
+        print(f"📍 Backend running at: http://localhost:{port}")
+        print(f"📊 API Documentation at: http://localhost:{port}/docs")
         print("\nPress Ctrl+C to stop the server\n")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        uvicorn.run(app, host="0.0.0.0", port=port)
