@@ -5,6 +5,25 @@ import re
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-1.5-flash")
 
+
+def apply_thread_escalation(base_priority, followup_count):
+    """Escalate priority for follow-up threads (lower rank number = higher priority)."""
+    try:
+        priority = int(base_priority)
+    except Exception:
+        priority = 99
+
+    try:
+        count = int(followup_count)
+    except Exception:
+        count = 0
+
+    if count <= 0:
+        return priority
+
+    # Escalate by one level for follow-up threads, but do not go above 0.
+    return max(0, priority - 1)
+
 def get_llm_priority(email_text, subject="", sender=""):
     prompt = f"""
 Classify this email into ONE priority rank:
