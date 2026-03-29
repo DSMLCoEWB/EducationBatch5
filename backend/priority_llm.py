@@ -35,3 +35,9 @@ Content: {email_text}
         return 99
     except:
         return 99
+
+def apply_thread_escalation(priority, followup_count):
+    # If many follow-ups, increase priority
+    if followup_count > 3 and priority in [5, 6]:
+        return 2  # escalate to legal-level seriousness
+    return priority
