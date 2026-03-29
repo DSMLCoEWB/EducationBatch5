@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+torch
+sentence-transformers
+transformers
+faiss-cpu
+openai
+numpy
+pandas
+scikit-learn
+pdfplumber
+python-docx
+openpyxl
+python-dotenv
+huggingface_hub
