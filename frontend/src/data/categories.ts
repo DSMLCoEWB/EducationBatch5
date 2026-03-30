@@ -9,6 +9,13 @@ export const categories: CategoryInfo[] = [
     icon: 'inbox'
   },
   {
+    id: 'demo',
+    label: 'Demo Emails',
+    color: 'text-green-700',
+    bgColor: 'bg-green-50',
+    icon: 'star'
+  },
+  {
     id: 'suspension',
     label: 'Suspension / Disciplinary',
     color: 'text-orange-700',

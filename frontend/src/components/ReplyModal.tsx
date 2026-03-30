@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Send, Sparkles, CheckCircle2, X, Loader2 } from 'lucide-react';
 import { Email } from '../types';
-import { generateReply } from '../services/api';
+import { GenerateReplyResult, generateReplyDetailed } from '../services/api';
 
 interface ReplyModalProps {
   email: Email;
@@ -14,6 +14,7 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
   const [usingSuggested, setUsingSuggested] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [ragEvidence, setRagEvidence] = useState<GenerateReplyResult | null>(null);
 
   // Generate suggested reply based on email category (fallback/template-based)
   const generateTemplateSuggestedReply = (): string => {
@@ -38,14 +39,17 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
   const handleGenerateAIReply = async () => {
     setIsGenerating(true);
     setGenerationError(null);
+    setRagEvidence(null);
     
     try {
-      const aiReply = await generateReply(
+      const aiResult = await generateReplyDetailed(
         email.content,
         email.subject,
-        email.sender
+        email.sender,
+        email.category
       );
-      setReplyText(aiReply);
+      setReplyText(aiResult.suggested_reply);
+      setRagEvidence(aiResult);
       setUsingSuggested(true);
     } catch (error) {
       console.error('Failed to generate AI reply:', error);
@@ -63,6 +67,7 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
     const suggested = generateTemplateSuggestedReply();
     setReplyText(suggested);
     setUsingSuggested(true);
+    setRagEvidence(null);
   };
 
   const handleSend = () => {
@@ -83,6 +88,8 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
           </div>
           <button
             onClick={onClose}
+            aria-label="Close reply modal"
+            title="Close"
             className="p-1 hover:bg-blue-700 rounded transition-colors"
           >
             <X className="w-5 h-5" />
@@ -138,6 +145,107 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
             <div className="mb-3 flex items-center gap-2 text-sm text-purple-700 bg-purple-50 px-3 py-2 rounded-lg border border-purple-200">
               <Sparkles className="w-4 h-4" />
               <span>AI-generated reply - you can edit it before sending</span>
+            </div>
+          )}
+
+          {ragEvidence && (
+            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm">
+              {ragEvidence.trust_visibility ? (
+                <div className="mb-3 rounded border border-blue-100 bg-white p-3">
+                  <p className="text-blue-700 font-semibold">Trust Summary</p>
+                  <p className="text-blue-900 mt-1">
+                    Badge: {ragEvidence.trust_visibility.trust_badge} | Grounding: {ragEvidence.trust_visibility.grounding_percentage}
+                  </p>
+                  <p className="text-gray-700 mt-1">{ragEvidence.trust_visibility.verification_message}</p>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                <div>
+                  <p className="text-blue-700 font-semibold">Generation Mode</p>
+                  <p className="text-blue-900">{ragEvidence.generation_mode}</p>
+                </div>
+                <div>
+                  <p className="text-blue-700 font-semibold">Grounded Ratio</p>
+                  <p className="text-blue-900">
+                    {(ragEvidence.grounding_report.supported_sentence_ratio * 100).toFixed(1)}%
+                  </p>
+                </div>
+                <div>
+                  <p className="text-blue-700 font-semibold">Trust</p>
+                  <p className="text-blue-900">
+                    {((ragEvidence.trust_score ?? ragEvidence.grounding_report.trust_score ?? 0) * 100).toFixed(1)}%
+                    {' '}
+                    ({ragEvidence.trust_label ?? ragEvidence.grounding_report.trust_label ?? 'LOW'})
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <p className="text-blue-700 font-semibold">Retrieved Clauses</p>
+                <p className="text-blue-900">{ragEvidence.retrieval.matches.length}</p>
+              </div>
+
+              {ragEvidence.retrieval.matches.length > 0 && (
+                <div>
+                  <p className="text-blue-700 font-semibold mb-2">Policy Evidence Used</p>
+                  <div className="max-h-44 overflow-y-auto space-y-2">
+                    {ragEvidence.retrieval.matches.map((m, idx) => (
+                      <div key={`${m.metadata.clause_id}-${idx}`} className="rounded border border-blue-100 bg-white p-2">
+                        <p className="font-medium text-gray-900">
+                          Clause {m.metadata.clause_id} | {m.metadata.section}
+                          <span className="ml-2 text-xs text-gray-500">score: {(m.score * 100).toFixed(1)}%</span>
+                        </p>
+                        <p className="text-gray-700 mt-1">{m.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* New UI-friendly sentence-level evidence */}
+              {ragEvidence.sentence_evidence && ragEvidence.sentence_evidence.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-blue-700 font-semibold mb-2">Sentence-Level Evidence</p>
+                  <div className="max-h-40 overflow-y-auto space-y-2">
+                    {ragEvidence.sentence_evidence.map((ev, idx) => (
+                      <div key={idx} className="rounded border border-blue-100 bg-white p-2">
+                        <p className="text-gray-900 font-medium">{ev.sentence}</p>
+                        <p className="text-xs text-gray-600 mt-1">
+                          Support Score: {(ev.support_score * 100).toFixed(1)}%
+                          {ev.is_supported !== undefined && (
+                            <span className={ev.is_supported ? "ml-2 text-green-600" : "ml-2 text-amber-600"}>
+                              {ev.is_supported ? "Supported" : "Weak/Unsupported"}
+                            </span>
+                          )}
+                        </p>
+                        {ev.evidence && ev.evidence.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Supporting Policy Snippets:</p>
+                            <ul className="list-disc ml-5">
+                              {ev.evidence.map((evi, eidx) => (
+                                <li key={eidx} className="mb-1">
+                                  <span className="text-xs text-slate-700">{evi.snippet}</span>
+                                  <span className="ml-2 text-[10px] text-gray-500">[start: {evi.start}, end: {evi.end}, chunk: {evi.chunk_index}]</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {ragEvidence.grounding_report.unsupported_sentences.length > 0 && (
+                <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-2">
+                  <p className="text-amber-800 font-semibold">Review Needed</p>
+                  <p className="text-amber-700">
+                    Some generated lines may be weakly supported. Please review before sending.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

@@ -1,0 +1,17 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.env
+.env.*
+.git/
+.gitignore
+.pytest_cache/
+.mypy_cache/
+ruff_cache/
+attachments/
+files/
+*.ipynb
