@@ -24,6 +24,7 @@ export interface Email {
   parentEmailId?: string;
   replied: boolean;
   replyText?: string;
+  is_demo?: boolean;
 }
 
 export interface CategoryInfo {

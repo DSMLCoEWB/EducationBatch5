@@ -336,6 +336,7 @@ export function transformBackendEmail(backendEmail: BackendEmail): Email {
     emailDate: new Date(backendEmail.date || new Date()),
     parentEmailId: backendEmail.parent_email_id || undefined,
     replied: false,
+    is_demo: !!backendEmail.is_demo,
   };
 }
 

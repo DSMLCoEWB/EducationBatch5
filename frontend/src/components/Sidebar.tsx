@@ -4,8 +4,7 @@ import {
   AlertCircle, 
   ShieldAlert, 
   GraduationCap, 
-  Folder, 
-  Star 
+  Folder
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -20,14 +19,12 @@ const iconMap: Record<string, React.ReactNode> = {
   'shield-alert': <ShieldAlert className="w-5 h-5" />,
   'graduation-cap': <GraduationCap className="w-5 h-5" />,
   folder: <Folder className="w-5 h-5" />,
-  star: <Star className="w-5 h-5" />
 };
 
 export function Sidebar({ activeView, onViewChange }: SidebarProps) {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'all', label: 'All Emails', icon: 'inbox' },
-    { id: 'demo', label: 'Demo Emails', icon: 'star' },
     { id: 'suspension', label: 'Suspension / Disciplinary', icon: 'alert-circle' },
     { id: 'fir', label: 'FIR / Arrest', icon: 'shield-alert' },
     { id: 'semester', label: 'Semester / Examination', icon: 'graduation-cap' },

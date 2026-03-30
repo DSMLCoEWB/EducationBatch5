@@ -238,7 +238,8 @@ def get_emails(
                 "content": str(row["content"]) if pd.notna(row["content"]) and str(row["content"]) != "nan" else "",
                 "attachments": ast.literal_eval(str(row["attachments"])) if pd.notna(row["attachments"]) and str(row["attachments"]) not in ["nan", "", "[]"] else [],
                 "eml_file": str(row["eml_file"]) if pd.notna(row["eml_file"]) and str(row["eml_file"]) != "nan" else "",
-                "is_demo": bool(row["is_demo"]) if "is_demo" in row else False
+                "is_demo": bool(row["is_demo"]) if "is_demo" in row else False,
+                "priority": int(row["priority"]) if pd.notna(row["priority"]) else 99
             }
             for _, row in filtered.iterrows()
         ]
