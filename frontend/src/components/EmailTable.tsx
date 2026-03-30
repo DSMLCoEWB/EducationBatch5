@@ -60,9 +60,12 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail }: 
   // Sort emails
 const sortedEmails = filteredEmails.sort((a, b) => {
   // ✅ PRIORITY FIRST (lowest number = highest priority)
-  if (a.priority !== b.priority) {
-    return a.priority - b.priority;
-  }
+  const pa = Number.isFinite(Number(a.priority)) ? Number(a.priority) : 6;
+const pb = Number.isFinite(Number(b.priority)) ? Number(b.priority) : 6;
+
+if (pa !== pb) {
+  return pa - pb;
+}
 
   let aValue: any;
   let bValue: any;
@@ -356,6 +359,7 @@ function EmailRow({ email, onClick, onUpdateEmail }: EmailRowProps) {
   };
 
   const daysPending = getDaysPending();
+const priority = Number.isFinite(Number(email.priority)) ? Number(email.priority) : 6;
 
   return (
     <>
@@ -370,17 +374,19 @@ function EmailRow({ email, onClick, onUpdateEmail }: EmailRowProps) {
           </div>
         </td>
         <td className="px-6 py-4">
-  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-    email.priority === 0 ? 'bg-red-500 text-white' :
-    email.priority <= 2 ? 'bg-orange-400 text-white' :
-    email.priority <= 3 ? 'bg-yellow-400 text-black' :
-    'bg-gray-200 text-gray-700'
-  }`}>
-    {email.priority === 0 ? 'Critical' :
-     email.priority <= 2 ? 'High' :
-     email.priority <= 3 ? 'Medium' :
-     'Low'}
-  </span>
+
+<span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+  priority <= 1 ? 'bg-red-100 text-red-700' :
+  priority <= 3 ? 'bg-orange-100 text-orange-700' :
+  priority <= 5 ? 'bg-yellow-100 text-yellow-700' :
+  'bg-gray-100 text-gray-700'
+}`}>
+  {priority <= 1 ? `Critical (${priority})` :
+ priority <= 3 ? `High (${priority})` :
+ priority <= 5 ? `Medium (${priority})` :
+ `Low (${priority})`}
+</span>
+
 </td>
         <td className="px-6 py-4 text-sm text-gray-700">
           {email.instituteName}
