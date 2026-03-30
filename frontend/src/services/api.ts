@@ -21,6 +21,8 @@ export interface BackendEmail {
   content: string;
   attachments: string[];
   eml_file: string;
+  is_demo?: boolean;
+  priority: number;
 }
 
 export interface BackendCategory {

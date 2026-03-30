@@ -386,8 +386,13 @@ function EmailRow({ email, onClick, onUpdateEmail }: EmailRowProps) {
           {email.instituteName}
         </td>
         <td className="px-6 py-4">
-          <div className="font-medium text-gray-900 max-w-xs truncate">
-            {email.subject}
+          <div className="flex items-center gap-2 max-w-xs">
+            <span className="font-medium text-gray-900 truncate">{email.subject}</span>
+            {email.is_demo && (
+              <span className="flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-300">
+                Demo
+              </span>
+            )}
           </div>
         </td>
         <td className="px-6 py-4">

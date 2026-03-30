@@ -90,34 +90,13 @@ export default function App() {
 
 
   // Get emails for the current category view
-  const [demoEmails, setDemoEmails] = useState<Email[]>([]);
-
-  useEffect(() => {
-    async function fetchDemoEmails() {
-      try {
-        const resp = await fetch('/api/emails?category=all&is_demo=true');
-        if (resp.ok) {
-          const data = await resp.json();
-          setDemoEmails(transformBackendEmails(data));
-        }
-      } catch (e) {
-        // Ignore demo fetch errors
-      }
-    }
-    fetchDemoEmails();
-  }, []);
-
   const categoryEmails = useMemo(() => {
     if (activeView === 'dashboard' || activeView === 'all') {
-      // Exclude demo emails from normal views
-      return filteredEmails.filter(email => !email.is_demo);
+      return filteredEmails;
     }
-    if (activeView === 'demo') {
-      return demoEmails;
-    }
-    // Only show real emails for category views
-    return filteredEmails.filter(email => email.category === activeView && !email.is_demo);
-  }, [filteredEmails, activeView, demoEmails]);
+    // Filter by category for category views — include demo emails in their respective categories
+    return filteredEmails.filter(email => email.category === activeView);
+  }, [filteredEmails, activeView]);
 
   // Show loading state
   if (loading) {
