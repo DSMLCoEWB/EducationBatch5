@@ -92,6 +92,8 @@ def run():
         email.get("sender", ""))
 
         final_priority = apply_thread_escalation(base_priority, count)
+        if final_priority is None:
+            final_priority = 6
 
         row = {
             **email,
@@ -211,7 +213,7 @@ def get_emails(
             df["eml_file"] = ""
         if "is_demo" not in df.columns:
             df["is_demo"] = False
-
+        df["priority"] = df["priority"].fillna(99)  # ← add this
         # Filtering
         filtered = df.copy()
         if category != "all":
