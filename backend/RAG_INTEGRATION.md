@@ -126,9 +126,84 @@ npm run dev
 **Response:**
 ```json
 {
-  "suggested_reply": "string"
+   "suggested_reply": "string",
+   "generation_mode": "policy_grounded_validated | policy_guardrail_fallback | fallback_no_policy_match | system_error_fallback",
+   "retrieval": {
+      "top_k": 5,
+      "similarity_threshold": 0.6,
+      "matches": [
+         {
+            "text": "policy chunk text",
+            "metadata": {
+               "policy_id": "HED_GRS",
+               "section": "section name",
+               "clause_id": "4.1"
+            },
+            "score": 0.78
+         }
+      ]
+   },
+   "grounding_report": {
+      "is_grounded": true,
+      "supported_sentence_ratio": 0.86,
+      "support_threshold": 0.35,
+      "unsupported_sentences": [],
+      "notes": "Token-overlap heuristic for quick hallucination risk screening.",
+      "citation_validation": {
+         "is_valid": true,
+         "supported_sentence_ratio": 1.0,
+         "citation_issues": [],
+         "support_issues": []
+      }
+   }
 }
 ```
+
+### Evidence & Auditability
+
+- `retrieval.matches`: exact policy chunks used for generation (including section + clause IDs)
+- `generation_mode`: whether answer was generated from policy context or fallback
+- `grounding_report`: sentence-level support estimate against retrieved policy chunks
+
+This allows you to demonstrate to reviewers exactly which policy text supported each generated reply.
+
+### Strict Policy-Only Behavior
+
+If no policy chunk passes the retrieval threshold, the system returns a deterministic administrative response instead of asking the LLM to draft a new answer. This prevents uncited guidance and reduces hallucination risk in no-match cases.
+
+### Hard Governance Controls
+
+- Hybrid retrieval: dense similarity + lexical overlap before final ranking.
+- Cross-encoder reranking: top candidates are reranked using a cross-encoder for precision.
+- Query rewriting: incoming email text is rewritten into policy-search form before retrieval.
+- Citation enforcement: substantive sentences must include inline context citations like `[C1]`.
+- Validation gate: LLM output is accepted only if citation and support checks pass.
+- Guardrail fallback: if validation fails, system returns policy-only extractive guardrail response.
+- No-policy fallback: deterministic non-LLM response when no policy chunk is retrieved.
+- Dual output: internal traceable view + external clean sendable reply.
+
+### Runtime Tuning (Environment Variables)
+
+- `RAG_TOP_K` (default `5`)
+- `RAG_SIMILARITY_THRESHOLD` (default `0.60`)
+- `RAG_HYBRID_ALPHA` (default `0.75`)
+- `RAG_MIN_HYBRID_SCORE` (default `0.35`)
+- `RAG_SENTENCE_SUPPORT_THRESHOLD` (default `0.30`)
+- `RAG_MIN_GROUNDED_SENTENCE_RATIO` (default `0.80`)
+- `RAG_CANDIDATE_POOL` (default `20`)
+- `RAG_RERANKER_MODEL` (default `BAAI/bge-reranker-large`)
+- `RAG_EMBEDDING_MODEL` (default `BAAI/bge-large-en-v1.5`)
+- `RAG_TRUST_SCORE_THRESHOLD` (default `0.75`)
+
+### Dual Output Contract
+
+- `internal_view.reply_text_with_citations`: traceable policy-grounded draft for verification
+- `external_view.clean_reply_text`: citation-free professional response for final sending
+- `trust_score` and `trust_label`: user-facing confidence indicators
+- `sentence_evidence`: sentence-level citation mapping with support score
+- `explainability.evidence_summary`: UI-ready justification block
+
+These controls let governance teams tune recall-vs-precision while keeping policy-only boundaries intact.
 
 ## Troubleshooting
 

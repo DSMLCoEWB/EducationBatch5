@@ -88,13 +88,36 @@ export default function App() {
     return filtered;
   }, [emails, searchQuery, dateRange]);
 
+
   // Get emails for the current category view
+  const [demoEmails, setDemoEmails] = useState<Email[]>([]);
+
+  useEffect(() => {
+    async function fetchDemoEmails() {
+      try {
+        const resp = await fetch('/api/emails?category=all&is_demo=true');
+        if (resp.ok) {
+          const data = await resp.json();
+          setDemoEmails(transformBackendEmails(data));
+        }
+      } catch (e) {
+        // Ignore demo fetch errors
+      }
+    }
+    fetchDemoEmails();
+  }, []);
+
   const categoryEmails = useMemo(() => {
     if (activeView === 'dashboard' || activeView === 'all') {
-      return filteredEmails;
+      // Exclude demo emails from normal views
+      return filteredEmails.filter(email => !email.is_demo);
     }
-    return filteredEmails.filter(email => email.category === activeView);
-  }, [filteredEmails, activeView]);
+    if (activeView === 'demo') {
+      return demoEmails;
+    }
+    // Only show real emails for category views
+    return filteredEmails.filter(email => email.category === activeView && !email.is_demo);
+  }, [filteredEmails, activeView, demoEmails]);
 
   // Show loading state
   if (loading) {

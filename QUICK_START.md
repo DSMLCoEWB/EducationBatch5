@@ -12,12 +12,12 @@ pip install -r requirements.txt
 ```bash
 # Create .env file in backend/
 cd backend
-echo OPENAI_API_KEY=sk-your-key-here > .env
+echo GOOGLE_API_KEY=your-gemini-key-here > .env
 
 # Or manually:
 # 1. Copy .env.example to .env
-# 2. Replace "your_openai_api_key_here" with your actual key
-# 3. Get key from: https://platform.openai.com/api-keys
+# 2. Add GOOGLE_API_KEY with your actual Gemini key
+# 3. Optional backward-compatible alias: GEMINI_API_KEY=your-gemini-key-here
 ```
 
 ### Step 3: Start Servers (30 seconds)
@@ -46,7 +46,7 @@ npm run dev
 
 - [ ] Installed: `faiss-cpu`, `torch`, `python-dotenv`
 - [ ] Created: `backend/.env` file
-- [ ] Added: OpenAI API key to `.env`
+- [ ] Added: Gemini API key (`GOOGLE_API_KEY`) to `.env`
 - [ ] Running: Backend on port 8000
 - [ ] Running: Frontend dev server
 - [ ] Verified: FAISS index exists at `reply-generator-main/reply-generator-main/data/faiss.index`
@@ -73,7 +73,7 @@ npm run dev
 
 | Issue | Solution |
 |-------|----------|
-| "OPENAI_API_KEY not set" | Create `.env` file with API key |
+| "GOOGLE_API_KEY not found" | Create `.env` file with Gemini API key |
 | "FAISS index not found" | Check path: `reply-generator-main/reply-generator-main/data/` |
 | "Failed to generate reply" | Check API key validity & internet |
 | CORS errors | Ensure backend is on port 8000 |
@@ -90,7 +90,7 @@ cd backend
 python reply_generator.py
 
 # Check if dependencies installed
-pip list | grep -E "faiss|torch|openai|dotenv"
+pip list | grep -E "faiss|torch|google-genai|dotenv"
 
 # Verify FAISS index
 ls reply-generator-main/reply-generator-main/data/

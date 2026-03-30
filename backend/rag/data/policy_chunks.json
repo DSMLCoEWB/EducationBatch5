@@ -1,0 +1,133 @@
+[
+  {
+    "text": "Grievances must be submitted within 90 days from the date of occurrence. Grievances submitted after 90 days shall not be entertained unless supported by valid documentary evidence.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Time Limit for Raising Grievances",
+      "clause_id": "4.1"
+    }
+  },
+  {
+    "text": "A grievance submission must include applicant’s full name, registered mobile number and email ID, institution name, detailed description of the grievance, and supporting documents if applicable. Incomplete submissions may be rejected.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Required Information",
+      "clause_id": "4.2"
+    }
+  },
+  {
+    "text": "Scholarship-related grievances shall be resolved within 30 working days.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Resolution Timeline",
+      "clause_id": "5.2-SCH"
+    }
+  },
+  {
+    "text": "A grievance shall be rejected if it falls outside the defined scope, is submitted beyond the 90-day limit without justification, mandatory information is missing, or the matter is sub judice.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Grounds for Rejection",
+      "clause_id": "6.0"
+    }
+  },
+
+  {
+    "text": "Every Higher Education Institution under the Department of Higher Education, Government of West Bengal shall maintain a formal grievance redressal mechanism for students, faculty and staff to address complaints relating to academic administration, examinations, scholarships, infrastructure, and institutional services.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Institutional Responsibility",
+      "clause_id": "3.1"
+    }
+  },
+
+  {
+    "text": "Each institution shall designate a Grievance Redressal Officer responsible for receiving, registering and processing grievances submitted through the official grievance portal or through institutional channels.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Grievance Redressal Officer",
+      "clause_id": "3.2"
+    }
+  },
+
+  {
+    "text": "Upon receipt of a grievance, the institution shall acknowledge the complaint and assign a unique grievance registration number to enable tracking and follow-up.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Registration of Grievances",
+      "clause_id": "4.3"
+    }
+  },
+
+  {
+    "text": "Grievances received through the official portal shall be examined by the concerned authority and forwarded to the relevant department or institution for necessary action and resolution.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Forwarding and Examination",
+      "clause_id": "4.4"
+    }
+  },
+
+  {
+    "text": "Institutions shall ensure that grievances relating to administrative delays, examination results, scholarship disbursement, or student services are reviewed promptly and appropriate corrective measures are initiated.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Administrative Review",
+      "clause_id": "5.1"
+    }
+  },
+
+  {
+    "text": "In cases where the grievance concerns examination evaluation, rechecking or result correction, the institution shall follow the applicable examination regulations and communicate the outcome to the applicant.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Examination Related Grievances",
+      "clause_id": "5.3-EXM"
+    }
+  },
+
+  {
+    "text": "If a grievance cannot be resolved at the institutional level, it may be escalated to the Department of Higher Education, Government of West Bengal for further review and appropriate direction.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Escalation Procedure",
+      "clause_id": "5.4"
+    }
+  },
+
+  {
+    "text": "Applicants shall be informed about the progress and final resolution of their grievance through the registered communication channel, including email or mobile notification.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Communication of Decision",
+      "clause_id": "5.5"
+    }
+  },
+
+  {
+    "text": "Anonymous complaints or grievances submitted without verifiable contact details may not be processed unless they contain sufficient evidence of serious administrative irregularity.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Anonymous Complaints",
+      "clause_id": "6.1"
+    }
+  },
+
+  {
+    "text": "Grievances that are already pending before a court of law or judicial authority shall not be entertained by the administrative grievance redressal mechanism.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Matters Under Litigation",
+      "clause_id": "6.2"
+    }
+  },
+
+  {
+    "text": "Misuse of the grievance redressal system through repeated or malicious complaints may lead to administrative action and closure of the grievance.",
+    "metadata": {
+      "policy_id": "HED_GRS",
+      "section": "Misuse of Grievance System",
+      "clause_id": "6.3"
+    }
+  }
+]

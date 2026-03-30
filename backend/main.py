@@ -7,6 +7,7 @@ import json
 import ast
 from pathlib import Path
 from datetime import datetime
+from typing import Any, Dict
 from email_parser import parse_eml
 from classifier import classify_grievance
 from followup import detect_followup
@@ -16,7 +17,8 @@ from fastapi.responses import FileResponse
 from chatbot import ask
 from priority_llm import get_llm_priority, apply_thread_escalation
 from pydantic import BaseModel
-from reply_generator import generate_suggested_reply
+from rag.reply_generator import generate_suggested_reply_with_evidence
+from rag.retriever import ensure_retriever_loaded, get_model_load_error
 import logging
 from dotenv import load_dotenv
 load_dotenv()
@@ -135,9 +137,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+def warm_rag_retriever() -> None:
+    """Load retriever assets before serving requests to avoid startup fallbacks."""
+    logger.info("RAG startup: loading retriever assets")
+    loaded = ensure_retriever_loaded(block=True)
+    if loaded:
+        logger.info("RAG startup: retriever ready")
+    else:
+        logger.warning("RAG startup: retriever not ready (%s)", get_model_load_error() or "unknown error")
+
 @app.get("/")
 def root():
     return {"status": "Backend running on Hugging Face"}
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Docker/load balancer"""
+    return {"status": "healthy", "service": "AI Grievance Management Backend"}
     
 @app.get("/categories")
 def get_categories():
@@ -158,20 +176,26 @@ def get_colleges():
     """Get list of all colleges in database"""
     return {"colleges": COLLEGES_DB, "total": len(COLLEGES_DB)}
 
+
+from fastapi import Query
+
 @app.get("/emails")
-def get_emails(category: str):
-    """Get all emails for a specific category"""
+def get_emails(
+    category: str = Query(..., description="Email category or 'all' for all categories"),
+    is_demo: str = Query(None, description="Filter by is_demo: 'true', 'false', or None for all")
+):
+    """Get all emails for a specific category, with optional is_demo filtering"""
     try:
-        print(f"Received request for category: '{category}'")
-        
+        print(f"Received request for category: '{category}', is_demo: {is_demo}")
+
         if not os.path.exists(EXCEL_FILE):
             print(f"Excel file not found: {EXCEL_FILE}")
             return []
-        
+
         df = pd.read_excel(EXCEL_FILE)
         print(f"Total records in Excel: {len(df)}")
         print(f"Unique categories: {df['category'].unique().tolist()}")
-        
+
         # Backward compatibility for previously generated datasets.
         if "priority" not in df.columns:
             df["priority"] = 99
@@ -185,11 +209,22 @@ def get_emails(category: str):
             df["content"] = ""
         if "eml_file" not in df.columns:
             df["eml_file"] = ""
+        if "is_demo" not in df.columns:
+            df["is_demo"] = False
 
-        filtered = df[df["category"] == category]
+        # Filtering
+        filtered = df.copy()
+        if category != "all":
+            filtered = filtered[filtered["category"] == category]
+        if is_demo is not None:
+            if is_demo.lower() == "true":
+                filtered = filtered[filtered["is_demo"] == True]
+            elif is_demo.lower() == "false":
+                filtered = filtered[(filtered["is_demo"] == False) | (filtered["is_demo"].isna())]
+
         filtered = filtered.sort_values(by="priority", ascending=True)
-        print(f"Found {len(filtered)} emails for category '{category}'")
-        
+        print(f"Found {len(filtered)} emails for category '{category}' and is_demo={is_demo}")
+
         result = [
             {
                 "subject": str(row["subject"]),
@@ -202,11 +237,12 @@ def get_emails(category: str):
                 "parent_email_id": str(row["parent_email_id"]) if pd.notna(row["parent_email_id"]) else "",
                 "content": str(row["content"]) if pd.notna(row["content"]) and str(row["content"]) != "nan" else "",
                 "attachments": ast.literal_eval(str(row["attachments"])) if pd.notna(row["attachments"]) and str(row["attachments"]) not in ["nan", "", "[]"] else [],
-                "eml_file": str(row["eml_file"]) if pd.notna(row["eml_file"]) and str(row["eml_file"]) != "nan" else ""
+                "eml_file": str(row["eml_file"]) if pd.notna(row["eml_file"]) and str(row["eml_file"]) != "nan" else "",
+                "is_demo": bool(row["is_demo"]) if "is_demo" in row else False
             }
             for _, row in filtered.iterrows()
         ]
-        
+
         return result
     except Exception as e:
         print(f"Error in get_emails: {str(e)}")
@@ -295,21 +331,37 @@ class GenerateReplyRequest(BaseModel):
     email_content: str
     email_subject: str = ""
     sender: str = ""
+    category: str = ""
+
+
+class GenerateReplyResponse(BaseModel):
+    suggested_reply: str
+    generation_mode: str
+    trust_score: float | None = None
+    trust_label: str | None = None
+    trust_visibility: Dict[str, str] = {}
+    retrieval: Dict[str, Any]
+    grounding_report: Dict[str, Any]
+    sentence_evidence: list[Dict[str, Any]] = []
+    explainability: Dict[str, Any] = {}
+    internal_view: Dict[str, Any] = {}
+    external_view: Dict[str, Any] = {}
 
 @app.post("/generate-reply")
-def generate_reply(request: GenerateReplyRequest):
+def generate_reply(request: GenerateReplyRequest) -> GenerateReplyResponse:
     """Generate AI-powered suggested reply using RAG system"""
     try:
         logger.info(
             f"Generating reply | sender={request.sender} | subject={request.email_subject}"
         )
 
-        suggested_reply = generate_suggested_reply(
+        reply_bundle = generate_suggested_reply_with_evidence(
             email_content=request.email_content,
             email_subject=request.email_subject,
-            sender=request.sender
+            sender=request.sender,
+            category=request.category,
         )
-        return {"suggested_reply": suggested_reply}
+        return GenerateReplyResponse(**reply_bundle)
     except Exception as e:
         print(f"Error generating reply: {e}")
         import traceback

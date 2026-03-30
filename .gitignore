@@ -1,9 +1,50 @@
+# Virtual Environments
 venv/
+.venv/
+env/
+ENV/
 .nenv/
+
+# Environment variables (keep .env.example for reference)
 .env
+.env.local
+.env.*.local
 *.env
+
+# Python
 __pycache__/
 *.pyc
-git add .
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Node/Frontend
 node_modules/
 frontend/node_modules/
+frontend/build/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data & Logs
+*.xlsx
+*.log
+logs/
+
+# Keep template files in git
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+# Legacy archived folder
+reply-generator-main/
