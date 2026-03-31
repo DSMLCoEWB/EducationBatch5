@@ -4,6 +4,11 @@ import pandas as pd
 import hashlib
 import random
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
+
 from classifier import classify_grievance
 from followup import detect_followup
 from priority_llm import get_llm_priority, apply_thread_escalation
@@ -107,7 +112,7 @@ def get_strict_priority(text, subject, sender_email):
     return 6
 
 def main():
-    print("🚀 Starting demo data repopulation with strict heuristic scoring...")
+    print("Starting demo data repopulation with BATCH LLM scoring...")
     
     if not os.path.exists(DEMO_EMAILS_PATH):
         print(f"❌ Error: {DEMO_EMAILS_PATH} not found.")
@@ -121,45 +126,61 @@ def main():
         with open(COLLEGES_PATH, "r", encoding="utf-8") as f:
             colleges = json.load(f)
     
-    print(f"📧 Found {len(demo_emails)} demo emails.")
+    print("Found " + str(len(demo_emails)) + " demo emails. Preparing batch...")
+
+    # First pass: Generate IDs and prepare for batch LLM
+    batch_data = []
+    for i, e in enumerate(demo_emails):
+        subject = e.get("subject", "")
+        body = e.get("body", "")
+        content = f"{subject}\n{body}"
+        email_id = generate_id(content)
+        
+        batch_data.append({
+            "id": email_id,
+            "subject": subject,
+            "sender": "Grievance Applicant",  # Placeholder for prompt
+            "content": content
+        })
+
+    from priority_llm import get_batch_priorities
+    print("Calling Gemini for BATCH prioritisation (this should take ~15s)...")
+    batch_results = get_batch_priorities(batch_data)
+    print("Received " + str(len(batch_results)) + " scores from LLM.")
 
     df = pd.DataFrame()
-    
-    # Base date for the first email
     base_date = datetime.now() - timedelta(days=len(demo_emails))
 
     for i, email in enumerate(demo_emails):
         subject = email.get("subject", "")
         body = email.get("body", "")
         content = f"{subject}\n{body}"
-        
         email_id = generate_id(content)
         
-        # Incremental dates to show a timeline in the frontend
         email_date = (base_date + timedelta(days=i)).date().isoformat()
-        
-        # Mock sender and institute
         institute = random.choice(colleges) if colleges else "Unknown Institute"
         sender_name = "Department Officer" if any(k in subject.lower() for k in ["disciplinary", "suspension"]) else "Grievance Applicant"
         sender_email = "officer@university.sh.gov" if any(k in subject.lower() for k in ["disciplinary", "suspension"]) else f"student_{i}@gmail.com"
             
         category = classify_grievance(content)
         
-        # Calculate Priority using strict heuristic
-        final_p = get_strict_priority(content, subject, sender_email)
+        # Priority Logic: Batch Result -> Heuristic Fallback
+        final_p = batch_results.get(email_id)
+        if final_p is None:
+            # Fallback to keyword-based heuristic
+            final_p = get_strict_priority(content, subject, sender_email)
+            print(f"   - Fallback (Heuristic) for: {subject[:30]}")
         
-        # Find follow-ups
-        mock_email_obj = {
+        # Follow-up detection and thread escalation
+        mail_type, parent_id, count = detect_followup({
             "email_id": email_id,
             "parent_email_id": None,
             "sender": sender_name,
             "subject": subject,
             "content": content,
             "date": email_date
-        }
-        mail_type, parent_id, count = detect_followup(mock_email_obj, df)
+        }, df)
         
-        # Re-apply thread escalation logic if needed
         final_p = apply_thread_escalation(final_p, count)
         
         row = {
@@ -187,12 +208,10 @@ def main():
         if df[col].dtype == 'object':
             df[col] = df[col].apply(clean_for_excel)
 
-    # Ensure data directory exists
+    # Save results
     os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
-
-    # Save to Excel
     df.to_excel(EXCEL_FILE, index=False)
-    print(f"✅ Successfully saved {len(df)} records with strict heuristic scores to {EXCEL_FILE}")
+    print("Successfully saved " + str(len(df)) + " records with AI BATCH heuristic scores to " + EXCEL_FILE)
 
 if __name__ == "__main__":
     main()
