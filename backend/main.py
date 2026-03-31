@@ -219,19 +219,22 @@ def get_emails(
 
         result = [
             {
-                "subject": str(row["subject"]),
+                "id": str(row["email_id"]) if pd.notna(row["email_id"]) else "",
                 "sender": str(row["sender"]),
-                "category": str(row["category"]),
-                "mail_type": str(row["mail_type"]),
-                "followup_count": int(row["followup_count"]) if pd.notna(row["followup_count"]) else 0,
-                "date": str(row["date"]),
-                "email_id": str(row["email_id"]) if pd.notna(row["email_id"]) else "",
-                "parent_email_id": str(row["parent_email_id"]) if pd.notna(row["parent_email_id"]) else "",
+                "senderEmail": str(row.get("sender_email", "student@example.edu")),
+                "instituteName": str(row.get("institute_name", "Unknown Institute")),
+                "subject": str(row["subject"]),
                 "content": str(row["content"]) if pd.notna(row["content"]) and str(row["content"]) != "nan" else "",
+                "hasAttachment": len(ast.literal_eval(str(row["attachments"]))) > 0 if pd.notna(row["attachments"]) and str(row["attachments"]) not in ["nan", "", "[]"] else False,
                 "attachments": ast.literal_eval(str(row["attachments"])) if pd.notna(row["attachments"]) and str(row["attachments"]) not in ["nan", "", "[]"] else [],
-                "eml_file": str(row["eml_file"]) if pd.notna(row["eml_file"]) and str(row["eml_file"]) != "nan" else "",
-                "is_demo": bool(row["is_demo"]) if "is_demo" in row else False,
-                "priority": int(row["priority"]) if pd.notna(row["priority"]) else 99
+                "emlFile": str(row["eml_file"]) if pd.notna(row["eml_file"]) and str(row["eml_file"]) != "nan" else "",
+                "category": str(row["category"]),
+                "mailType": str(row["mail_type"]).lower() if pd.notna(row["mail_type"]) else "fresh",
+                "followUpCount": int(row["followup_count"]) if pd.notna(row["followup_count"]) else 0,
+                "priority": int(row["priority"]) if pd.notna(row["priority"]) else 99,
+                "emailDate": str(row["date"]),
+                "parentEmailId": str(row["parent_email_id"]) if pd.notna(row["parent_email_id"]) else "",
+                "is_demo": bool(row["is_demo"]) if "is_demo" in row else False
             }
             for _, row in filtered.iterrows()
         ]

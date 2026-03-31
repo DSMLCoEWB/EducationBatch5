@@ -17,17 +17,18 @@ Analyze this email carefully considering:
 
 Then assign ONE priority rank from below:
 
-0: Chief Secretary / highest authority communication
-1: Court orders, RTI, legal notices requiring immediate action
-2: Legal disputes, FIR cases, serious misconduct
-3: CMO office, ministerial, or MLA-level matters
-4: Fund release, salary disbursement, financial urgency and Urgent student issues (exam, result, admission deadlines)
-5: General grievances, routine queries, informational
+0: Chief Secretary / highest authority communication (Critical)
+1: Court orders, RTI, legal notices (Immediate Action - Critical)
+2: Legal disputes, FIR cases, serious misconduct, suspension cases (High)
+3: CMO office, ministerial, MLA-level, or higher education office matters (High)
+4: Financial urgency: Fund release, salary disbursement, increment issues (Medium)
+5: Urgent student issues: Exams, results, admission deadlines (Medium)
+6: General grievances, routine queries, portal issues, or feedback (Low Priority)
 
 Rules:
 - If the email expresses frustration, repeated follow-ups, or mentions deadlines, increase urgency by 1 level (lower number).
 - If the sender holds a high official position, prioritize accordingly.
-- Return ONLY a single digit (0-5). No explanation.
+- Return ONLY a single digit (0-6). No explanation.
 
 Email:
 Sender: {sender}

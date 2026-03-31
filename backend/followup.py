@@ -1,8 +1,12 @@
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 import re
+_model = None
 
-model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+def get_model():
+    global _model
+    if _model is None:
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    return _model
 
 def has_explicit_reference(subject, content):
     """Check if email has explicit references to previous communication"""
@@ -63,6 +67,8 @@ def detect_followup(email, df):
         old_texts = recent_df["content"].tolist()
         
         try:
+            from sklearn.metrics.pairwise import cosine_similarity
+            model = get_model()
             emb_old = model.encode(old_texts, show_progress_bar=False)
             emb_new = model.encode([content], show_progress_bar=False)
             sims = cosine_similarity(emb_new, emb_old)[0]
