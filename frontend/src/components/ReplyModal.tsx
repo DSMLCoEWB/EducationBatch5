@@ -150,101 +150,43 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
 
           {ragEvidence && (
             <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm">
-              {ragEvidence.trust_visibility ? (
-                <div className="mb-3 rounded border border-blue-100 bg-white p-3">
-                  <p className="text-blue-700 font-semibold">Trust Summary</p>
-                  <p className="text-blue-900 mt-1">
-                    Badge: {ragEvidence.trust_visibility.trust_badge} | Grounding: {ragEvidence.trust_visibility.grounding_percentage}
-                  </p>
-                  <p className="text-gray-700 mt-1">{ragEvidence.trust_visibility.verification_message}</p>
-                </div>
-              ) : null}
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                <div>
-                  <p className="text-blue-700 font-semibold">Generation Mode</p>
-                  <p className="text-blue-900">{ragEvidence.generation_mode}</p>
-                </div>
-                <div>
-                  <p className="text-blue-700 font-semibold">Grounded Ratio</p>
-                  <p className="text-blue-900">
-                    {(ragEvidence.grounding_report.supported_sentence_ratio * 100).toFixed(1)}%
-                  </p>
-                </div>
-                <div>
-                  <p className="text-blue-700 font-semibold">Trust</p>
-                  <p className="text-blue-900">
-                    {((ragEvidence.trust_score ?? ragEvidence.grounding_report.trust_score ?? 0) * 100).toFixed(1)}%
-                    {' '}
-                    ({ragEvidence.trust_label ?? ragEvidence.grounding_report.trust_label ?? 'LOW'})
-                  </p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-blue-700 font-semibold text-base">Policy Evidence Breakdown</p>
+                <div className={`px-2 py-1 rounded text-xs font-bold ${
+                  ragEvidence.status === 'ok' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  Status: {ragEvidence.status.toUpperCase()}
                 </div>
               </div>
 
-              <div className="mb-3">
-                <p className="text-blue-700 font-semibold">Retrieved Clauses</p>
-                <p className="text-blue-900">{ragEvidence.retrieval.matches.length}</p>
-              </div>
+              {ragEvidence.status === 'fallback' && (
+                <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded text-amber-800 text-xs">
+                  <strong>Note:</strong> AI could not find a high-confidence match. A standard policy-compliant template is being used.
+                </div>
+              )}
 
-              {ragEvidence.retrieval.matches.length > 0 && (
-                <div>
-                  <p className="text-blue-700 font-semibold mb-2">Policy Evidence Used</p>
-                  <div className="max-h-44 overflow-y-auto space-y-2">
-                    {ragEvidence.retrieval.matches.map((m, idx) => (
-                      <div key={`${m.metadata.clause_id}-${idx}`} className="rounded border border-blue-100 bg-white p-2">
-                        <p className="font-medium text-gray-900">
-                          Clause {m.metadata.clause_id} | {m.metadata.section}
-                          <span className="ml-2 text-xs text-gray-500">score: {(m.score * 100).toFixed(1)}%</span>
-                        </p>
-                        <p className="text-gray-700 mt-1">{m.text}</p>
+              {ragEvidence.evidence && ragEvidence.evidence.length > 0 ? (
+                <div className="space-y-3">
+                  <p className="text-blue-800 font-medium">Top {ragEvidence.evidence.length} Relevant Clauses:</p>
+                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                    {ragEvidence.evidence.map((m, idx) => (
+                      <div key={`${m.clause_id}-${idx}`} className="rounded border border-blue-100 bg-white p-3 shadow-sm">
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="font-bold text-blue-900">
+                            Clause {m.clause_id}
+                          </span>
+                          <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
+                            Match: {(m.score * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-blue-700 font-semibold mb-1 uppercase tracking-tight">{m.section}</p>
+                        <p className="text-gray-700 leading-relaxed text-xs">{m.text}</p>
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
-
-              {/* New UI-friendly sentence-level evidence */}
-              {ragEvidence.sentence_evidence && ragEvidence.sentence_evidence.length > 0 && (
-                <div className="mt-3">
-                  <p className="text-blue-700 font-semibold mb-2">Sentence-Level Evidence</p>
-                  <div className="max-h-40 overflow-y-auto space-y-2">
-                    {ragEvidence.sentence_evidence.map((ev, idx) => (
-                      <div key={idx} className="rounded border border-blue-100 bg-white p-2">
-                        <p className="text-gray-900 font-medium">{ev.sentence}</p>
-                        <p className="text-xs text-gray-600 mt-1">
-                          Support Score: {(ev.support_score * 100).toFixed(1)}%
-                          {ev.is_supported !== undefined && (
-                            <span className={ev.is_supported ? "ml-2 text-green-600" : "ml-2 text-amber-600"}>
-                              {ev.is_supported ? "Supported" : "Weak/Unsupported"}
-                            </span>
-                          )}
-                        </p>
-                        {ev.evidence && ev.evidence.length > 0 && (
-                          <div className="mt-2">
-                            <p className="text-[11px] font-semibold text-slate-600 mb-1">Supporting Policy Snippets:</p>
-                            <ul className="list-disc ml-5">
-                              {ev.evidence.map((evi, eidx) => (
-                                <li key={eidx} className="mb-1">
-                                  <span className="text-xs text-slate-700">{evi.snippet}</span>
-                                  <span className="ml-2 text-[10px] text-gray-500">[start: {evi.start}, end: {evi.end}, chunk: {evi.chunk_index}]</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {ragEvidence.grounding_report.unsupported_sentences.length > 0 && (
-                <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-2">
-                  <p className="text-amber-800 font-semibold">Review Needed</p>
-                  <p className="text-amber-700">
-                    Some generated lines may be weakly supported. Please review before sending.
-                  </p>
-                </div>
+              ) : (
+                <p className="text-gray-500 italic">No specific policy clauses were retrieved for this query.</p>
               )}
             </div>
           )}

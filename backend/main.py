@@ -18,7 +18,6 @@ from chatbot import ask
 from priority_llm import get_llm_priority, apply_thread_escalation
 from pydantic import BaseModel
 from rag.reply_generator import generate_suggested_reply_with_evidence
-from rag.retriever import ensure_retriever_loaded, get_model_load_error
 import logging
 from dotenv import load_dotenv
 load_dotenv()
@@ -139,16 +138,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.on_event("startup")
-def warm_rag_retriever() -> None:
-    """Load retriever assets before serving requests to avoid startup fallbacks."""
-    logger.info("RAG startup: loading retriever assets")
-    loaded = ensure_retriever_loaded(block=True)
-    if loaded:
-        logger.info("RAG startup: retriever ready")
-    else:
-        logger.warning("RAG startup: retriever not ready (%s)", get_model_load_error() or "unknown error")
+# ---------------- FASTAPI APP ----------------
 
 @app.get("/")
 def root():
@@ -339,12 +329,14 @@ class GenerateReplyRequest(BaseModel):
 
 class GenerateReplyResponse(BaseModel):
     suggested_reply: str
-    generation_mode: str
+    generation_mode: str = "simple_stabilized"
+    status: str = "ok"
+    evidence: list[Dict[str, Any]] = []
     trust_score: float | None = None
     trust_label: str | None = None
-    trust_visibility: Dict[str, str] = {}
-    retrieval: Dict[str, Any]
-    grounding_report: Dict[str, Any]
+    trust_visibility: Dict[str, Any] = {}
+    retrieval: Dict[str, Any] = {}
+    grounding_report: Dict[str, Any] = {}
     sentence_evidence: list[Dict[str, Any]] = []
     explainability: Dict[str, Any] = {}
     internal_view: Dict[str, Any] = {}
