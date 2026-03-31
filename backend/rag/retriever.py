@@ -25,12 +25,12 @@ try:
             policy_chunks = json.load(f)
 
         if index.ntotal != len(policy_chunks):
-            print(f"⚠️ FAISS mismatch: index={index.ntotal}, chunks={len(policy_chunks)}")
+            print(f"[WARN]: FAISS mismatch: index={index.ntotal}, chunks={len(policy_chunks)}")
     else:
         index = None
         policy_chunks = []
 except Exception as e:
-    print(f"❌ Retriever failed to load: {e}")
+    print(f"[ERROR]: Retriever failed to load: {e}")
     index = None
     policy_chunks = []
 
@@ -41,7 +41,7 @@ def retrieve_policy_chunks(query: str):
     Uses keyword boosting for critical topics.
     """
     if not index or not policy_chunks:
-        print("⚠️ Retriever not initialized or empty.")
+        print("[WARN]: Retriever not initialized or empty.")
         return []
 
     print("Query:", query)
