@@ -99,7 +99,7 @@ def classify_grievance(text):
     text_normalized = re.sub(r'\s+', ' ', text_lower).strip()
     
     # Score each category based on keyword matches
-    category_scores = defaultdict(int)
+    category_scores = defaultdict(float)
     
     for category, keywords in CATEGORIES.items():
         score = 0
@@ -117,13 +117,13 @@ def classify_grievance(text):
                 matches = len(re.findall(pattern, text_normalized, re.IGNORECASE))
                 score += matches
         
-        category_scores[category] = score
+        category_scores[category] = float(score)
     
     # Find the category with the highest score
     if category_scores:
         max_score = max(category_scores.values())
         
-        # Only return a category if it has a meaningful score (at least 1)
+        # Only return a category if it has a meaningful score
         if max_score > 0:
             # If there's a tie, prefer more specific categories
             # Return the first category with max score

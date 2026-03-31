@@ -550,5 +550,83 @@
         "section_title": "Records & Tracking",
         "clause_id": "REC-02",
         "text": "Discrepancies between manual and digital grievance records shall be resolved through verification and synchronization."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "Suspension / Disciplinary",
+        "clause_id": "SUS-20",
+        "text": "No employee shall be suspended without issuance of show cause notice and opportunity of hearing unless exceptional circumstances are recorded."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "Suspension / Disciplinary",
+        "clause_id": "SUS-21",
+        "text": "Departmental inquiry shall be initiated within a reasonable period after suspension and delay shall be justified."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "Suspension / Disciplinary",
+        "clause_id": "SUS-22",
+        "text": "Employees under disciplinary proceedings shall have access to relevant documents for defense."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "Suspension / Disciplinary",
+        "clause_id": "SUS-23",
+        "text": "Disciplinary action shall not be taken without proper investigation and adherence to principles of natural justice."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "FIR / Arrest",
+        "clause_id": "FIR-20",
+        "text": "FIR against institutional staff shall trigger administrative review and appropriate action under service rules."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "FIR / Arrest",
+        "clause_id": "FIR-21",
+        "text": "Arrest of employee shall be reviewed for service continuation as per applicable regulations."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "FIR / Arrest",
+        "clause_id": "FIR-22",
+        "text": "Police investigations affecting institutional duties shall be documented and reviewed periodically."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "FIR / Arrest",
+        "clause_id": "FIR-23",
+        "text": "Court cases involving staff shall be assessed for administrative implications."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "Non-Suspension Service",
+        "clause_id": "SER-01",
+        "text": "Salary increments shall be processed within prescribed timelines and delays shall be addressed."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "Non-Suspension Service",
+        "clause_id": "SER-02",
+        "text": "Transfer and posting requests shall be processed based on policy guidelines and timelines."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "Non-Suspension Service",
+        "clause_id": "SER-03",
+        "text": "Promotion cases shall be reviewed periodically and processed as per eligibility."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "Non-Suspension Service",
+        "clause_id": "SER-04",
+        "text": "Leave applications shall be processed within reasonable time and communicated to employees."
+    },
+    {
+        "policy_id": "DEMO_POLICY",
+        "section_title": "Non-Suspension Service",
+        "clause_id": "SER-05",
+        "text": "Errors in service records shall be corrected upon verification and request."
     }
 ]

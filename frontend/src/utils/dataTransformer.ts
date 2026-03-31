@@ -313,28 +313,28 @@ function extractSenderName(sender: string): string {
 // Transform backend email to frontend Email type
 export function transformBackendEmail(backendEmail: BackendEmail): Email {
   const category = categoryMap[backendEmail.category] || 'miscellaneous';
-  // Backend sends "Fresh" or "Follow-up" - normalize to lowercase for frontend
-  const mailType: MailType = backendEmail.mail_type?.toLowerCase().includes('fresh') ? 'fresh' : 'follow-up';
+  // Backend now sends "fresh" or "follow-up" in camelCase mailType
+  const mailType: MailType = backendEmail.mailType?.toLowerCase().includes('fresh') ? 'fresh' : 'follow-up';
   const content = backendEmail.content || '';
   const sender = backendEmail.sender || '';
   const subject = backendEmail.subject || 'No Subject';
   
   return {
-    id: backendEmail.email_id || `email-${Date.now()}-${Math.random()}`,
+    id: backendEmail.id || `email-${Date.now()}-${Math.random()}`,
     sender: extractSenderName(sender),
-    senderEmail: extractSenderEmail(sender),
-    instituteName: extractInstitutionName(sender, content, subject),
+    senderEmail: backendEmail.senderEmail || extractSenderEmail(sender),
+    instituteName: backendEmail.instituteName || extractInstitutionName(sender, content, subject),
     subject: subject,
     content: content,
     priority: backendEmail.priority ?? 99,
     hasAttachment: (backendEmail.attachments && backendEmail.attachments.length > 0) || content.toLowerCase().includes('attachment') || content.toLowerCase().includes('attached'),
     attachments: backendEmail.attachments || [],
-    emlFile: backendEmail.eml_file || '',
+    emlFile: backendEmail.emlFile || '',
     category,
     mailType,
-    followUpCount: backendEmail.followup_count || 0,
-    emailDate: new Date(backendEmail.date || new Date()),
-    parentEmailId: backendEmail.parent_email_id || undefined,
+    followUpCount: backendEmail.followUpCount || 0,
+    emailDate: new Date(backendEmail.emailDate || new Date()),
+    parentEmailId: backendEmail.parentEmailId || undefined,
     replied: false,
     is_demo: !!backendEmail.is_demo,
   };

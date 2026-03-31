@@ -10,19 +10,21 @@ if (!API_BASE_URL) {
 ============================ */
 
 export interface BackendEmail {
-  email_id: string;
-  parent_email_id: string;
+  id: string; // was email_id
+  parentEmailId: string; // was parent_email_id
   sender: string;
   subject: string;
   category: string;
-  mail_type: string;
-  followup_count: number;
-  date: string;
+  mailType: string; // was mail_type
+  followUpCount: number; // was followup_count
+  emailDate: string; // was date
   content: string;
   attachments: string[];
-  eml_file: string;
+  emlFile: string; // was eml_file
   is_demo?: boolean;
   priority: number;
+  senderEmail?: string;
+  instituteName?: string;
 }
 
 export interface BackendCategory {
