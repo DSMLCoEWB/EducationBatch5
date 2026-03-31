@@ -37,6 +37,11 @@ Rules:
 5. Delay Handling: If the user query is about a delay or pending status, you MUST mention the specific escalation path (e.g., nodal officer) or response timelines from the policy.
 6. Tone: Professional, authoritative yet respectful.
 7. Language: Formal English.
+
+If the provided policy context is insufficient, weak, or unrelated:
+- DO NOT attempt to infer or combine unrelated clauses
+- Respond stating that no relevant policy clause is available
+- Do not fabricate policy references
 """
 
 FALLBACK_TEMPLATE = """
@@ -146,38 +151,46 @@ def generate_suggested_reply_with_evidence(
         print(f"[ERROR]: Retrieval failed: {e}")
         retrieved = []
 
-    # Generation
-    reply = ""
-    status = "ok"
-    
-    if retrieved:
-        reply = generate_reply(clean_subject, clean_sender, email_content, retrieved)
+    # Task 3: SAFE FALLBACK for empty Context
+    if not retrieved:
+        status = "no_policy"
+        print("[WARN]: No relevant policy chunks found. Applying safe fallback.")
+        reply = f"""Subject: RE: {clean_subject}
+Dear {clean_sender},
+We regret to inform you that no specific institutional policy clause directly addresses your query.
+Your concern has been forwarded to the concerned authority for review.
+Sincerely,
+Grievance Support Desk"""
+        
+        evidence = []
     else:
-        status = "no_match"
-        print("[WARN]: No relevant policy chunks found.")
+        # Generation
+        reply = ""
+        status = "ok"
+        reply = generate_reply(clean_subject, clean_sender, email_content, retrieved)
+        
+        # Smarter Fallback: lenient, case-insensitive check
+        # Accept any common professional closing — don't throw away valid replies
+        VALID_CLOSINGS = ("sincerely", "regards", "yours faithfully", "best regards", "with regards", "yours truly")
+        reply_lower = reply.lower() if reply else ""
+        has_greeting = "dear" in reply_lower
+        has_closing = any(c in reply_lower for c in VALID_CLOSINGS)
     
-    # Smarter Fallback: lenient, case-insensitive check
-    # Accept any common professional closing — don't throw away valid replies
-    VALID_CLOSINGS = ("sincerely", "regards", "yours faithfully", "best regards", "with regards", "yours truly")
-    reply_lower = reply.lower() if reply else ""
-    has_greeting = "dear" in reply_lower
-    has_closing = any(c in reply_lower for c in VALID_CLOSINGS)
+        if not reply or len(reply) < 80 or not has_greeting or not has_closing:
+            print(f"[WARN]: Fallback triggered -> has_greeting={has_greeting}, has_closing={has_closing}, reply_len={len(reply) if reply else 0}")
+            reply = FALLBACK_TEMPLATE.format(subject=clean_subject)
+            status = "fallback"
 
-    if not reply or len(reply) < 80 or not has_greeting or not has_closing:
-        print(f"[WARN]: Fallback triggered -> has_greeting={has_greeting}, has_closing={has_closing}, reply_len={len(reply) if reply else 0}")
-        reply = FALLBACK_TEMPLATE.format(subject=clean_subject)
-        status = "fallback" if retrieved else "no_match"
-
-    # Formatting evidence
-    evidence = [
-        {
-            "clause_id": c["metadata"].get("clause_id", "N/A"),
-            "section": c["metadata"].get("section", "General"),
-            "score": round(c.get("score", 0.0), 3),
-            "text": c.get("text", "")[:350] # Increased snippet length slightly
-        }
-        for c in retrieved
-    ]
+        # Formatting evidence
+        evidence = [
+            {
+                "clause_id": c["metadata"].get("clause_id", "N/A"),
+                "section": c["metadata"].get("section", "General"),
+                "score": round(c.get("score", 0.0), 3),
+                "text": c.get("text", "")[:350]
+            }
+            for c in retrieved
+        ]
 
     # Task 8: MANDATORY Debug Logs
     top_score = evidence[0]["score"] if evidence else 0.0
