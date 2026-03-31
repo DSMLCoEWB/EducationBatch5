@@ -36,115 +36,17 @@ export interface BackendDashboard {
   followup: number;
 }
 
-export interface RAGMatchMetadata {
-  policy_id: string;
-  section: string;
-  clause_id: string;
-}
-
-export interface RAGMatch {
-  text: string;
-  metadata: RAGMatchMetadata;
-  score: number;
-}
-
-export interface RAGContextBlock {
-  id: string;
+export interface RAGEvidenceItem {
   clause_id: string;
   section: string;
-  policy_id: string;
-  text: string;
   score: number;
-}
-
-export interface RAGRetrieval {
-  top_k: number;
-  similarity_threshold: number;
-  query?: string;
-  matches: RAGMatch[];
-  context_blocks?: RAGContextBlock[];
-}
-
-export interface RAGGroundingIssue {
-  sentence: string;
-  support_score?: number;
-  issue?: string;
-  invalid?: string[];
-}
-
-export interface RAGGroundingReport {
-  is_grounded: boolean;
-  supported_sentence_ratio: number;
-  average_support_score?: number;
-  support_threshold?: number;
-  unsupported_sentences: Array<string | RAGGroundingIssue>;
-  notes?: string;
-  trust_score?: number;
-  trust_label?: string;
-  citation_validation?: {
-    is_valid: boolean;
-    supported_sentence_ratio: number;
-    citation_issues: RAGGroundingIssue[];
-    support_issues: RAGGroundingIssue[];
-    hard_fail_reasons?: string[];
-  };
-}
-
-export interface RAGEvidence {
-  snippet: string;
-  start: number;
-  end: number;
-  chunk_index: number;
-}
-
-export interface RAGSentenceEvidence {
-  sentence: string;
-  support_score: number;
-  evidence: RAGEvidence[];
-  is_supported?: boolean;
-  citations?: number[];
-}
-
-export interface RAGExplainabilitySummary {
-  sentence: string;
-  supported_by: string;
-  confidence: number;
-  citations: string[];
-  source_text_snippet?: string;
-  chunk_spans?: Array<{
-    chunk_id: string;
-    start: number;
-    end: number;
-  }>;
+  text: string;
 }
 
 export interface GenerateReplyResult {
   suggested_reply: string;
-  generation_mode: string;
-  trust_score?: number;
-  trust_label?: string;
-  trust_visibility?: {
-    trust_badge: 'HIGH' | 'MEDIUM' | 'LOW' | string;
-    grounding_percentage: string;
-    verification_message: string;
-  };
-  retrieval: RAGRetrieval;
-  grounding_report: RAGGroundingReport;
-  sentence_evidence?: RAGSentenceEvidence[];
-  explainability?: {
-    evidence_summary: RAGExplainabilitySummary[];
-  };
-  internal_view?: {
-    reply_text_with_citations: string;
-    trust_score: number;
-    trust_label: string;
-    grounding_report: RAGGroundingReport;
-    sentence_evidence: RAGSentenceEvidence[];
-    retrieved_chunks: RAGMatch[];
-  };
-  external_view?: {
-    clean_reply_text: string;
-  };
+  evidence: RAGEvidenceItem[];
+  status: 'ok' | 'fallback' | 'no_match' | string;
 }
 
 /* ============================
