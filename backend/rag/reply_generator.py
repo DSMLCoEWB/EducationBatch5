@@ -14,24 +14,29 @@ load_dotenv()
 API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 if not API_KEY or "your_google_api_key" in API_KEY or "your_gemini_api_key" in API_KEY:
-    print(f"❌ ERROR: Gemini API key is missing. KEY_LEN: {len(API_KEY) if API_KEY else 0}")
+    print(f"[ERROR]: Gemini API key is missing. KEY_LEN: {len(API_KEY) if API_KEY else 0}")
 
 client = None
 if API_KEY:
     try:
         client = genai.Client(api_key=API_KEY)
     except Exception as e:
-        print(f"❌ Gemini Client Init Failed: {e}")
+        print(f"[ERROR]: Gemini Client Init Failed: {e}")
 
 # ---------- SYSTEM PROMPT ----------
 SYSTEM_PROMPT = """
-You are a professional grievance redressal assistant.
+You are a senior professional grievance redressal officer for an educational institution.
+
+Primary Goal: Generate a formal, helpful, and policy-grounded email reply.
 
 Rules:
-- Use ONLY the provided policy clauses
-- Do NOT invent rules
-- If policy is unclear, say "Policy does not specify further details"
-- Keep response formal and complete
+1. Strict Grounding: Use ONLY the provided policy context.
+2. Complete Response: Output a FULL email (Subject, Salutation, Body, Signature).
+3. Minimum Length: The body must be 3-5 sentences minimum.
+4. Policy Citation: You MUST explicitly mention specific clause IDs (e.g., "As per MSC-06...") to support your statements.
+5. Delay Handling: If the user query is about a delay or pending status, you MUST mention the specific escalation path (e.g., nodal officer) or response timelines from the policy.
+6. Tone: Professional, authoritative yet respectful.
+7. Language: Formal English.
 """
 
 FALLBACK_TEMPLATE = """
@@ -54,23 +59,28 @@ def build_prompt(subject: str, sender: str, email: str, chunks: List[Dict[str, A
     )
 
     return f"""
+{SYSTEM_PROMPT}
+
 USER EMAIL:
 Subject: {subject}
 From: {sender}
-
-{email}
+Content: {email}
 
 POLICY CONTEXT:
 {context}
 
 TASK:
-Write a complete professional reply email using ONLY the policy context.
+Write a professional reply email to the student/staff member. 
+- You MUST use the policy context provided.
+- You MUST mention specific clause IDs (e.g., MSC-03, SUS-01).
+- If there's a delay mentioned (e.g., 30 days pending), refer back to the specific delay/escalation rules in the policy chunks.
+- Ensure the email has a clear Subject (RE: {subject}), starts with "Dear {sender}," and ends with "Sincerely, Grievance Support Desk".
 
-Format:
+OUTPUT FORMAT:
 Subject: RE: {subject}
-Dear Sir/Madam,
+Dear {sender},
 
-<clear explanation based on policy>
+[Professional body using policy context and referencing clause IDs]
 
 Sincerely,
 Grievance Support Desk
@@ -85,72 +95,103 @@ def generate_reply(subject: str, sender: str, email: str, chunks: List[Dict[str,
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash", # Updated to a valid model name if gemini-2.5-flash was a typo or preview
+            model="gemini-2.0-flash",
             contents=prompt,
-            config={
-                "temperature": 0.1,
-                "max_output_tokens": 500
-            }
         )
-        reply = (response.text or "").strip()
-        return reply
-    except Exception as e:
-        print(f"❌ LLM Generation Error: {e}")
+    except Exception as e_primary:
+        print(f"[WARN]: gemini-2.0-flash failed ({e_primary}), falling back to gemini-flash-latest...")
+        try:
+            response = client.models.generate_content(
+                model="gemini-flash-latest",
+                contents=prompt,
+            )
+        except Exception as e_secondary:
+            print(f"[ERROR]: Both LLM Generations Error: {e_secondary}")
+            return ""
+
+    reply = ""
+    if response and response.text:
+        reply = response.text.strip()
+        
+    # Task 2: Safety & Length checks
+    if not reply or len(reply) < 30:
+        print(f"[WARN]: LLM response too short ({len(reply) if reply else 0} chars)")
         return ""
+        
+    return reply
 
 
 def generate_suggested_reply_with_evidence(
     email_content: str,
-    email_subject: str = "Query",
-    sender: str = "Sir/Madam",
+    email_subject: str = "",
+    sender: str = "",
     category: str = ""
 ) -> Dict[str, Any]:
     """
     Main entry point for suggested reply generation.
-    Ensures safe JSON output for frontend.
+    Ensures safe JSON output and provides mandatory debug logs.
     """
     
-    # Handle "nan" sender bug (Task 6)
-    if not sender or str(sender).lower() == "nan":
-        sender = "Sir/Madam"
-    
-    if not email_subject or str(email_subject).lower() == "nan":
-        email_subject = "Your Inquiry"
+    # Task 5 & 6: Fix Sender + Subject + "nan" bug
+    clean_sender = str(sender) if sender and str(sender).lower() != "nan" else "Sir/Madam"
+    clean_subject = str(email_subject) if email_subject and str(email_subject).lower() != "nan" else "Your Inquiry"
 
-    query = f"{email_subject} {email_content}".strip()
+    query = f"{clean_subject} {email_content}".strip()
     
-    # Task 3 requirement: retrieve chunks
+    # Retrieval
     retrieved = []
     try:
         retrieved = retrieve_policy_chunks(query)
     except Exception as e:
-        print(f"❌ Retrieval failed: {e}")
+        print(f"[ERROR]: Retrieval failed: {e}")
         retrieved = []
 
-    # Generate reply with safety (Task 4)
+    # Generation
     reply = ""
     status = "ok"
     
     if retrieved:
-        reply = generate_reply(email_subject, sender, email_content, retrieved)
+        reply = generate_reply(clean_subject, clean_sender, email_content, retrieved)
+    else:
+        status = "no_match"
+        print("[WARN]: No relevant policy chunks found.")
     
-    # Fallback logic: if empty or too short (Task 4)
-    if not reply or len(reply) < 50:
-        reply = FALLBACK_TEMPLATE.format(subject=email_subject)
+    # Smarter Fallback: lenient, case-insensitive check
+    # Accept any common professional closing — don't throw away valid replies
+    VALID_CLOSINGS = ("sincerely", "regards", "yours faithfully", "best regards", "with regards", "yours truly")
+    reply_lower = reply.lower() if reply else ""
+    has_greeting = "dear" in reply_lower
+    has_closing = any(c in reply_lower for c in VALID_CLOSINGS)
+
+    if not reply or len(reply) < 80 or not has_greeting or not has_closing:
+        print(f"[WARN]: Fallback triggered -> has_greeting={has_greeting}, has_closing={has_closing}, reply_len={len(reply) if reply else 0}")
+        reply = FALLBACK_TEMPLATE.format(subject=clean_subject)
         status = "fallback" if retrieved else "no_match"
 
-    # Format evidence safely
+    # Formatting evidence
     evidence = [
         {
             "clause_id": c["metadata"].get("clause_id", "N/A"),
             "section": c["metadata"].get("section", "General"),
             "score": round(c.get("score", 0.0), 3),
-            "text": c.get("text", "")[:300]
+            "text": c.get("text", "")[:350] # Increased snippet length slightly
         }
         for c in retrieved
     ]
 
-    # Task 5: NEVER break frontend
+    # Task 8: MANDATORY Debug Logs
+    top_score = evidence[0]["score"] if evidence else 0.0
+    clause_ids = [e["clause_id"] for e in evidence]
+    resp_len = len(reply)
+    
+    print("-" * 50)
+    print(f"[DEBUG] Top retrieval score: {top_score}")
+    print(f"[DEBUG] Retrieved clause IDs: {clause_ids}")
+    print(f"[DEBUG] LLM response length: {resp_len}")
+    print(f"[DEBUG] Final status: {status}")
+    print("-" * 50)
+
+    # Task 7: NEVER break frontend
     return {
         "suggested_reply": reply,
         "evidence": evidence,
