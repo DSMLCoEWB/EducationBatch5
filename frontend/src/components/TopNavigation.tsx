@@ -1,17 +1,19 @@
-import { Search, Calendar } from 'lucide-react';
+import { Search, Calendar, FileText } from 'lucide-react';
 
 interface TopNavigationProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   dateRange: string;
   onDateRangeChange: (range: string) => void;
+  onOpenPolicyManagement: () => void;
 }
 
 export function TopNavigation({ 
   searchQuery, 
   onSearchChange, 
   dateRange, 
-  onDateRangeChange 
+  onDateRangeChange,
+  onOpenPolicyManagement
 }: TopNavigationProps) {
   return (
     <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 shadow-sm">
@@ -39,12 +41,14 @@ export function TopNavigation({
         </div>
 
         {/* Date Range Selector */}
-        <div className="flex-shrink-0">
+        <div className="flex items-center gap-3 flex-shrink-0">
           <div className="relative">
             <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <select
               value={dateRange}
               onChange={(e) => onDateRangeChange(e.target.value)}
+              aria-label="Filter emails by date range"
+              title="Filter emails by date range"
               className="pl-10 pr-8 py-2.5 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none cursor-pointer"
             >
               <option value="all">All time</option>
@@ -54,6 +58,14 @@ export function TopNavigation({
               <option value="365">Last year</option>
             </select>
           </div>
+
+          <button
+            onClick={onOpenPolicyManagement}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors shadow-sm"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Policy Management</span>
+          </button>
         </div>
       </div>
     </div>

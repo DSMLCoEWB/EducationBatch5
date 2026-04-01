@@ -2,8 +2,6 @@
 import json
 from pathlib import Path
 
-DEMO_CHUNK_MARKER = "DEMO_POLICY_CHUNK_MARKER"
-
 BASE_DIR = Path(__file__).resolve().parents[1]
 DEMO_CHUNKS_PATH = BASE_DIR / "rag" / "data" / "demo_policy_chunks.json"
 DEMO_POLICY_DIR = BASE_DIR / "demo_policies"
@@ -67,7 +65,7 @@ def main() -> None:
         pdf.setFont("Helvetica-Bold", 13)
         pdf.drawString(50, height - 50, f"Demo Policy Section: {section}")
         pdf.setFont("Helvetica", 9)
-        pdf.drawString(50, height - 65, "Marker-delimited content for deterministic chunk reconstruction")
+        pdf.drawString(50, height - 65, "Reference clauses")
 
         y = height - 95
         for row in section_chunks:
@@ -76,15 +74,14 @@ def main() -> None:
             if not text:
                 continue
 
-            block = f"{DEMO_CHUNK_MARKER} {text}"
-            pdf.setFont("Helvetica", 10)
-
             if y < 80:
                 pdf.showPage()
                 y = height - 50
 
+            pdf.setFillColorRGB(0, 0, 0)
             pdf.setFont("Helvetica", 10)
-            y = _draw_wrapped_text(pdf, block, 50, y, width - 100, 13)
+            numbered_text = f"Clause {clause_id}: {text}" if clause_id else text
+            y = _draw_wrapped_text(pdf, numbered_text, 50, y, width - 100, 13)
             y -= 8
 
         pdf.save()

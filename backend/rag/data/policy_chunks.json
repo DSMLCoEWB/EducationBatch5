@@ -152,6 +152,38 @@
     "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\01_suspension_disciplinary.pdf"
   },
   {
+    "chunk_id": 20,
+    "text": "No employee shall be suspended without issuance of show cause notice and opportunity of hearing unless exceptional circumstances are recorded.",
+    "policy_id": "01_suspension_disciplinary",
+    "section_title": "Demo Policy",
+    "clause_id": 20,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\01_suspension_disciplinary.pdf"
+  },
+  {
+    "chunk_id": 21,
+    "text": "Departmental inquiry shall be initiated within a reasonable period after suspension and delay shall be justified.",
+    "policy_id": "01_suspension_disciplinary",
+    "section_title": "Demo Policy",
+    "clause_id": 21,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\01_suspension_disciplinary.pdf"
+  },
+  {
+    "chunk_id": 22,
+    "text": "Employees under disciplinary proceedings shall have access to relevant documents for defense.",
+    "policy_id": "01_suspension_disciplinary",
+    "section_title": "Demo Policy",
+    "clause_id": 22,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\01_suspension_disciplinary.pdf"
+  },
+  {
+    "chunk_id": 23,
+    "text": "Disciplinary action shall not be taken without proper investigation and adherence to principles of natural justice.",
+    "policy_id": "01_suspension_disciplinary",
+    "section_title": "Demo Policy",
+    "clause_id": 23,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\01_suspension_disciplinary.pdf"
+  },
+  {
     "chunk_id": 24,
     "text": "For recurring issues identified in grievance communications (court, chandra, principal, dated, jalpaiguri), the institution shall maintain a time-bound action tracker and provide category-specific disposal updates.",
     "policy_id": "02_fir_arrest",
@@ -301,6 +333,38 @@
     "policy_id": "02_fir_arrest",
     "section_title": "Demo Policy",
     "clause_id": 42,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\02_fir_arrest.pdf"
+  },
+  {
+    "chunk_id": 43,
+    "text": "FIR against institutional staff shall trigger administrative review and appropriate action under service rules.",
+    "policy_id": "02_fir_arrest",
+    "section_title": "Demo Policy",
+    "clause_id": 43,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\02_fir_arrest.pdf"
+  },
+  {
+    "chunk_id": 44,
+    "text": "Arrest of employee shall be reviewed for service continuation as per applicable regulations.",
+    "policy_id": "02_fir_arrest",
+    "section_title": "Demo Policy",
+    "clause_id": 44,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\02_fir_arrest.pdf"
+  },
+  {
+    "chunk_id": 45,
+    "text": "Police investigations affecting institutional duties shall be documented and reviewed periodically.",
+    "policy_id": "02_fir_arrest",
+    "section_title": "Demo Policy",
+    "clause_id": 45,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\02_fir_arrest.pdf"
+  },
+  {
+    "chunk_id": 46,
+    "text": "Court cases involving staff shall be assessed for administrative implications.",
+    "policy_id": "02_fir_arrest",
+    "section_title": "Demo Policy",
+    "clause_id": 46,
     "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\02_fir_arrest.pdf"
   },
   {
@@ -736,70 +800,6 @@
     "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\13_records_&_tracking.pdf"
   },
   {
-    "chunk_id": 20,
-    "text": "No employee shall be suspended without issuance of show cause notice and opportunity of hearing unless exceptional circumstances are recorded.",
-    "policy_id": "01_suspension_disciplinary",
-    "section_title": "Demo Policy",
-    "clause_id": 20,
-    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\01_suspension_disciplinary.pdf"
-  },
-  {
-    "chunk_id": 21,
-    "text": "Departmental inquiry shall be initiated within a reasonable period after suspension and delay shall be justified.",
-    "policy_id": "01_suspension_disciplinary",
-    "section_title": "Demo Policy",
-    "clause_id": 21,
-    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\01_suspension_disciplinary.pdf"
-  },
-  {
-    "chunk_id": 22,
-    "text": "Employees under disciplinary proceedings shall have access to relevant documents for defense.",
-    "policy_id": "01_suspension_disciplinary",
-    "section_title": "Demo Policy",
-    "clause_id": 22,
-    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\01_suspension_disciplinary.pdf"
-  },
-  {
-    "chunk_id": 23,
-    "text": "Disciplinary action shall not be taken without proper investigation and adherence to principles of natural justice.",
-    "policy_id": "01_suspension_disciplinary",
-    "section_title": "Demo Policy",
-    "clause_id": 23,
-    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\01_suspension_disciplinary.pdf"
-  },
-  {
-    "chunk_id": 43,
-    "text": "FIR against institutional staff shall trigger administrative review and appropriate action under service rules.",
-    "policy_id": "02_fir_arrest",
-    "section_title": "Demo Policy",
-    "clause_id": 43,
-    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\02_fir_arrest.pdf"
-  },
-  {
-    "chunk_id": 44,
-    "text": "Arrest of employee shall be reviewed for service continuation as per applicable regulations.",
-    "policy_id": "02_fir_arrest",
-    "section_title": "Demo Policy",
-    "clause_id": 44,
-    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\02_fir_arrest.pdf"
-  },
-  {
-    "chunk_id": 45,
-    "text": "Police investigations affecting institutional duties shall be documented and reviewed periodically.",
-    "policy_id": "02_fir_arrest",
-    "section_title": "Demo Policy",
-    "clause_id": 45,
-    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\02_fir_arrest.pdf"
-  },
-  {
-    "chunk_id": 46,
-    "text": "Court cases involving staff shall be assessed for administrative implications.",
-    "policy_id": "02_fir_arrest",
-    "section_title": "Demo Policy",
-    "clause_id": 46,
-    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\02_fir_arrest.pdf"
-  },
-  {
     "chunk_id": 101,
     "text": "Salary increments shall be processed within prescribed timelines and delays shall be addressed.",
     "policy_id": "14_non_suspension_service",
@@ -838,5 +838,37 @@
     "section_title": "Demo Policy",
     "clause_id": 105,
     "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\demo_policies\\14_non_suspension_service.pdf"
+  },
+  {
+    "chunk_id": 106,
+    "text": "SVMCMS GUIDELINES\nWith a view to assisting the meritorious students belonging to economically backward\nfamilies in the State of West Bengal to pursue higher studies, the Government of West\nBengal introduces this scheme of giving scholarships at different levels of higher studies,\nat educational institutions based in West Bengal. The Swami Vivekananda Merit Cum\nMeans Scholarship Scheme has been thoroughly revamped in the year 2016 to cover more\nnumber of students as well as to enhance the scholarship amounts significantly.. scope\n• The scheme benefits students studying in regular mode of Class XI and XII, and at\nunder Graduate level in Science/Arts/Commerce, Engineering, Medical and\nTechnical / Professional courses. Post Graduate level students pursuing\nScience/Arts/Commerce & Technical/Management. These scholarships will be\nsanctioned to deserving students on merit-cum-means criteria. • Students should pass in the year 2025,2024 or 2023 or 2022 (unable to get\nadmission in the year 2024 or 2023 or 2022 due to unavoidable reason and taking\nadmission in the year of advertisement) with at least (a)60% marks in aggregate in\nthe last qualifying examination from West Bengal Board of Secondary\nEducation/West Bengal Council for Higher Secondary Education/Madrasa\nEducation for Higher Secondary level or Under Graduate level Scholarship (b)\n60% marks in aggregate in diploma course from Institutes approved by AICTE and\naffiliated to WBSCT&VE&SD for Under Graduate level Scholarship (in 2nd year\nEngineering/Technology/Pharmacy courses through Lateral Entry) or affiliated by\nState Medical Faculty for Under Graduate level Scholarship (in 2nd year Pharmacy\ncourse through Lateral Entry) (c) 53% marks in aggregate in Graduation (Honours\nSubject) from any State University for Post Graduate Level Scholarship (General\nEducation) /55% marks in Graduate Courses from any State University or AICTE\napproved Institute of West Bengal for Post Graduate Level Scholarship\n(Engineering/Technology/Pharmacy). • Students pursuing M.Phil courses and Doctoral courses (NON-NET JUNIOR\nRESEARCH FELLOW and NET-LECTURERSHIP) from State-aided Institutions will\ncome under the purview of this Scholarship Scheme. • Girls Students pursuing Post Graduate courses in Science, Arts and Commerce\nstream from Universities of this State after obtaining Under Graduate Degree with\n45% marks in aggregate from Institutions of this State will come under the aegis of\nthis Scholarship Scheme as Kanyashree(K3) applicants. • The upper ceiling for family income has been fixed at Rs.2,50,000/- per annum. (Not\napplicable for Board Toppers or Kanyashree(K3) or M.Phil/Ph.D applicants)\nAs the payment will be made by direct beneficiary transfer only, furnishing of Bank details\nof the applicant, i.e. A/C No., Bank Name, IFS Code of Bank is mandatory. • There will be no need to submit hard copy of the application. • Candidates opting for these scholarships and found eligible, will not be allowed to\nenjoy any other governmental (central/state) scholarship or stipend for the same\ncourse/stage of study. However, one time grants or assistances received from any\nSVMCMS GUIDELINES\nsource, or free or partly-free studentship allowed by the host institutions will not\ndebar the students from availing of the benefits of this scheme.",
+    "policy_id": "SVMCM_GUIDELINES",
+    "section_title": "General",
+    "clause_id": 106,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\policies\\SVMCM_GUIDELINES.pdf"
+  },
+  {
+    "chunk_id": 107,
+    "text": "However, one time grants or assistances received from any\nSVMCMS GUIDELINES\nsource, or free or partly-free studentship allowed by the host institutions will not\ndebar the students from availing of the benefits of this scheme. ALLOCATION AND RATE OF SCHOLARSHIP\nThe basic allocation and rates will be as under :\nSCHOLARSHIP\nEligibility\nDIRECTORATE COURSE RATE PER\nCriteria\nMONTH (RS.)\nAt least 60%\nUG (ARTS) marks in Last 1000/-\nQualifying Exam\nAt least 60%\nUG(COMMERCE) marks in Last 1000/-\nQualifying Exam\nAt least 60%\nUG (SCIENCE) marks in Last 1500/-\nQualifying Exam\nUG (OTHER\nAt least 60%\nPROFESSIONAL\nmarks in Last 1500/-\nCOURSES, UGC\nQualifying Exam\nAPPROVED)*\nDPI\nAt least 53%\nmarks for\nSVMCM and 45%\nfor\nPG (ARTS) 2000/-\nKanyashree(K3\napplicants in\nLast Qualifying\nExam\nAt least 53%\nmarks for\nSVMCM and 45%\nPG for\n2000/-\n(COMMERCE) Kanyashree(K3\napplicants in\nLast Qualifying\nExam\nSVMCMS GUIDELINES\nAt least 53%\nmarks for\nSVMCM and 45%\nfor\nPG (SCIENCE) 2500/-\nKanyashree(K3\napplicants in\nLast Qualifying\nExam\nPG (OTHER\nAt least 53%\nPROFESSIONAL\nmarks in Last 2500/-\nCOURSES, UGC\nQualifying Exam\nAPPROVED)\nNON NET Date\n5000/- / 8000/-\nM.PHIL./NON of Registration\nRespectively\nNET PH.D. not before\n01.04.2017\nAt least 60%\nmarks in\nHS 1000/-\nMP/Equivalent\nExam\nDSE\nAt least 60%\nmarks in\nD.El.Ed 1000/-\nHS/Equivalent\nExam\nUG: 1. 60% 2. 60% in Diploma\nCourse from\nWBSCT&VE&SD\nUG (ENGG.), PG\nfor lateral entry\n(ENGG.) AND\nscheme. PG:\nOTHER\n55% in\nDTE PROFESSIONAL 5000/-\nGraduation from\nCOURSES\nany State\n(AICTE\nUniversity/AICTE\nAPPROVED)\napproved\ninstitute\ninstitute in West\nBengal\nSVMCMS GUIDELINES\nPOLYTECHNIC At least 60%\nDTE&T (DIPLOMA marks in Last 1500/-\nCOURSES) Qualifying Exam\nUG (MEDICAL-\nAt least 60% 5000/- AND\nDEGREE) AND\nDME marks in Last 1500/-\nDIPLOMA\nQualifying Exam RESPECTIVELY\nCOURSES\n*For Training Courses Like B.Ed, Percentage of Qualifying Examination is 53% if the\nQualifying Course is a UG Course or 50% if the Qualifying Course is a PG Course\nMEANS JUDGING CRITERIA\nThe total family income for the prospective scholars will be not more than Rs. 2,50,000/-\nper annum. (Not applicable for Board Toppers or Kanyashree(K3) or M.Phil/Ph.D\napplicants)\nAny deliberate falsification in the Income documents discovered at any stage will be\nconsidered as a grievous offence and may invite serious disciplinary actions leading to (i)\ncompulsory and immediate refund of the amount of scholarship already enjoyed by the\nscholar, (ii) complete forfeiture of his/her right to apply for any governmental scholarship\nin future and (iii) may also attract penal provisions of other relevant laws for the time being\nin force. MERIT JUDGING CRITERIA\nCandidates whose family income is not more than Rs. 2,50,000/- per annum will be judged\naccording to their academic merit in the under noted manner. For HS - level:\nThe minimum qualifying marks for being considered for award of scholarships will be 60%\nin aggregate, in Madhyamik Pariksha, and the total marks obtained in the Madhyamik\nParkisha excluding pass marks in the additional subject, if any, will be the sole criterion for\nconsideration.",
+    "policy_id": "SVMCM_GUIDELINES",
+    "section_title": "General",
+    "clause_id": 107,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\policies\\SVMCM_GUIDELINES.pdf"
+  },
+  {
+    "chunk_id": 108,
+    "text": "For HS - level:\nThe minimum qualifying marks for being considered for award of scholarships will be 60%\nin aggregate, in Madhyamik Pariksha, and the total marks obtained in the Madhyamik\nParkisha excluding pass marks in the additional subject, if any, will be the sole criterion for\nconsideration. Candidates from outside the West Bengal Board of Secondary Education\nwill not be eligible to apply for this scholarship. For Diploma Courses (Polytechnic under DTE&T) - level:\nStudents who are enrolled after passing-out in Secondary (M.P.) Examination or its\nequivalent as stated above in 2025 for first year Diploma (Polytechnic) courses [H.S. Examination or its Equivalent for Diploma in 1) Pharmacy, 2) Modern Office Practice &\nManagement, 3) 3-D Animations & Graphics of 2 year duration, 4) Plastic Mould Technology\nand 5) Plastic Technology ] and after passing-out H.S./ equivalent Examination or ITI 2\nyears for 2nd year Diploma (Polytechnic) courses on lateral entry basis, will be eligible to\napply. Candidates must obtain at least 60% marks in aggregate in the qualifying\nexamination [excluding the marks secured in the optional elective subject, if any]. SVMCMS GUIDELINES\nThe Diploma (Polytechnic) courses of the State have to be approved by All India Council for\nTechnical Education (AICTE) / Pharmacy Council of India (PCI) / Council of Architecture\n(CoA) and affiliated to West Bengal State Council of Technical & Vocational Education &\nSkill Development (WBSCT&VE&SD), a Statutory Body under the Department of Technical\nEducation, Training & Skill Development, Government of West Bengal. For UG - level:\nThe minimum qualifying marks for being considered for award of scholarships will be 60%\nin aggregate, in the H.S. Examination conducted by the W.B. Council of H.S. Education/Madrasha Siksha Parishad. For the UG (Arts), UG (Commerce), UG (Science)\nseparate merit lists will be prepared. For PG - level:\nCandidates should be graduates securing at least 53% marks (55% marks for applicants\nunder DTE) in the Honours subject at the graduation level. The marks obtained in Honours\nsubject will be the only deciding criterion academically for award of the PG-level\nscholarships. Kanyashree recipients (K-2) (married/unmarried) pursuing Post Graduate\ncourses in Science, Arts and Commerce stream from Universities of this State after\nobtaining Under Graduate Degree with 45% marks in aggregate from Institutions of this\nState will come under the aegis of this Scholarship Scheme. There is no need to submit\nIncome Certificate and Income Affidavit in respect of Kanyashree students applying for K-3\nscholarship under Swami Vivekananda Merit–cum–Means Scholarship Scheme. For Research Level:\nThe financial assistance will be admissible to those non-NET candidates and NET-LS\ncandidates registered as full time M.Phil. or Ph.D. research scholars as on 01/04/2017 or on\na date thereafler, with effect from 01/04/2017 and (subject to the overall time limit of two\nyears for M.Phil. and four years for Ph.D.) up till the day of submission of the Dissertation\nand no further.",
+    "policy_id": "SVMCM_GUIDELINES",
+    "section_title": "General",
+    "clause_id": 108,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\policies\\SVMCM_GUIDELINES.pdf"
+  },
+  {
+    "chunk_id": 109,
+    "text": "or Ph.D. research scholars as on 01/04/2017 or on\na date thereafler, with effect from 01/04/2017 and (subject to the overall time limit of two\nyears for M.Phil. and four years for Ph.D.) up till the day of submission of the Dissertation\nand no further. Further, NET-LS scholars shall stop receiving the assistance from the day\nthey are appointed as teachers and it shall be their duty to inform the University\nauthorities of the same. and the same shall be informed forthwith to this Department. APPLICATION AND SANCTION PROCEDURES\nCandidates for different categories will submit their applications online in the scholarship\nportal and applications i.r.o scholarship cases would be arranged in descending order (on\nthe basis of marks obtained in the qualifying examination apart from income/means\ncriteria), and scholarship would be sanctioned as per the availability of fund and strictly on\nthe basis of the merit list. fund may be transferred to the beneficiaries account if the\ndocuments are in order. For failed transaction of scholarship money, the last date of correction at respective\nDirectorate end is 30th June of each year for the previous financial year failed transaction\nas per IFMS norms. RENEWAL OF SCHOLARSHIP\nFor renewal of scholarship, application must be submitted online to the concerned\nscholarship sanctioning authority within one month from the date of his/her admission in\nthe next higher class due to promotion by passing in the first attempt (In case of Semester\nSVMCMS GUIDELINES\nmode-All Semester Examinations need to be cleared in the first attempt). Renewal cases\n(concentrated only at a particular level of study) will be sanctioned subject to good\nacademic performance (Minimum 60% marks should be obtained from Higher Secondary\nLevel to Undergraduate Level(combining both semester) at the promotional examination)\nand 50% marks (combining both semester) at Post Graduate Level. DIRECTIONS FOR RENEWAL OF SVMCM SCHOLARSHIP OF GENERAL DEGREE/POST\nGRADUATE DEGREE STUDENTS UNDER DIRECTORATE OF PUBLIC INSTRUCTIONS:\n1st renewal: Submission of SEM 1 and SEM 2 Marksheet required\n2nd Renewal: Submission of SEM 3 and SEM 4 Marksheet required\nDIRECTIONS FOR RENEWAL OF SVMCM SCHOLARSHIP OF MBBS STUDENTS\n1st renewal: With submission of 1st MBBS marksheet\n2nd Renewal: 2nd Prof MBBS marksheet will need to be furnished for the 2nd renewal in\nthe following year. 3rd and final Renewal: 3rd Prof Part 1 MBBS marksheet will need to be furnished for the 3rd\nand final renewal in the following year.",
+    "policy_id": "SVMCM_GUIDELINES",
+    "section_title": "General",
+    "clause_id": 109,
+    "source_file": "D:\\OneDrive\\Desktop\\Projects\\AICOE_EDUCATION_with_priority\\backend\\policies\\SVMCM_GUIDELINES.pdf"
   }
 ]
