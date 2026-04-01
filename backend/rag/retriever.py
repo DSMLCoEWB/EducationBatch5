@@ -9,7 +9,8 @@ BASE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(BASE_DIR, "data")
 
 INDEX_PATH = os.path.join(DATA_DIR, "faiss.index")
-CHUNKS_PATH = os.path.join(DATA_DIR, "demo_policy_chunks.json")
+CHUNKS_PATH = os.path.join(DATA_DIR, "policy_chunks.json")
+LEGACY_CHUNKS_PATH = os.path.join(DATA_DIR, "demo_policy_chunks.json")
 
 TOP_K = 5
 SIMILARITY_THRESHOLD = 0.50
@@ -18,22 +19,59 @@ MIN_SCORE = 0.55
 # ---------- EMBEDDING ----------
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
-# ---------- LOAD DATA ----------
-try:
-    if os.path.exists(INDEX_PATH) and os.path.exists(CHUNKS_PATH):
+index = None
+policy_chunks = []
+_last_index_mtime = None
+_last_chunks_mtime = None
+
+
+def _choose_chunks_path() -> str:
+    """Prefer live policy chunks; fall back to legacy demo chunks for backward compatibility."""
+    if os.path.exists(CHUNKS_PATH):
+        return CHUNKS_PATH
+    return LEGACY_CHUNKS_PATH
+
+
+def _mtime(path: str):
+    return os.path.getmtime(path) if os.path.exists(path) else None
+
+
+def reload_retriever_data(force: bool = False) -> None:
+    """Reload FAISS/chunks when source files changed on disk."""
+    global index, policy_chunks, _last_index_mtime, _last_chunks_mtime
+
+    chunks_path = _choose_chunks_path()
+    index_mtime = _mtime(INDEX_PATH)
+    chunks_mtime = _mtime(chunks_path)
+
+    if not force and index_mtime == _last_index_mtime and chunks_mtime == _last_chunks_mtime:
+        return
+
+    try:
+        if index_mtime is None or chunks_mtime is None:
+            index = None
+            policy_chunks = []
+            _last_index_mtime = index_mtime
+            _last_chunks_mtime = chunks_mtime
+            return
+
         index = faiss.read_index(INDEX_PATH)
-        with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
+        with open(chunks_path, "r", encoding="utf-8") as f:
             policy_chunks = json.load(f)
 
         if index.ntotal != len(policy_chunks):
             print(f"[WARN]: FAISS mismatch: index={index.ntotal}, chunks={len(policy_chunks)}")
-    else:
+
+        _last_index_mtime = index_mtime
+        _last_chunks_mtime = chunks_mtime
+    except Exception as e:
+        print(f"[ERROR]: Retriever failed to load: {e}")
         index = None
         policy_chunks = []
-except Exception as e:
-    print(f"[ERROR]: Retriever failed to load: {e}")
-    index = None
-    policy_chunks = []
+
+
+# Initial load at import time.
+reload_retriever_data(force=True)
 
 
 def retrieve_policy_chunks(query: str):
@@ -41,6 +79,8 @@ def retrieve_policy_chunks(query: str):
     Retrieve relevant policy chunks using FAISS.
     Enforces Strict semantic re-ranking and consistency filtering.
     """
+    reload_retriever_data()
+
     if not index or not policy_chunks:
         print("[WARN]: Retriever not initialized or empty.")
         return []

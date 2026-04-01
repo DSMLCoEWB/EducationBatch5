@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { 
-  Paperclip, 
-  ArrowUpDown, 
+import {
+  Paperclip,
+  ArrowUpDown,
   Filter,
   X,
   ChevronRight
@@ -58,41 +58,41 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail }: 
   }
 
   // Sort emails
-const sortedEmails = filteredEmails.sort((a, b) => {
-  // ✅ PRIORITY FIRST (lowest number = highest priority)
-  const pa = Number.isFinite(Number(a.priority)) ? Number(a.priority) : 6;
-const pb = Number.isFinite(Number(b.priority)) ? Number(b.priority) : 6;
+  const sortedEmails = filteredEmails.sort((a, b) => {
+    // ✅ PRIORITY FIRST (lowest number = highest priority)
+    const pa = Number.isFinite(Number(a.priority)) ? Number(a.priority) : 6;
+    const pb = Number.isFinite(Number(b.priority)) ? Number(b.priority) : 6;
 
-if (pa !== pb) {
-  return pa - pb;
-}
+    if (pa !== pb) {
+      return pa - pb;
+    }
 
-  let aValue: any;
-  let bValue: any;
+    let aValue: any;
+    let bValue: any;
 
-  switch (sortField) {
-    case 'emailDate':
-      aValue = new Date(a.emailDate).getTime();
-      bValue = new Date(b.emailDate).getTime();
-      break;
-    case 'followUpCount':
-      aValue = a.followUpCount;
-      bValue = b.followUpCount;
-      break;
-    case 'sender':
-      aValue = a.sender.toLowerCase();
-      bValue = b.sender.toLowerCase();
-      break;
-    default:
-      return 0;
-  }
+    switch (sortField) {
+      case 'emailDate':
+        aValue = new Date(a.emailDate).getTime();
+        bValue = new Date(b.emailDate).getTime();
+        break;
+      case 'followUpCount':
+        aValue = a.followUpCount;
+        bValue = b.followUpCount;
+        break;
+      case 'sender':
+        aValue = a.sender.toLowerCase();
+        bValue = b.sender.toLowerCase();
+        break;
+      default:
+        return 0;
+    }
 
-  if (sortDirection === 'asc') {
-    return aValue > bValue ? 1 : -1;
-  } else {
-    return aValue < bValue ? 1 : -1;
-  }
-});
+    if (sortDirection === 'asc') {
+      return aValue > bValue ? 1 : -1;
+    } else {
+      return aValue < bValue ? 1 : -1;
+    }
+  });
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -214,9 +214,9 @@ if (pa !== pb) {
                   <FilterChip
                     label="Suspension cases"
                     active={filters.showOnlySuspension}
-                    onClick={() => setFilters(prev => ({ 
-                      ...prev, 
-                      showOnlySuspension: !prev.showOnlySuspension 
+                    onClick={() => setFilters(prev => ({
+                      ...prev,
+                      showOnlySuspension: !prev.showOnlySuspension
                     }))}
                   />
                 </div>
@@ -228,9 +228,9 @@ if (pa !== pb) {
                   <FilterChip
                     label="FIR cases"
                     active={filters.showOnlyFIR}
-                    onClick={() => setFilters(prev => ({ 
-                      ...prev, 
-                      showOnlyFIR: !prev.showOnlyFIR 
+                    onClick={() => setFilters(prev => ({
+                      ...prev,
+                      showOnlyFIR: !prev.showOnlyFIR
                     }))}
                   />
                 </div>
@@ -256,7 +256,7 @@ if (pa !== pb) {
                   </button>
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Priority
+                  Priority
                 </th>
 
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
@@ -306,9 +306,9 @@ if (pa !== pb) {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {sortedEmails.map((email) => (
-                <EmailRow 
-                  key={email.id} 
-                  email={email} 
+                <EmailRow
+                  key={email.id}
+                  email={email}
                   onClick={() => onEmailClick(email)}
                   onUpdateEmail={onUpdateEmail}
                 />
@@ -349,21 +349,21 @@ function EmailRow({ email, onClick, onUpdateEmail }: EmailRowProps) {
   // Calculate days pending for unreplied emails
   const getDaysPending = () => {
     if (email.replied) return null;
-    
+
     const now = new Date();
     const emailDate = new Date(email.emailDate);
     const diffTime = Math.abs(now.getTime() - emailDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     return diffDays;
   };
 
   const daysPending = getDaysPending();
-const priority = Number.isFinite(Number(email.priority)) ? Number(email.priority) : 6;
+  const priority = Number.isFinite(Number(email.priority)) ? Number(email.priority) : 6;
 
   return (
     <>
-      <tr 
+      <tr
         onClick={onClick}
         className="hover:bg-gray-50 cursor-pointer transition-colors"
       >
@@ -375,19 +375,18 @@ const priority = Number.isFinite(Number(email.priority)) ? Number(email.priority
         </td>
         <td className="px-6 py-4">
 
-<span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-  priority <= 1 ? 'bg-red-100 text-red-700' :
-  priority <= 3 ? 'bg-orange-100 text-orange-700' :
-  priority <= 5 ? 'bg-yellow-100 text-yellow-700' :
-  'bg-gray-100 text-gray-700'
-}`}>
-  {priority <= 1 ? `Critical (${priority})` :
- priority <= 3 ? `High (${priority})` :
- priority <= 5 ? `Medium (${priority})` :
- `Low (${priority})`}
-</span>
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${priority <= 1 ? 'bg-red-100 text-red-700' :
+            priority <= 3 ? 'bg-orange-100 text-orange-700' :
+              priority <= 5 ? 'bg-yellow-100 text-yellow-700' :
+                'bg-gray-100 text-gray-700'
+            }`}>
+            {priority <= 1 ? `Critical` :
+              priority <= 3 ? `High` :
+                priority <= 5 ? `Medium` :
+                  `Low`}
+          </span>
 
-</td>
+        </td>
         <td className="px-6 py-4 text-sm text-gray-700">
           {email.instituteName}
         </td>
@@ -417,11 +416,10 @@ const priority = Number.isFinite(Number(email.priority)) ? Number(email.priority
           </span>
         </td>
         <td className="px-6 py-4">
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-            email.mailType === 'fresh' 
-              ? 'bg-green-100 text-green-700' 
-              : 'bg-orange-100 text-orange-700'
-          }`}>
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${email.mailType === 'fresh'
+            ? 'bg-green-100 text-green-700'
+            : 'bg-orange-100 text-orange-700'
+            }`}>
             {email.mailType === 'fresh' ? 'Fresh' : 'Follow-up'}
           </span>
         </td>
@@ -442,13 +440,12 @@ const priority = Number.isFinite(Number(email.priority)) ? Number(email.priority
         <td className="px-6 py-4">
           {daysPending !== null && (
             <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                daysPending <= 2 
-                  ? 'bg-yellow-100 text-yellow-700' 
-                  : daysPending <= 5
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${daysPending <= 2
+                ? 'bg-yellow-100 text-yellow-700'
+                : daysPending <= 5
                   ? 'bg-orange-100 text-orange-700'
                   : 'bg-red-100 text-red-700'
-              }`}>
+                }`}>
                 {daysPending === 0 ? 'Today' : daysPending === 1 ? '1 day' : `${daysPending} days`}
               </span>
             </div>
@@ -483,11 +480,10 @@ function FilterChip({ label, active, onClick }: FilterChipProps) {
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-        active
-          ? 'bg-blue-100 text-blue-700 border border-blue-300'
-          : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200'
-      }`}
+      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${active
+        ? 'bg-blue-100 text-blue-700 border border-blue-300'
+        : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200'
+        }`}
     >
       {label}
     </button>

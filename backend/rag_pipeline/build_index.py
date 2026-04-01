@@ -7,7 +7,7 @@ from sentence_transformers import SentenceTransformer
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 RAG_DATA_DIR = BASE_DIR / "rag" / "data"
-DATA_PATH = RAG_DATA_DIR / "demo_policy_chunks.json"
+DATA_PATH = RAG_DATA_DIR / "policy_chunks.json"
 INDEX_PATH = RAG_DATA_DIR / "faiss.index"
 
 

@@ -5,20 +5,28 @@ import pandas as pd
 import re
 import json
 import ast
+import shutil
+import hashlib
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict
 from email_parser import parse_eml
 from classifier import classify_grievance
 from followup import detect_followup
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from chatbot import ask
 from priority_llm import get_llm_priority, apply_thread_escalation
 from pydantic import BaseModel
 from rag.reply_generator import generate_suggested_reply_with_evidence
+from rag.retriever import reload_retriever_data
+from rag_pipeline.ingest import ingest_policy_document, CHUNKS_PATH, INDEX_PATH
 import logging
+import faiss
+import numpy as np
+import torch
+from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -28,6 +36,14 @@ logger = logging.getLogger(__name__)
 
 FILES_DIR = "./files"
 EXCEL_FILE = "./data/grievances.xlsx"
+POLICY_DIR = Path(__file__).parent / "policies"
+POLICY_DIR.mkdir(parents=True, exist_ok=True)
+DEMO_EMAILS_PATH = Path(__file__).parent / "demo_emails_from_chunks.json"
+DEMO_POLICY_CHUNKS_PATH = Path(__file__).parent / "rag" / "data" / "demo_policy_chunks.json"
+
+# email source mode: demo | files | dynamic
+EMAIL_SOURCE_MODE = os.getenv("EMAIL_SOURCE_MODE", "demo").strip().lower()
+DEMO_USE_LLM_PRIORITY = os.getenv("DEMO_USE_LLM_PRIORITY", "false").strip().lower() == "true"
 
 # Load college database
 COLLEGES_DB = []
@@ -52,60 +68,203 @@ def clean_for_excel(text):
     # Remove control characters (0x00-0x1F) except tab, newline, carriage return
     return re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]', '', text)
 
-def run():
-    # Create data directory if it doesn't exist
-    os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
-    
-    if os.path.exists(EXCEL_FILE):
-        df = pd.read_excel(EXCEL_FILE)
-    else:
-        df = pd.DataFrame(columns=COLUMNS)
+
+def _generate_email_id(content: str) -> str:
+    return hashlib.md5(content.encode("utf-8")).hexdigest()[:12]
+
+
+def _heuristic_priority(text: str, subject: str) -> int:
+    text_lower = f"{subject} {text}".lower()
+    if any(k in text_lower for k in ["chief secretary", "secretary higher education", "court order", "legal notice"]):
+        return 1
+    if any(k in text_lower for k in ["fir", "arrest", "police", "misconduct", "suspension", "disciplinary"]):
+        return 2
+    if any(k in text_lower for k in ["salary", "fund release", "increment", "arrear"]):
+        return 4
+    if any(k in text_lower for k in ["exam", "result", "admission", "deadline", "correction", "scholarship"]):
+        return 5
+    return 6
+
+
+def _load_demo_emails() -> list[Dict[str, Any]]:
+    if not DEMO_EMAILS_PATH.exists():
+        raise FileNotFoundError(f"Missing demo email source: {DEMO_EMAILS_PATH}")
+
+    with open(DEMO_EMAILS_PATH, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    if not isinstance(payload, list):
+        raise ValueError("demo_emails_from_chunks.json must contain a list of email objects")
+
+    return payload
+
+
+def _build_demo_dataframe() -> pd.DataFrame:
+    demo_emails = _load_demo_emails()
+    df = pd.DataFrame()
+    base_date = datetime.now() - timedelta(days=max(len(demo_emails), 1))
+
+    for i, item in enumerate(demo_emails):
+        subject = str(item.get("subject", "")).strip()
+        body = str(item.get("body", "")).strip()
+        if not subject and not body:
+            continue
+
+        content = f"{subject}\n{body}".strip()
+        email_id = _generate_email_id(content)
+        email_date = (base_date + timedelta(days=i)).date().isoformat()
+        institute_name = COLLEGES_DB[i % len(COLLEGES_DB)] if COLLEGES_DB else "Unknown Institute"
+
+        sender_name = "Grievance Applicant"
+        sender_email = f"demo_applicant_{i + 1}@example.edu"
+
+        category = classify_grievance(content)
+
+        base_priority = None
+        if DEMO_USE_LLM_PRIORITY:
+            try:
+                base_priority = get_llm_priority(content, subject, sender_name)
+            except Exception:
+                base_priority = None
+        if base_priority is None:
+            base_priority = _heuristic_priority(content, subject)
+
+        mock_email_obj = {
+            "email_id": email_id,
+            "parent_email_id": "",
+            "sender": sender_name,
+            "subject": subject,
+            "content": content,
+            "date": email_date,
+        }
+
+        mail_type, parent_id, followup_count = detect_followup(mock_email_obj, df)
+        final_priority = apply_thread_escalation(base_priority, followup_count)
+        if final_priority is None:
+            final_priority = base_priority
+
+        row = {
+            "email_id": email_id,
+            "parent_email_id": parent_id or "",
+            "sender": sender_name,
+            "sender_email": sender_email,
+            "institute_name": institute_name,
+            "subject": subject,
+            "category": category,
+            "mail_type": mail_type,
+            "followup_count": followup_count,
+            "priority": int(final_priority),
+            "date": email_date,
+            "content": content,
+            "attachments": "[]",
+            "eml_file": f"demo_{i + 1}.eml",
+            "is_demo": True,
+        }
+
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+
+    return df
+
+
+def _build_files_dataframe() -> pd.DataFrame:
+    if not os.path.isdir(FILES_DIR):
+        return pd.DataFrame(columns=COLUMNS)
 
     eml_files = [f for f in os.listdir(FILES_DIR) if f.endswith(".eml")]
     total_files = len(eml_files)
     processed = 0
-    
+    df = pd.DataFrame(columns=COLUMNS)
+
     print(f"📧 Found {total_files} email files to process...")
-    
+
     for file in eml_files:
         processed += 1
         print(f"[{processed}/{total_files}] Processing: {file}")
-        
-        email = parse_eml(os.path.join(FILES_DIR, file))
-        
-        if email is None:
+
+        parsed_email = parse_eml(os.path.join(FILES_DIR, file))
+        if parsed_email is None:
             print(f"⚠️ Skipping {file} (parse error)")
             continue
 
-        if email["email_id"] in df["email_id"].values:
-            print(f"✓ Already processed")
+        if not df.empty and parsed_email["email_id"] in df["email_id"].values:
+            print("✓ Already processed")
             continue
 
-        category = classify_grievance(email["content"])
-        mail_type, parent_id, count = detect_followup(email, df)
+        category = classify_grievance(parsed_email["content"])
+        mail_type, _, followup_count = detect_followup(parsed_email, df)
 
-        # ---- LLM PRIORITY ----
-        base_priority = get_llm_priority(
-        email["content"],
-        email.get("subject", ""),
-        email.get("sender", ""))
+        try:
+            base_priority = get_llm_priority(
+                parsed_email["content"],
+                parsed_email.get("subject", ""),
+                parsed_email.get("sender", ""),
+            )
+        except Exception:
+            base_priority = None
+        if base_priority is None:
+            base_priority = _heuristic_priority(parsed_email.get("content", ""), parsed_email.get("subject", ""))
 
-        final_priority = apply_thread_escalation(base_priority, count)
+        final_priority = apply_thread_escalation(base_priority, followup_count)
         if final_priority is None:
-            final_priority = 6
+            final_priority = base_priority
 
         row = {
-            **email,
+            **parsed_email,
             "category": category,
             "mail_type": mail_type,
-            "followup_count": count,
+            "followup_count": followup_count,
             "priority": final_priority,
-            # Use the actual email date from the parsed email, fallback to today if not available
-            "date": email.get("date") or datetime.now().strftime("%Y-%m-%d")
+            "date": parsed_email.get("date") or datetime.now().strftime("%Y-%m-%d"),
+            "is_demo": False,
         }
 
         df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-        print(f"✓ Added to database")
+        print("✓ Added to database")
+
+    return df
+
+
+def _sync_demo_policy_chunks(force_index_rebuild: bool = False) -> bool:
+    """Mirror demo_policy_chunks.json into policy_chunks.json so retrieval is demo-aligned."""
+    if not DEMO_POLICY_CHUNKS_PATH.exists():
+        print(f"[WARN] Demo policy chunks not found: {DEMO_POLICY_CHUNKS_PATH}")
+        return False
+
+    with open(DEMO_POLICY_CHUNKS_PATH, "r", encoding="utf-8") as f:
+        demo_chunks = json.load(f)
+
+    if not isinstance(demo_chunks, list) or not demo_chunks:
+        print("[WARN] Demo policy chunks are empty or invalid.")
+        return False
+
+    _save_policy_chunks(demo_chunks)
+    if force_index_rebuild or not INDEX_PATH.exists():
+        _rebuild_index_from_chunks(demo_chunks)
+
+    reload_retriever_data(force=True)
+    return True
+
+def run(source_mode_override: str | None = None):
+    # Create data directory if it doesn't exist
+    os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
+
+    source_mode = (source_mode_override or EMAIL_SOURCE_MODE).strip().lower()
+
+    # In demo mode, ensure active corpus is synced to demo policy chunks.
+    if source_mode == "demo":
+        _sync_demo_policy_chunks(force_index_rebuild=True)
+
+    if source_mode == "demo":
+        print("📦 Email source mode: demo (from demo_emails_from_chunks.json)")
+        df = _build_demo_dataframe()
+    elif source_mode == "files":
+        print("📂 Email source mode: files (from backend/files/*.eml)")
+        df = _build_files_dataframe()
+    elif source_mode == "dynamic":
+        print("🔌 Email source mode: dynamic (placeholder, falling back to demo source)")
+        df = _build_demo_dataframe()
+    else:
+        raise ValueError(f"Unsupported EMAIL_SOURCE_MODE: {source_mode}")
 
     # Clean all text fields for Excel compatibility
     print("\n🧹 Cleaning data for Excel compatibility...")
@@ -140,6 +299,14 @@ app.add_middleware(
 
 # ---------------- FASTAPI APP ----------------
 
+
+@app.on_event("startup")
+def _bootstrap_demo_mode() -> None:
+    if EMAIL_SOURCE_MODE == "demo":
+        synced = _sync_demo_policy_chunks(force_index_rebuild=not INDEX_PATH.exists())
+        if synced:
+            print("[INFO] Demo policy corpus synced into policy_chunks.json for RAG retrieval.")
+
 @app.get("/")
 def root():
     return {"status": "Backend running on Hugging Face"}
@@ -168,8 +335,6 @@ def get_colleges():
     """Get list of all colleges in database"""
     return {"colleges": COLLEGES_DB, "total": len(COLLEGES_DB)}
 
-
-from fastapi import Query
 
 @app.get("/emails")
 def get_emails(
@@ -249,7 +414,14 @@ def get_emails(
 @app.post("/process")
 def process_emails():
     run()
-    return {"status": "emails processed"}
+    return {"status": "emails processed", "source_mode": EMAIL_SOURCE_MODE}
+
+
+@app.post("/process-demo")
+def process_demo_emails():
+    """Force demo-json population regardless of configured default source mode."""
+    run(source_mode_override="demo")
+    return {"status": "demo emails processed", "source_mode": "demo"}
 
 class ChatRequest(BaseModel):
     message: str
@@ -321,6 +493,171 @@ def download_eml(eml_filename: str):
         media_type="message/rfc822",
         filename=eml_filename
     )
+
+
+class PolicyUploadResponse(BaseModel):
+    success: bool
+    message: str
+    stats: Dict[str, Any]
+
+
+def _slugify_policy_id(raw_name: str) -> str:
+    base = Path(raw_name).stem if raw_name else "policy"
+    base = re.sub(r"[^A-Za-z0-9_-]+", "_", base).strip("_")
+    return base or "policy"
+
+
+def _load_policy_chunks() -> list[Dict[str, Any]]:
+    if not CHUNKS_PATH.exists():
+        return []
+    with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data if isinstance(data, list) else []
+
+
+def _save_policy_chunks(chunks: list[Dict[str, Any]]) -> None:
+    CHUNKS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CHUNKS_PATH, "w", encoding="utf-8") as f:
+        json.dump(chunks, f, indent=2, ensure_ascii=False)
+
+
+def _rebuild_index_from_chunks(chunks: list[Dict[str, Any]]) -> None:
+    texts = [chunk.get("text", "") for chunk in chunks if chunk.get("text")]
+
+    if not texts:
+        if INDEX_PATH.exists():
+            INDEX_PATH.unlink()
+        return
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    embedder = SentenceTransformer("all-MiniLM-L6-v2", device=device)
+    embeddings = embedder.encode(
+        texts,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+    embeddings = np.asarray(embeddings).astype("float32")
+
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatIP(dim)
+    index.add(embeddings)
+    faiss.write_index(index, str(INDEX_PATH))
+
+
+def _remove_policy_chunks(policy_id: str) -> tuple[list[Dict[str, Any]], int]:
+    chunks = _load_policy_chunks()
+    retained = [c for c in chunks if str(c.get("policy_id", "")) != policy_id]
+    removed = len(chunks) - len(retained)
+
+    if removed:
+        _save_policy_chunks(retained)
+        _rebuild_index_from_chunks(retained)
+
+    return retained, removed
+
+
+@app.post("/policies/upload", response_model=PolicyUploadResponse)
+async def upload_policy(file: UploadFile = File(...)):
+    """Upload a PDF policy and ingest it into policy_chunks.json + FAISS index."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing file name")
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    policy_id = _slugify_policy_id(file.filename)
+    policy_path = POLICY_DIR / f"{policy_id}.pdf"
+    was_existing = policy_path.exists()
+
+    try:
+        with open(policy_path, "wb") as out_file:
+            shutil.copyfileobj(file.file, out_file)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {str(e)}")
+    finally:
+        await file.close()
+
+    try:
+        # Keep one canonical entry per policy_id by replacing previous chunks on update.
+        _remove_policy_chunks(policy_id)
+
+        stats = ingest_policy_document(
+            file_path=str(policy_path),
+            policy_id=policy_id,
+            section_title="General",
+        )
+        stats["is_update"] = was_existing
+        stats["policy_id"] = policy_id
+
+        reload_retriever_data(force=True)
+
+        return PolicyUploadResponse(
+            success=True,
+            message="Policy uploaded and indexed successfully",
+            stats=stats,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to ingest policy: {str(e)}")
+
+
+@app.get("/policies")
+def list_policies():
+    """List policies currently indexed in RAG with per-policy chunk counts."""
+    chunks = _load_policy_chunks()
+    by_policy: Dict[str, int] = {}
+
+    for chunk in chunks:
+        pid = str(chunk.get("policy_id", "")).strip()
+        if pid:
+            by_policy[pid] = by_policy.get(pid, 0) + 1
+
+    policies = []
+    for policy_id, chunk_count in sorted(by_policy.items(), key=lambda x: x[0].lower()):
+        file_exists = (POLICY_DIR / f"{policy_id}.pdf").exists()
+        policies.append(
+            {
+                "id": policy_id,
+                "chunk_count": chunk_count,
+                "status": "indexed" if file_exists else "indexed_no_file",
+            }
+        )
+
+    return {"policies": policies}
+
+
+@app.get("/policies/{policy_id}")
+def get_policy_pdf(policy_id: str):
+    """Download/view original policy PDF by policy_id."""
+    policy_file = POLICY_DIR / f"{policy_id}.pdf"
+    if not policy_file.exists():
+        raise HTTPException(status_code=404, detail="Policy file not found")
+
+    return FileResponse(
+        str(policy_file),
+        media_type="application/pdf",
+        filename=policy_file.name,
+    )
+
+
+@app.delete("/policies/{policy_id}")
+def delete_policy(policy_id: str):
+    """Delete a policy PDF and all associated chunks, then rebuild FAISS."""
+    policy_file = POLICY_DIR / f"{policy_id}.pdf"
+    had_file = policy_file.exists()
+    if policy_file.exists():
+        policy_file.unlink()
+
+    _, removed_chunks = _remove_policy_chunks(policy_id)
+    reload_retriever_data(force=True)
+
+    if removed_chunks == 0 and not had_file:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    return {
+        "success": True,
+        "message": f"Policy '{policy_id}' removed",
+        "removed_chunks": removed_chunks,
+    }
 
 # Request model for reply generation
 class GenerateReplyRequest(BaseModel):
