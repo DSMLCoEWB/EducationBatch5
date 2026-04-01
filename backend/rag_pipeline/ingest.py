@@ -330,12 +330,23 @@ def ingest_policy_document(file_path: str, policy_id: Optional[str] = None, sect
     
     # Extract text from document
     if file_path.suffix.lower() == ".pdf":
+        text = ""
         try:
-            import fitz  # PyMuPDF
-            doc = fitz.open(file_path)
-            text = "\n".join([page.get_text() for page in doc])
-        except ImportError:
-            raise ImportError("PyMuPDF required for PDF support. Install: pip install pymupdf")
+            import pdfplumber
+
+            with pdfplumber.open(file_path) as pdf:
+                text = "\n".join((page.extract_text() or "") for page in pdf.pages)
+        except Exception:
+            # Fallback for PDFs that parse better with PyMuPDF.
+            try:
+                import fitz  # type: ignore
+
+                doc = fitz.open(file_path)
+                text = "\n".join(page.get_text() for page in doc)
+            except ImportError:
+                raise ImportError(
+                    "PDF extraction failed with pdfplumber and PyMuPDF is unavailable. Install: pip install pymupdf"
+                )
     elif file_path.suffix.lower() in [".txt", ".md"]:
         with open(file_path, "r", encoding="utf-8") as f:
             text = f.read()

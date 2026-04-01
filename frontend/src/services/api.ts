@@ -51,6 +51,26 @@ export interface GenerateReplyResult {
   status: 'ok' | 'fallback' | 'no_match' | string;
 }
 
+export interface IndexedPolicy {
+  id: string;
+  chunk_count: number;
+  status: string;
+}
+
+export interface UploadPolicyResult {
+  success: boolean;
+  message: string;
+  stats: {
+    policy_id: string;
+    chunks_added: number;
+    total_chunks: number;
+    embeddings_generated: number;
+    index_path: string;
+    chunks_path: string;
+    is_update: boolean;
+  };
+}
+
 /* ============================
    EMAIL & DASHBOARD APIs
 ============================ */
@@ -176,4 +196,58 @@ export async function generateReplyDetailed(
 
   const data = await response.json();
   return data as GenerateReplyResult;
+}
+
+/* ============================
+   POLICY MANAGEMENT APIs
+============================ */
+
+export async function fetchPolicies(): Promise<IndexedPolicy[]> {
+  const response = await fetch(`${API_BASE_URL}/policies`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch policies');
+  }
+
+  const data = await response.json();
+  return (data.policies || []) as IndexedPolicy[];
+}
+
+export async function uploadPolicy(file: File): Promise<UploadPolicyResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE_URL}/policies/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to upload policy';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // Ignore JSON parsing failure and keep default message.
+    }
+    throw new Error(detail);
+  }
+
+  return (await response.json()) as UploadPolicyResult;
+}
+
+export async function deletePolicy(policyId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/policies/${encodeURIComponent(policyId)}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to delete policy';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // Ignore JSON parsing failure and keep default message.
+    }
+    throw new Error(detail);
+  }
 }
