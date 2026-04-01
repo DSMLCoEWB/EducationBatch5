@@ -41,7 +41,6 @@ POLICY_DIR.mkdir(parents=True, exist_ok=True)
 DEMO_EMAILS_PATH = Path(__file__).parent / "demo_emails_from_chunks.json"
 DEMO_POLICY_DIR = Path(__file__).parent / "demo_policies"
 DEMO_POLICY_DIR.mkdir(parents=True, exist_ok=True)
-DEMO_POLICY_LEGACY_CHUNKS_PATH = Path(__file__).parent / "rag" / "data" / "demo_policy_chunks.json"
 
 # email source mode: demo | files | dynamic
 EMAIL_SOURCE_MODE = os.getenv("EMAIL_SOURCE_MODE", "demo").strip().lower()
@@ -226,24 +225,30 @@ def _build_files_dataframe() -> pd.DataFrame:
     return df
 
 
-def _sync_demo_policy_pdfs(force_index_rebuild: bool = False) -> bool:
-    """Build the demo policy corpus from PDFs placed in backend/demo_policies."""
-    pdf_candidates = list(DEMO_POLICY_DIR.glob("*.pdf")) + list(DEMO_POLICY_DIR.glob("*.PDF"))
-    pdf_files = sorted({p.resolve() for p in pdf_candidates})
+def _collect_policy_pdf_files(*directories: Path) -> list[Path]:
+    pdf_candidates: list[Path] = []
+    for directory in directories:
+        pdf_candidates.extend(list(directory.glob("*.pdf")) + list(directory.glob("*.PDF")))
+    return sorted({p.resolve() for p in pdf_candidates})
+
+
+def _sync_policy_pdfs_from_disk(*, include_demo: bool = True, include_uploaded: bool = True) -> Dict[str, Any]:
+    """Rebuild the policy corpus from PDFs stored on disk."""
+    directories: list[Path] = []
+    if include_uploaded:
+        directories.append(POLICY_DIR)
+    if include_demo:
+        directories.append(DEMO_POLICY_DIR)
+
+    pdf_files = _collect_policy_pdf_files(*directories)
 
     if not pdf_files:
-        print(f"[WARN] No demo policy PDFs found in {DEMO_POLICY_DIR}.")
-        if DEMO_POLICY_LEGACY_CHUNKS_PATH.exists():
-            print(f"[WARN] Falling back temporarily to legacy demo chunks: {DEMO_POLICY_LEGACY_CHUNKS_PATH}")
-            with open(DEMO_POLICY_LEGACY_CHUNKS_PATH, "r", encoding="utf-8") as f:
-                demo_chunks = json.load(f)
-            if isinstance(demo_chunks, list) and demo_chunks:
-                _save_policy_chunks(demo_chunks)
-                if force_index_rebuild or not INDEX_PATH.exists():
-                    _rebuild_index_from_chunks(demo_chunks)
-                reload_retriever_data(force=True)
-                return True
-        return False
+        return {
+            "pdf_count": 0,
+            "indexed_count": 0,
+            "chunks_path": str(CHUNKS_PATH),
+            "index_path": str(INDEX_PATH),
+        }
 
     if CHUNKS_PATH.exists():
         CHUNKS_PATH.unlink()
@@ -253,56 +258,36 @@ def _sync_demo_policy_pdfs(force_index_rebuild: bool = False) -> bool:
     generated_any = False
     for pdf_path in pdf_files:
         try:
+            section_title = "Demo Policy" if pdf_path.parent == DEMO_POLICY_DIR else "General"
             ingest_policy_document(
                 file_path=str(pdf_path),
                 policy_id=pdf_path.stem,
-                section_title="Demo Policy",
+                section_title=section_title,
             )
             generated_any = True
         except Exception as exc:
-            print(f"[WARN] Failed to ingest demo policy PDF {pdf_path.name}: {exc}")
+            print(f"[WARN] Failed to ingest policy PDF {pdf_path.name}: {exc}")
 
     if not generated_any:
-        return False
-
-    # Validate that PDF-driven ingestion still reproduces legacy demo chunk text exactly.
-    if DEMO_POLICY_LEGACY_CHUNKS_PATH.exists() and CHUNKS_PATH.exists():
-        try:
-            with open(DEMO_POLICY_LEGACY_CHUNKS_PATH, "r", encoding="utf-8") as f:
-                expected_rows = json.load(f)
-            with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
-                actual_rows = json.load(f)
-
-            expected_texts = [" ".join(str(c.get("text", "")).split()) for c in expected_rows]
-            actual_texts = [" ".join(str(c.get("text", "")).split()) for c in actual_rows]
-
-            if expected_texts != actual_texts:
-                if set(expected_texts) == set(actual_texts) and len(expected_texts) == len(actual_texts):
-                    buckets: Dict[str, list[Dict[str, Any]]] = {}
-                    for row in actual_rows:
-                        key = " ".join(str(row.get("text", "")).split())
-                        buckets.setdefault(key, []).append(row)
-
-                    reordered: list[Dict[str, Any]] = []
-                    for key in expected_texts:
-                        options = buckets.get(key, [])
-                        if not options:
-                            continue
-                        reordered.append(options.pop(0))
-
-                    if len(reordered) == len(actual_rows):
-                        _save_policy_chunks(reordered)
-                        _rebuild_index_from_chunks(reordered)
-                        print("[INFO] Reordered PDF-ingested chunks to match demo reference order.")
-                    else:
-                        print("[WARN] Could not fully reorder PDF-ingested chunks to demo reference order.")
-                else:
-                    print("[WARN] Demo PDF ingestion differs from demo_policy_chunks.json text set.")
-        except Exception as exc:
-            print(f"[WARN] Could not validate demo PDF ingestion equivalence: {exc}")
+        return {
+            "pdf_count": len(pdf_files),
+            "indexed_count": 0,
+            "chunks_path": str(CHUNKS_PATH),
+            "index_path": str(INDEX_PATH),
+        }
 
     reload_retriever_data(force=True)
-    return True
+    return {
+        "pdf_count": len(pdf_files),
+        "indexed_count": len(pdf_files),
+        "chunks_path": str(CHUNKS_PATH),
+        "index_path": str(INDEX_PATH),
+    }
+
+
+def _sync_demo_policy_pdfs(force_index_rebuild: bool = False) -> Dict[str, Any]:
+    """Build the demo policy corpus from PDFs placed in backend/demo_policies."""
+    return _sync_policy_pdfs_from_disk(include_demo=True, include_uploaded=False)
 
 def run(source_mode_override: str | None = None):
     # Create data directory if it doesn't exist
@@ -310,9 +295,9 @@ def run(source_mode_override: str | None = None):
 
     source_mode = (source_mode_override or EMAIL_SOURCE_MODE).strip().lower()
 
-    # In demo mode, ensure active corpus is synced from demo policy PDFs.
+    # Ensure the active corpus reflects PDFs on disk before processing emails.
     if source_mode == "demo":
-        _sync_demo_policy_pdfs(force_index_rebuild=True)
+        _sync_policy_pdfs_from_disk(include_demo=True, include_uploaded=True)
 
     if source_mode == "demo":
         print("📦 Email source mode: demo (from demo_emails_from_chunks.json)")
@@ -362,10 +347,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 def _bootstrap_demo_mode() -> None:
-    if EMAIL_SOURCE_MODE == "demo":
-        synced = _sync_demo_policy_pdfs(force_index_rebuild=not INDEX_PATH.exists())
-        if synced:
-            print("[INFO] Demo policy corpus synced from PDFs into policy_chunks.json for RAG retrieval.")
+    synced = _sync_policy_pdfs_from_disk(include_demo=True, include_uploaded=True)
+    if synced["pdf_count"]:
+        print("[INFO] Policy corpus synced from PDFs into policy_chunks.json for RAG retrieval.")
 
 @app.get("/")
 def root():
@@ -482,6 +466,27 @@ def process_demo_emails():
     """Force demo-json population regardless of configured default source mode."""
     run(source_mode_override="demo")
     return {"status": "demo emails processed", "source_mode": "demo"}
+
+
+class DemoPolicySyncResponse(BaseModel):
+    success: bool
+    message: str
+    stats: Dict[str, Any]
+
+
+@app.post("/policies/load-demo", response_model=DemoPolicySyncResponse)
+def load_demo_policies():
+    """Rebuild policy_chunks.json and FAISS from the demo policy PDFs."""
+    try:
+        stats = _sync_demo_policy_pdfs(force_index_rebuild=True)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load demo policies: {exc}")
+
+    return DemoPolicySyncResponse(
+        success=True,
+        message="Demo policy PDFs loaded and indexed successfully",
+        stats=stats,
+    )
 
 class ChatRequest(BaseModel):
     message: str
@@ -616,6 +621,22 @@ def _remove_policy_chunks(policy_id: str) -> tuple[list[Dict[str, Any]], int]:
     return retained, removed
 
 
+def _policy_file_exists(policy_id: str) -> bool:
+    return _resolve_policy_file_path(policy_id) is not None
+
+
+def _resolve_policy_file_path(policy_id: str) -> Path | None:
+    uploaded_path = POLICY_DIR / f"{policy_id}.pdf"
+    if uploaded_path.exists():
+        return uploaded_path
+
+    demo_path = DEMO_POLICY_DIR / f"{policy_id}.pdf"
+    if demo_path.exists():
+        return demo_path
+
+    return None
+
+
 @app.post("/policies/upload", response_model=PolicyUploadResponse)
 async def upload_policy(file: UploadFile = File(...)):
     """Upload a PDF policy and ingest it into policy_chunks.json + FAISS index."""
@@ -673,7 +694,7 @@ def list_policies():
 
     policies = []
     for policy_id, chunk_count in sorted(by_policy.items(), key=lambda x: x[0].lower()):
-        file_exists = (POLICY_DIR / f"{policy_id}.pdf").exists()
+        file_exists = _policy_file_exists(policy_id)
         policies.append(
             {
                 "id": policy_id,
@@ -688,8 +709,8 @@ def list_policies():
 @app.get("/policies/{policy_id}")
 def get_policy_pdf(policy_id: str):
     """Download/view original policy PDF by policy_id."""
-    policy_file = POLICY_DIR / f"{policy_id}.pdf"
-    if not policy_file.exists():
+    policy_file = _resolve_policy_file_path(policy_id)
+    if policy_file is None:
         raise HTTPException(status_code=404, detail="Policy file not found")
 
     return FileResponse(

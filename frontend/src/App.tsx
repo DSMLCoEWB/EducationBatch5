@@ -5,6 +5,7 @@ import { Dashboard } from './components/Dashboard';
 import { EmailTable } from './components/EmailTable';
 import { EmailThreadPanel } from './components/EmailThreadPanel';
 import { Chatbot } from './components/Chatbot';
+import { PolicyManagementModal } from './components/PolicyManagementModal';
 import { Email } from './types';
 import { fetchAllEmails, fetchColleges } from './services/api';
 import { transformBackendEmails, initializeCollegeDatabase } from './utils/dataTransformer';
@@ -17,6 +18,7 @@ export default function App() {
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showPolicyManagement, setShowPolicyManagement] = useState(false);
 
   // Fetch real data from backend on mount
   useEffect(() => {
@@ -137,6 +139,7 @@ export default function App() {
         onSearchChange={setSearchQuery}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
+        onOpenPolicyManagement={() => setShowPolicyManagement(true)}
       />
 
       {/* Main Content */}
@@ -145,6 +148,7 @@ export default function App() {
         <Sidebar
           activeView={activeView}
           onViewChange={setActiveView}
+          onOpenPolicyManagement={() => setShowPolicyManagement(true)}
         />
 
         {/* Content Area */}
@@ -171,6 +175,10 @@ export default function App() {
 
       {/* Chatbot */}
       <Chatbot emails={filteredEmails} />
+
+      {showPolicyManagement && (
+        <PolicyManagementModal onClose={() => setShowPolicyManagement(false)} />
+      )}
     </div>
   );
 }

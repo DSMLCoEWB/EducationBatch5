@@ -15,6 +15,7 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [ragEvidence, setRagEvidence] = useState<GenerateReplyResult | null>(null);
+  const [showPolicyEvidence, setShowPolicyEvidence] = useState(false);
 
   // Generate suggested reply based on email category (fallback/template-based)
   const generateTemplateSuggestedReply = (): string => {
@@ -50,6 +51,7 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
       );
       setReplyText(aiResult.suggested_reply);
       setRagEvidence(aiResult);
+      setShowPolicyEvidence(false);
       setUsingSuggested(true);
     } catch (error) {
       console.error('Failed to generate AI reply:', error);
@@ -68,6 +70,7 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
     setReplyText(suggested);
     setUsingSuggested(true);
     setRagEvidence(null);
+    setShowPolicyEvidence(false);
   };
 
   const handleSend = () => {
@@ -159,16 +162,27 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
                 </div>
               </div>
 
+              <label className="mb-3 flex items-center gap-2 text-sm text-blue-800 font-medium cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showPolicyEvidence}
+                  onChange={(e) => setShowPolicyEvidence(e.target.checked)}
+                  className="h-4 w-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                />
+                Show policy evidence clauses
+              </label>
+
               {ragEvidence.status === 'fallback' && (
                 <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded text-amber-800 text-xs">
                   <strong>Note:</strong> AI could not find a high-confidence match. A standard policy-compliant template is being used.
                 </div>
               )}
 
-              {ragEvidence.evidence && ragEvidence.evidence.length > 0 ? (
+              {showPolicyEvidence ? (
+                ragEvidence.evidence && ragEvidence.evidence.length > 0 ? (
                 <div className="space-y-3">
                   <p className="text-blue-800 font-medium">Top {ragEvidence.evidence.length} Relevant Clauses:</p>
-                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                  <div className="space-y-2">
                     {ragEvidence.evidence.map((m, idx) => (
                       <div key={`${m.clause_id}-${idx}`} className="rounded border border-blue-100 bg-white p-3 shadow-sm">
                         <div className="flex justify-between items-start mb-1">
@@ -180,13 +194,16 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
                           </span>
                         </div>
                         <p className="text-[11px] text-blue-700 font-semibold mb-1 uppercase tracking-tight">{m.section}</p>
-                        <p className="text-gray-700 leading-relaxed text-xs">{m.text}</p>
+                        <p className="text-gray-700 leading-relaxed text-xs whitespace-pre-wrap break-words">{m.text}</p>
                       </div>
                     ))}
                   </div>
                 </div>
+                ) : (
+                  <p className="text-gray-500 italic">No specific policy clauses were retrieved for this query.</p>
+                )
               ) : (
-                <p className="text-gray-500 italic">No specific policy clauses were retrieved for this query.</p>
+                <p className="text-gray-500 italic">Evidence clauses are hidden. Enable the checkbox to view them.</p>
               )}
             </div>
           )}

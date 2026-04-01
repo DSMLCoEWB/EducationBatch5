@@ -187,7 +187,7 @@ Grievance Support Desk"""
                 "clause_id": c["metadata"].get("clause_id", "N/A"),
                 "section": c["metadata"].get("section", "General"),
                 "score": round(c.get("score", 0.0), 3),
-                "text": c.get("text", "")[:350]
+                "text": str(c.get("text", "")).strip()
             }
             for c in retrieved
         ]

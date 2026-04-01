@@ -300,6 +300,24 @@ def split_marker_chunks(text: str, marker: str = DEMO_CHUNK_MARKER) -> List[str]
     return chunks
 
 
+def split_numbered_clause_chunks(text: str) -> List[str]:
+    """Split text into chunks when clauses are prefixed as `Clause N:`."""
+    pattern = re.compile(r"(?:^|\n)\s*Clause\s+[A-Za-z0-9_-]+\s*:\s*", re.IGNORECASE)
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return []
+
+    chunks: List[str] = []
+    for idx, match in enumerate(matches):
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        normalized = " ".join(text[start:end].split()).strip()
+        if normalized:
+            chunks.append(normalized)
+
+    return chunks
+
+
 def update_faiss_index(new_embeddings: np.ndarray, existing_index_path: Path = INDEX_PATH) -> None:
     """
     Update FAISS index by appending new embeddings to existing index.
@@ -377,6 +395,8 @@ def ingest_policy_document(file_path: str, policy_id: Optional[str] = None, sect
     
     # Split into chunks. If marker-delimited chunks exist, preserve them exactly.
     chunks = split_marker_chunks(text)
+    if not chunks and file_path.parent.name.lower() == "demo_policies":
+        chunks = split_numbered_clause_chunks(text)
     if not chunks:
         chunks = split_text_into_chunks(text, chunk_size=CHUNK_SIZE_TOKENS, overlap=OVERLAP_TOKENS)
     if not chunks:

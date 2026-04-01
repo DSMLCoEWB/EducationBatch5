@@ -4,15 +4,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Upload, X, CheckCircle2, Loader2, FileText, 
-  AlertTriangle, Trash2, ShieldCheck, Database,
-  RefreshCw, Plus, Eye
+  AlertTriangle, Trash2, Database,
+  RefreshCw, Eye
 } from 'lucide-react';
 import { 
   uploadPolicy, 
   fetchPolicies, 
   deletePolicy, 
+  loadDemoPolicies,
   UploadPolicyResult, 
-  IndexedPolicy 
+  IndexedPolicy,
+  DemoPolicySyncResult
 } from '../services/api';
 
 const API_BASE_URL = (import.meta as any).env.VITE_API_URL;
@@ -31,6 +33,8 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadPolicyResult | null>(null);
+  const [isLoadingDemo, setIsLoadingDemo] = useState(false);
+  const [demoSyncResult, setDemoSyncResult] = useState<DemoPolicySyncResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Deletion State
@@ -101,6 +105,23 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
       alert(err.message || 'Failed to delete policy.');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleLoadDemoPolicies = async () => {
+    setIsLoadingDemo(true);
+    setError(null);
+    setDemoSyncResult(null);
+
+    try {
+      const result = await loadDemoPolicies();
+      setDemoSyncResult(result);
+      await loadPolicies();
+    } catch (err: any) {
+      console.error('❌ Demo policy sync failed:', err);
+      setError(err.message || 'Failed to load demo policy PDFs.');
+    } finally {
+      setIsLoadingDemo(false);
     }
   };
 
@@ -294,12 +315,40 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
           >
             {view === 'upload' ? 'Cancel' : 'Close Dashboard'}
           </button>
-          
-          {view === 'upload' && file && !uploadResult && (
-            <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest animate-pulse">
-              System Ready
-            </p>
-          )}
+
+          <div className="flex items-center gap-3">
+            {view === 'list' && (
+              <button
+                onClick={handleLoadDemoPolicies}
+                disabled={isLoadingDemo}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-60"
+              >
+                {isLoadingDemo ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Loading Demo PDFs</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Load Demo PDFs</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {view === 'upload' && file && !uploadResult && (
+              <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest animate-pulse">
+                System Ready
+              </p>
+            )}
+
+            {demoSyncResult && view === 'list' && !isLoadingDemo && (
+              <p className="text-[10px] text-green-600 font-black uppercase tracking-widest">
+                Loaded {demoSyncResult.stats.pdf_count} PDFs
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>

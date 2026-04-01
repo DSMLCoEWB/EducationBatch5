@@ -10,7 +10,6 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 
 INDEX_PATH = os.path.join(DATA_DIR, "faiss.index")
 CHUNKS_PATH = os.path.join(DATA_DIR, "policy_chunks.json")
-LEGACY_CHUNKS_PATH = os.path.join(DATA_DIR, "demo_policy_chunks.json")
 
 TOP_K = 5
 SIMILARITY_THRESHOLD = 0.50
@@ -26,10 +25,8 @@ _last_chunks_mtime = None
 
 
 def _choose_chunks_path() -> str:
-    """Prefer live policy chunks; fall back to legacy demo chunks for backward compatibility."""
-    if os.path.exists(CHUNKS_PATH):
-        return CHUNKS_PATH
-    return LEGACY_CHUNKS_PATH
+    """Use the active policy chunks generated from demo PDFs or uploaded PDFs."""
+    return CHUNKS_PATH
 
 
 def _mtime(path: str):

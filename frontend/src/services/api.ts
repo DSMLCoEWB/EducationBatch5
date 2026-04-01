@@ -71,6 +71,17 @@ export interface UploadPolicyResult {
   };
 }
 
+export interface DemoPolicySyncResult {
+  success: boolean;
+  message: string;
+  stats: {
+    pdf_count: number;
+    indexed_count: number;
+    chunks_path: string;
+    index_path: string;
+  };
+}
+
 /* ============================
    EMAIL & DASHBOARD APIs
 ============================ */
@@ -233,6 +244,25 @@ export async function uploadPolicy(file: File): Promise<UploadPolicyResult> {
   }
 
   return (await response.json()) as UploadPolicyResult;
+}
+
+export async function loadDemoPolicies(): Promise<DemoPolicySyncResult> {
+  const response = await fetch(`${API_BASE_URL}/policies/load-demo`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to load demo policies';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // Ignore JSON parsing failure and keep default message.
+    }
+    throw new Error(detail);
+  }
+
+  return (await response.json()) as DemoPolicySyncResult;
 }
 
 export async function deletePolicy(policyId: string): Promise<void> {
