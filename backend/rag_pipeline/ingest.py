@@ -17,6 +17,7 @@ CHUNKS_PATH = RAG_DATA_DIR / "policy_chunks.json"
 CHUNK_SIZE_TOKENS = 500
 OVERLAP_TOKENS = 50
 DEMO_CHUNKS_PATH = RAG_DATA_DIR / "demo_policy_chunks.json"
+DEMO_CHUNK_MARKER = "DEMO_POLICY_CHUNK_MARKER"
 
 DEMO_CATEGORY_KEYS: Dict[str, Dict[str, Any]] = {
     "Suspension / Disciplinary": {
@@ -285,6 +286,20 @@ def split_text_into_chunks(text: str, chunk_size: int = CHUNK_SIZE_TOKENS, overl
     return chunks
 
 
+def split_marker_chunks(text: str, marker: str = DEMO_CHUNK_MARKER) -> List[str]:
+    """Split text into exact chunks when marker tags are present in source documents."""
+    if marker not in text:
+        return []
+
+    raw_parts = text.split(marker)[1:]
+    chunks: List[str] = []
+    for part in raw_parts:
+        normalized = " ".join(part.split()).strip()
+        if normalized:
+            chunks.append(normalized)
+    return chunks
+
+
 def update_faiss_index(new_embeddings: np.ndarray, existing_index_path: Path = INDEX_PATH) -> None:
     """
     Update FAISS index by appending new embeddings to existing index.
@@ -360,8 +375,10 @@ def ingest_policy_document(file_path: str, policy_id: Optional[str] = None, sect
     if policy_id is None:
         policy_id = file_path.stem
     
-    # Split into chunks
-    chunks = split_text_into_chunks(text, chunk_size=CHUNK_SIZE_TOKENS, overlap=OVERLAP_TOKENS)
+    # Split into chunks. If marker-delimited chunks exist, preserve them exactly.
+    chunks = split_marker_chunks(text)
+    if not chunks:
+        chunks = split_text_into_chunks(text, chunk_size=CHUNK_SIZE_TOKENS, overlap=OVERLAP_TOKENS)
     if not chunks:
         raise ValueError(f"No chunks generated from: {file_path}")
     
