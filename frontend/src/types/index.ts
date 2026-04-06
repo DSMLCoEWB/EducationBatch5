@@ -1,8 +1,12 @@
 export type EmailCategory = 
-  | 'suspension'
-  | 'fir'
-  | 'semester'
-  | 'miscellaneous';
+  | 'suspension' | 'Suspension / Disciplinary'
+  | 'fir' | 'FIR / Arrest / Legal'
+  | 'semester' | 'Semester / Examination'
+  | 'miscellaneous' | 'Miscellaneous' | 'Non-Suspension Service'
+  | 'demo'
+  | 'Sent'
+  | 'trash'
+  | string;
 
 export type MailType = 'fresh' | 'follow-up';
 
@@ -25,6 +29,7 @@ export interface Email {
   replied: boolean;
   replyText?: string;
   is_demo?: boolean;
+  threadId?: string;
 }
 
 export interface CategoryInfo {

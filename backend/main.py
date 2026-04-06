@@ -1,26 +1,41 @@
 import email
+import base64
 from itertools import count
 import os
 import pandas as pd
+from database_api import init_db, save_emails_batch, get_emails_from_db, mark_as_trashed, delete_all_for_user, get_existing_gmail_ids
 import re
 import json
 import ast
-import shutil
+import requests
+import jwt
 import hashlib
-from pathlib import Path
+import hmac
+import base64
+import json
+from datetime import datetime
 from datetime import datetime, timedelta
-from typing import Any, Dict
+import shutil
+import threading
+import time
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+from email.header import decode_header, make_header
+from email.message import EmailMessage
+from email.utils import parseaddr, parsedate_to_datetime
+from contextlib import asynccontextmanager
+from typing import List, Dict, Any, Optional
 from email_parser import parse_eml
 from classifier import classify_grievance
 from followup import detect_followup
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from chatbot import ask
-from priority_llm import get_llm_priority, apply_thread_escalation
+from priority_llm import get_llm_priority, get_batch_priorities, apply_thread_escalation
 from pydantic import BaseModel
 from rag.reply_generator import generate_suggested_reply_with_evidence
-from rag.retriever import reload_retriever_data
+from rag.retriever import reload_retriever_data, get_embedder
 from rag_pipeline.ingest import ingest_policy_document, CHUNKS_PATH, INDEX_PATH
 import logging
 import faiss
@@ -28,6 +43,13 @@ import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
+from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from cryptography.fernet import Fernet, InvalidToken
+from google import genai
 load_dotenv()
 
 # ---------- LOGGING ----------
@@ -42,9 +64,79 @@ DEMO_EMAILS_PATH = Path(__file__).parent / "demo_emails_from_chunks.json"
 DEMO_POLICY_DIR = Path(__file__).parent / "demo_policies"
 DEMO_POLICY_DIR.mkdir(parents=True, exist_ok=True)
 
-# email source mode: demo | files | dynamic
-EMAIL_SOURCE_MODE = os.getenv("EMAIL_SOURCE_MODE", "demo").strip().lower()
+# dynamic email fetch configuration
+EMAIL_SOURCE_MODE = "dynamic"
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+IS_PRODUCTION = APP_ENV in {"prod", "production"}
+GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "your-project@gmail.com").strip()
+DYNAMIC_FETCH_LIMIT = int(os.getenv("DYNAMIC_FETCH_LIMIT", "0"))
+DYNAMIC_AUTO_REFRESH_SECONDS = int(os.getenv("DYNAMIC_AUTO_REFRESH_SECONDS", "30"))
 DEMO_USE_LLM_PRIORITY = os.getenv("DEMO_USE_LLM_PRIORITY", "false").strip().lower() == "true"
+DYNAMIC_USE_LLM_PRIORITY = os.getenv("DYNAMIC_USE_LLM_PRIORITY", "false").strip().lower() == "true"
+
+GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/auth/google/callback").strip()
+GOOGLE_OAUTH_TOKEN_PATH = Path(os.getenv("GOOGLE_OAUTH_TOKEN_PATH", str(Path(__file__).parent / "data" / "google_oauth_token.enc")))
+GOOGLE_OAUTH_TOKENS_DIR = Path(os.getenv("GOOGLE_OAUTH_TOKENS_DIR", str(Path(__file__).parent / "data" / "oauth_tokens")))
+GOOGLE_OAUTH_ENCRYPTION_KEY = os.getenv("GOOGLE_OAUTH_ENCRYPTION_KEY", "").strip()
+GOOGLE_OAUTH_COOKIE_SECURE = os.getenv("GOOGLE_OAUTH_COOKIE_SECURE", "false").strip().lower() == "true"
+GOOGLE_OAUTH_SUCCESS_REDIRECT_URL = os.getenv("GOOGLE_OAUTH_SUCCESS_REDIRECT_URL", "").strip()
+GOOGLE_OAUTH_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.modify",
+]
+
+SEEDED_SUBJECT_PREFIX = "[AICOE-SEED]"
+APP_SESSION_SECRET = os.getenv("APP_SESSION_SECRET", GOOGLE_OAUTH_ENCRYPTION_KEY).strip()
+
+_dynamic_cache_df_by_user: Dict[str, pd.DataFrame] = {}
+_dynamic_cache_at_by_user: Dict[str, datetime] = {}
+_dynamic_cache_lock = threading.Lock()
+_priority_llm_worker_running_by_user: Dict[str, bool] = {}
+_priority_llm_last_run_by_user: Dict[str, datetime] = {}
+_priority_llm_consecutive_failures_by_user: Dict[str, int] = {}
+_priority_llm_scored_ids_by_user: Dict[str, set[str]] = {}
+
+
+def _get_google_fernet() -> Fernet:
+    if not GOOGLE_OAUTH_ENCRYPTION_KEY:
+        raise ValueError("GOOGLE_OAUTH_ENCRYPTION_KEY is required for secure OAuth token storage.")
+    return Fernet(GOOGLE_OAUTH_ENCRYPTION_KEY.encode("utf-8"))
+
+
+def _origin_is_secure_https(origin: str) -> bool:
+    parsed = urlparse(origin)
+    return parsed.scheme == "https" and bool(parsed.netloc)
+
+
+def _is_localhost_origin(origin: str) -> bool:
+    parsed = urlparse(origin)
+    host = parsed.hostname or ""
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def _validate_runtime_configuration() -> None:
+    if not GOOGLE_OAUTH_CLIENT_ID or not GOOGLE_OAUTH_CLIENT_SECRET or not GOOGLE_OAUTH_REDIRECT_URI:
+        raise RuntimeError(
+            "Missing Google OAuth configuration. Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, and GOOGLE_OAUTH_REDIRECT_URI."
+        )
+    if not GOOGLE_OAUTH_ENCRYPTION_KEY:
+        raise RuntimeError("Missing GOOGLE_OAUTH_ENCRYPTION_KEY for secure token storage.")
+    if not APP_SESSION_SECRET:
+        raise RuntimeError("Missing APP_SESSION_SECRET for user session signing.")
+
+    if IS_PRODUCTION:
+        if not GOOGLE_OAUTH_COOKIE_SECURE:
+            raise RuntimeError("GOOGLE_OAUTH_COOKIE_SECURE must be true in production.")
+        if not GOOGLE_OAUTH_SUCCESS_REDIRECT_URL:
+            raise RuntimeError("GOOGLE_OAUTH_SUCCESS_REDIRECT_URL is required in production.")
+        if not _origin_is_secure_https(GOOGLE_OAUTH_SUCCESS_REDIRECT_URL):
+            raise RuntimeError("GOOGLE_OAUTH_SUCCESS_REDIRECT_URL must use https in production.")
+        insecure_origins = [origin for origin in cors_origins if not _origin_is_secure_https(origin) or _is_localhost_origin(origin)]
+        if insecure_origins:
+            raise RuntimeError(f"CORS_ORIGINS contains insecure origins for production: {insecure_origins}")
 
 # Load college database
 COLLEGES_DB = []
@@ -71,7 +163,9 @@ def clean_for_excel(text):
 
 
 def _generate_email_id(content: str) -> str:
-    return hashlib.md5(content.encode("utf-8")).hexdigest()[:12]
+    # Strip common Gmail metadata symbols to ensure In-Reply-To matches the original ID
+    clean = str(content or "").strip().lower().replace("<", "").replace(">", "")
+    return hashlib.md5(clean.encode("utf-8")).hexdigest()[:12]
 
 
 def _heuristic_priority(text: str, subject: str) -> int:
@@ -121,14 +215,7 @@ def _build_demo_dataframe() -> pd.DataFrame:
 
         category = classify_grievance(content)
 
-        base_priority = None
-        if DEMO_USE_LLM_PRIORITY:
-            try:
-                base_priority = get_llm_priority(content, subject, sender_name)
-            except Exception:
-                base_priority = None
-        if base_priority is None:
-            base_priority = _heuristic_priority(content, subject)
+        base_priority = _heuristic_priority(content, subject)
 
         mock_email_obj = {
             "email_id": email_id,
@@ -194,16 +281,7 @@ def _build_files_dataframe() -> pd.DataFrame:
         category = classify_grievance(parsed_email["content"])
         mail_type, _, followup_count = detect_followup(parsed_email, df)
 
-        try:
-            base_priority = get_llm_priority(
-                parsed_email["content"],
-                parsed_email.get("subject", ""),
-                parsed_email.get("sender", ""),
-            )
-        except Exception:
-            base_priority = None
-        if base_priority is None:
-            base_priority = _heuristic_priority(parsed_email.get("content", ""), parsed_email.get("subject", ""))
+        base_priority = _heuristic_priority(parsed_email.get("content", ""), parsed_email.get("subject", ""))
 
         final_priority = apply_thread_escalation(base_priority, followup_count)
         if final_priority is None:
@@ -223,6 +301,777 @@ def _build_files_dataframe() -> pd.DataFrame:
         print("✓ Added to database")
 
     return df
+
+
+def _decode_header_value(raw_value: str | None) -> str:
+    if not raw_value:
+        return ""
+    try:
+        return str(make_header(decode_header(raw_value))).strip()
+    except Exception:
+        return str(raw_value).strip()
+
+
+def _extract_email_body(msg: email.message.Message) -> str:
+    if msg.is_multipart():
+        text_parts: list[str] = []
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            disposition = str(part.get("Content-Disposition", "")).lower()
+            if "attachment" in disposition:
+                continue
+            if content_type == "text/plain":
+                payload = part.get_payload(decode=True)
+                if payload:
+                    charset = part.get_content_charset() or "utf-8"
+                    text_parts.append(payload.decode(charset, errors="replace"))
+        return "\n".join(t.strip() for t in text_parts if t.strip()).strip()
+
+    payload = msg.get_payload(decode=True)
+    if not payload:
+        return ""
+    charset = msg.get_content_charset() or "utf-8"
+    return payload.decode(charset, errors="replace").strip()
+
+
+def _extract_attachment_names(msg: email.message.Message) -> list[str]:
+    names: list[str] = []
+    for part in msg.walk():
+        filename = part.get_filename()
+        if filename:
+            names.append(_decode_header_value(filename))
+    return names
+
+
+def _google_oauth_ready() -> bool:
+    return bool(GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET and GOOGLE_OAUTH_REDIRECT_URI and GOOGLE_OAUTH_ENCRYPTION_KEY)
+
+
+def _build_google_flow(state: str | None = None) -> Flow:
+    if not _google_oauth_ready():
+        raise ValueError("Google OAuth is not configured. Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URI.")
+
+    client_config = {
+        "web": {
+            "client_id": GOOGLE_OAUTH_CLIENT_ID,
+            "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    }
+    flow = Flow.from_client_config(client_config, scopes=GOOGLE_OAUTH_SCOPES, state=state)
+    flow.redirect_uri = GOOGLE_OAUTH_REDIRECT_URI
+    return flow
+
+
+def _user_key(user_email: str) -> str:
+    return hashlib.sha256(user_email.strip().lower().encode("utf-8")).hexdigest()
+
+
+def _token_path_for_user(user_email: str) -> Path:
+    GOOGLE_OAUTH_TOKENS_DIR.mkdir(parents=True, exist_ok=True)
+    return GOOGLE_OAUTH_TOKENS_DIR / f"{_user_key(user_email)}.enc"
+
+
+def _save_google_credentials(user_email: str, creds: Credentials) -> None:
+    token_path = _token_path_for_user(user_email)
+    encrypted_token = _get_google_fernet().encrypt(creds.to_json().encode("utf-8"))
+    with open(token_path, "wb") as f:
+        f.write(encrypted_token)
+
+
+def _load_google_credentials(user_email: str) -> Credentials | None:
+    token_path = _token_path_for_user(user_email)
+    if not token_path.exists():
+        return None
+
+    try:
+        encrypted_token = token_path.read_bytes()
+        token_json = _get_google_fernet().decrypt(encrypted_token).decode("utf-8")
+        token_data = json.loads(token_json)
+        creds = Credentials.from_authorized_user_info(token_data, scopes=GOOGLE_OAUTH_SCOPES)
+    except (InvalidToken, ValueError, OSError, json.JSONDecodeError):
+        return None
+
+    if creds and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(GoogleAuthRequest())
+            _save_google_credentials(user_email, creds)
+        except Exception:
+            return None
+
+    return creds if creds and creds.valid else None
+
+
+def _get_gmail_api_service(user_email: str) -> Any | None:
+    creds = _load_google_credentials(user_email)
+    if not creds:
+        return None
+    try:
+        return build("gmail", "v1", credentials=creds, cache_discovery=False)
+    except Exception:
+        return None
+
+
+def _extract_email_from_credentials(creds: Credentials) -> str:
+    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+    profile = service.users().getProfile(userId="me").execute()
+    email_addr = str(profile.get("emailAddress", "")).strip().lower()
+    if not email_addr:
+        raise ValueError("Unable to resolve Google account email from credentials")
+    return email_addr
+
+
+def _session_cookie_name() -> str:
+    return "aicoe_session"
+
+
+def _session_token_for_user(user_email: str) -> str:
+    email_norm = user_email.strip().lower()
+    payload = base64.urlsafe_b64encode(email_norm.encode("utf-8")).decode("ascii")
+    sig = hmac.new(APP_SESSION_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+
+def _user_from_session_token(token: str | None) -> str | None:
+    if not token or "." not in token:
+        return None
+    payload, sig = token.split(".", 1)
+    expected = hmac.new(APP_SESSION_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    try:
+        email_addr = base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8").strip().lower()
+    except Exception:
+        return None
+    return email_addr or None
+
+
+def _get_authenticated_user_email(request: Request) -> str:
+    # 1. CSRF Protection Check
+    if request.method in ["POST", "PUT", "DELETE"]:
+        if not request.headers.get("X-Requested-With"):
+            raise HTTPException(status_code=403, detail="Security Header Missing (CSRF Protection)")
+
+    # 2. Session Validation
+    email_addr = _user_from_session_token(request.cookies.get(_session_cookie_name()))
+    if not email_addr:
+        raise HTTPException(status_code=401, detail="Not authenticated. Connect Gmail first.")
+    
+    # 3. Revocation Check (RISC Protection)
+    from database_api import is_user_revoked
+    if is_user_revoked(email_addr):
+        raise HTTPException(status_code=403, detail="Account revoked due to Google Security Event. Please contact administrator.")
+        
+    return email_addr
+
+
+def _oauth_state_cookie_name() -> str:
+    return "google_oauth_state"
+
+
+def _oauth_verifier_cookie_name() -> str:
+    return "google_oauth_verifier"
+
+
+def _is_secure_cookie_required() -> bool:
+    return GOOGLE_OAUTH_COOKIE_SECURE
+
+
+def _gmail_api_list_message_ids(
+    service: Any,
+    limit: int = 0,
+    *,
+    query: str | None = None,
+    label_ids: list[str] | None = None,
+) -> list[str]:
+    message_ids: list[str] = []
+    page_token = None
+    remaining = limit if limit > 0 else None
+    
+    # If a query is provided, we typically want to search across all labels
+    # Use empty list for 'all labels' or explicitly provided label_ids
+    labels = label_ids
+    if not labels and not query:
+        labels = ["INBOX"]
+
+    while True:
+        max_results = min(remaining, 100) if remaining is not None else 100
+        req = service.users().messages().list(
+            userId="me",
+            labelIds=labels,
+            q=query,
+            pageToken=page_token,
+            maxResults=max_results,
+        )
+        resp = req.execute()
+        items = resp.get("messages", [])
+        message_ids.extend([item.get("id") for item in items if item.get("id")])
+
+        if remaining is not None:
+            remaining -= len(items)
+            if remaining <= 0:
+                break
+
+        page_token = resp.get("nextPageToken")
+        if not page_token or not items:
+            break
+
+    return message_ids
+
+
+def _fetch_dynamic_gmail_messages_oauth(user_email: str, limit: int = 0, query: str = "") -> list[dict[str, Any]]:
+    service = _get_gmail_api_service(user_email)
+    if service is None:
+        raise ValueError("Google OAuth token not available. Connect Gmail first.")
+
+    message_ids = _gmail_api_list_message_ids(service, limit=limit, query=query)
+    
+    # NEW: Filter out IDs that already exist in our database to avoid redundant fetching
+    existing_ids = get_existing_gmail_ids(user_email)
+    new_message_ids = [mid for mid in message_ids if mid not in existing_ids] or []
+    
+    if len(new_message_ids) < len(message_ids):
+        print(f"⏩ [Sync] Skipping {len(message_ids) - len(new_message_ids)} messages already in DB.")
+        
+    messages: list[dict[str, Any]] = []
+
+    for msg_id in new_message_ids:
+        try:
+            payload = service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
+            raw_str = payload.get("raw", "")
+            if not raw_str:
+                continue
+            msg_bytes = base64.urlsafe_b64decode(raw_str.encode("utf-8"))
+            msg = email.message_from_bytes(msg_bytes)
+        except Exception:
+            continue
+
+        subject = _decode_header_value(msg.get("Subject")) or "(No Subject)"
+        sender_full = _decode_header_value(msg.get("From"))
+        sender_name, sender_email = parseaddr(sender_full)
+        sender_name = sender_name.strip() or sender_email or "Unknown Sender"
+
+        date_header = msg.get("Date")
+        try:
+            email_date = parsedate_to_datetime(date_header).date().isoformat() if date_header else datetime.now().date().isoformat()
+        except Exception:
+            email_date = datetime.now().date().isoformat()
+
+        body = _extract_email_body(msg)
+        content = f"{subject}\n{body}".strip()
+        message_id = str(msg.get("Message-ID", "")).strip()
+        parent_message_id = str(msg.get("In-Reply-To", "")).strip()
+        attachments = _extract_attachment_names(msg)
+
+        messages.append(
+            {
+                "email_id": _generate_email_id(message_id or content),
+                "parent_email_id": _generate_email_id(parent_message_id) if parent_message_id else "",
+                "thread_id": str(payload.get("threadId", "")).strip(), # Gmail native thread ID
+                "sender": sender_name,
+                "sender_email": sender_email or "",
+                "subject": subject,
+                "date": email_date,
+                "content": content,
+                "attachments": attachments,
+                "raw_message_id": message_id,
+                "gmail_id": msg_id, # Internal Gmail hex ID
+            }
+        )
+
+    return messages
+
+
+def _send_email_via_gmail_api(user_email: str, to_email: str, subject: str, body: str) -> bool:
+    service = _get_gmail_api_service(user_email)
+    if service is None:
+        return False
+
+    msg = EmailMessage()
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(body)
+    raw_msg = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+
+    try:
+        service.users().messages().send(userId="me", body={"raw": raw_msg}).execute()
+        return True
+    except HttpError:
+        return False
+
+
+def _fetch_dynamic_gmail_messages(user_email: str, limit: int = 0) -> list[dict[str, Any]]:
+    """Fetch messages from both INBOX and SENT to track full conversation state."""
+    service = _get_gmail_api_service(user_email)
+    if service is None:
+        raise ValueError("Gmail OAuth token not available or invalid. Reconnect Gmail through the app.")
+    
+    # Fetch from Inbox
+    inbox_messages = _fetch_dynamic_gmail_messages_oauth(user_email, limit=limit, query="in:inbox")
+    for msg in inbox_messages:
+        msg["is_inbox"] = True
+    
+    # Fetch from Sent - increase limit to match Inbox for full coverage
+    sent_limit = limit if limit > 0 else 100
+    sent_messages = _fetch_dynamic_gmail_messages_oauth(user_email, limit=sent_limit, query="in:sent")
+    for msg in sent_messages:
+        msg["is_sent"] = True
+        msg["is_sent_by_me"] = True
+        # Don't force 'Sent' category; let classification handle it if it's a grievance.
+
+    # Fetch from Trash - increase limit similarly
+    trash_limit = limit if limit > 0 else 50
+    trash_messages = _fetch_dynamic_gmail_messages_oauth(user_email, limit=trash_limit, query="in:trash")
+    for msg in trash_messages:
+        msg["category"] = "trash"
+
+    # Combine all (deduplication happens later by ID in DB)
+    return inbox_messages + sent_messages + trash_messages
+
+
+def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
+    # 1. Fetch only NEW messages from Gmail (skipped ones are already in DB)
+    new_messages = _fetch_dynamic_gmail_messages(user_email, limit=DYNAMIC_FETCH_LIMIT)
+    
+    # 2. Load existing emails from DB to provide context for followup detection
+    from database_api import get_emails_from_db
+    # We fetch everything currently in DB to ensure we don't lose anything
+    existing_emails = get_emails_from_db(user_email, category='all')
+    existing_df = pd.DataFrame(existing_emails)
+
+    if not new_messages:
+        print("ℹ️ [Sync] No new messages to process.")
+        return existing_df
+
+    # 3. Process new messages
+    new_rows = []
+    for msg in new_messages:
+        category = classify_grievance(msg["content"])
+        mail_type, parent_id, followup_count = detect_followup(msg, existing_df)
+
+        # Always score immediately with deterministic heuristic in request path.
+        # Optional LLM refinement is applied asynchronously in background.
+        base_priority = _heuristic_priority(msg.get("content", ""), msg.get("subject", ""))
+
+        final_priority = apply_thread_escalation(base_priority, followup_count)
+        if final_priority is None:
+            final_priority = base_priority
+
+        institute_guess = msg.get("sender_email", "").split("@")[-1] if msg.get("sender_email") else "Unknown Institute"
+
+        final_category = msg.get("category") or category
+        if final_category == "miscellaneous" and msg.get("is_sent_by_me"):
+            final_category = "Sent"
+
+        # Only mark as 'replied' if it's a genuine response to a different sender, 
+        # not just because it's a self-sent test grievance.
+        sender_email = msg.get("sender_email", "").strip().lower()
+        user_email_norm = user_email.strip().lower()
+        is_self_sent = sender_email == user_email_norm
+        
+        # A reply is specifically an email I sent to SOMEONE ELSE.
+        # If I sent it to myself (a self-sent test grievance), it's not a reply, it's a grievance.
+        is_inbox = msg.get("is_inbox", False)
+        is_sent_by_me = msg.get("is_sent_by_me", False)
+        is_replied = is_sent_by_me and not is_self_sent
+
+        row = {
+            "email_id": msg["email_id"],
+            "parent_email_id": parent_id or msg.get("parent_email_id", ""),
+            "thread_id": msg.get("thread_id", ""),
+            "sender": msg.get("sender", "Unknown Sender"),
+            "sender_email": sender_email,
+            "institute_name": institute_guess,
+            "subject": msg.get("subject", ""),
+            "category": final_category,
+            "mail_type": mail_type,
+            "followup_count": followup_count,
+            "priority": int(final_priority),
+            "date": msg.get("date", datetime.now().date().isoformat()),
+            "content": msg.get("content", ""),
+            "attachments": json.dumps(msg.get("attachments", []), ensure_ascii=False),
+            "eml_file": msg.get("raw_message_id", ""),
+            "gmail_id": msg.get("gmail_id", ""),
+            "is_demo": False,
+            "replied": is_replied,
+            "is_inbox": is_inbox,
+            "is_sent": msg.get("is_sent", False),
+            "is_trashed": 1 if msg.get("category") == "trash" else 0,
+        }
+
+        new_rows.append(row)
+
+    # 6. Final Merge
+    if not new_messages:
+        return existing_df
+        
+    new_df = pd.DataFrame(new_rows)
+    final_df = pd.concat([existing_df, new_df], ignore_index=True)
+    
+    # [NAN FIX]: Sanitize numeric columns to prevent "float NaN to integer" crashes
+    numeric_defaults = {
+        "priority": 6,
+        "followup_count": 0,
+        "replied": 0,
+        "is_trashed": 0,
+        "is_inbox": 0,
+        "is_sent": 0,
+        "is_priority_refined": 0
+    }
+    for col, default in numeric_defaults.items():
+        if col in final_df.columns:
+            final_df[col] = final_df[col].fillna(default)
+            
+    return final_df
+
+
+def _persist_dynamic_cache(user_email: str, df: pd.DataFrame, *, cached_at: datetime | None = None) -> None:
+    key = _user_key(user_email)
+    stamp = cached_at or datetime.now()
+    with _dynamic_cache_lock:
+        _dynamic_cache_df_by_user[key] = df.copy()
+        _dynamic_cache_at_by_user[key] = stamp
+
+    # Save to SQLite DB for persistence and instant updates
+    try:
+        emails_list = df.to_dict(orient="records")
+        save_emails_batch(user_email, emails_list)
+    except Exception as e:
+        print(f"⚠️ Failed to persist to SQLite: {e}")
+
+
+def _run_priority_llm_enrichment(user_email: str) -> None:
+    # 1. Brief pause to let initial sync/UI render settle
+    time.sleep(5)
+    
+    key = _user_key(user_email)
+    snapshot_df: pd.DataFrame | None = None
+    
+    # [CRASH FIX]: Initialize variables to prevent UnboundLocalError in finally block
+    updates = {}
+    newly_scored = set()
+
+    try:
+        with _dynamic_cache_lock:
+            cached_df = _dynamic_cache_df_by_user.get(key)
+            if cached_df is not None:
+                snapshot_df = cached_df.copy()
+
+        if snapshot_df is None or snapshot_df.empty:
+            return
+
+        # 2. POPULATE SCORED_IDS FROM DATABASE [REINFORCEMENT]
+        # This ensures that even after a restart, we don't re-score anything
+        scored_ids = _priority_llm_scored_ids_by_user.get(key, set())
+        
+        try:
+            from database_api import DB_PATH
+            import sqlite3
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM emails WHERE user_email = ? AND is_priority_refined = 1", (user_email,))
+            db_refined_ids = {str(row[0]).strip().lower() for row in cursor.fetchall()}
+            scored_ids.update(db_refined_ids)
+            _priority_llm_scored_ids_by_user[key] = scored_ids
+            conn.close()
+        except Exception as db_err:
+            print(f"⚠️ Warning: Could not pre-fetch refined IDs from DB: {db_err}")
+        
+        # 2. Collect only unscored emails
+        to_score = []
+        for _, row in snapshot_df.iterrows():
+            email_id = str(row.get("email_id", "")).strip().lower()
+            # [STRICT SKIP]: Use the persistent is_priority_refined flag from DB
+            is_already_refined = row.get("is_priority_refined", 0)
+            if not email_id or is_already_refined == 1:
+                continue
+            
+            # Legacy/Safety check for in-memory set (during a long running session)
+            if email_id in scored_ids:
+                continue
+            
+            # Defense against NaN for numeric calculation
+            f_count = row.get("followup_count", 0)
+            if pd.isna(f_count):
+                f_count = 0
+            
+            to_score.append({
+                "id": email_id,
+                "sender": row.get("sender", "Unknown"),
+                "subject": row.get("subject", "No Subject"),
+                "content": row.get("content", ""),
+                "followup_count": int(f_count)
+            })
+
+        if not to_score:
+            return
+
+        # 3. Process a larger batch to maximize the Gemini Free Tier's daily request limit (e.g., 20 requests per day)
+        batch_size = 15
+        batch = to_score[:batch_size]
+        
+        print(f"Refining priority for a batch of {len(batch)} emails...")
+        
+        # This call is rate-limited inside priority_llm.py (max 5 per 5 mins)
+        batch_results = get_batch_priorities(batch)
+        print(f"DEBUG: LLM returned {len(batch_results)} results for batch of {len(batch)}.")
+        if batch_results:
+            print(f"DEBUG: Returned IDs: {list(batch_results.keys())}")
+            print(f"DEBUG: Expected IDs: {[e['id'].lower() for e in batch]}")
+        
+        if not batch_results:
+            print(f"Priority batch refinement returned no results (rate limit or failure).")
+            return
+            
+        for email in batch:
+            eid = email["id"].lower()
+            if eid in batch_results:
+                llm_p = batch_results[eid]
+                final_p = apply_thread_escalation(llm_p, email["followup_count"])
+                updates[eid] = int(final_p)
+                newly_scored.add(eid)
+                
+        if not updates:
+            return
+
+        # 4. Save results of this batch immediately to the live cache
+        persist_df: pd.DataFrame | None = None
+        with _dynamic_cache_lock:
+            live_df = _dynamic_cache_df_by_user.get(key)
+            if live_df is not None:
+                live_df = live_df.copy()
+                for eid, priority in updates.items():
+                    mask = live_df["email_id"].astype(str).str.lower() == eid.lower()
+                    if mask.any():
+                        live_df.loc[mask, "priority"] = int(priority)
+                        live_df.loc[mask, "is_priority_refined"] = 1 # Mark as refined permanently
+                
+                _dynamic_cache_df_by_user[key] = live_df
+                _dynamic_cache_at_by_user[key] = datetime.now()
+                
+                scored_store = _priority_llm_scored_ids_by_user.setdefault(key, set())
+                scored_store.update(newly_scored)
+                persist_df = live_df
+
+        if persist_df is not None:
+            # 1. Update Excel
+            os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
+            persist_df.to_excel(EXCEL_FILE, index=False)
+            
+            # 2. Update SQLite Persistence [NEW FIX]
+            batch_records = persist_df.to_dict(orient="records")
+            save_emails_batch(user_email, batch_records)
+            
+            print(f"✓ AI Priority Refinement saved to DB (ID count: {len(newly_scored)}).")
+
+    except Exception as exc:
+        print(f"Priority enrichment thread error: {exc}")
+    finally:
+        # 5. Handle success/failure status for backoff
+        with _dynamic_cache_lock:
+            _priority_llm_worker_running_by_user[key] = False
+            if updates:
+                # Any successful update resets the failure count
+                _priority_llm_consecutive_failures_by_user[key] = 0
+            else:
+                # If the whole run failed (or break due to rate limit), increment failures
+                current_fail = _priority_llm_consecutive_failures_by_user.get(key, 0)
+                _priority_llm_consecutive_failures_by_user[key] = current_fail + 1
+
+
+def _schedule_priority_llm_enrichment(user_email: str) -> None:
+    if not DYNAMIC_USE_LLM_PRIORITY:
+        return
+
+    key = _user_key(user_email)
+    now = datetime.now()
+
+    # 1. Check if a worker is already active
+    with _dynamic_cache_lock:
+        if _priority_llm_worker_running_by_user.get(key, False):
+            return
+            
+        # 2. Check cooldown since last START
+        last_run = _priority_llm_last_run_by_user.get(key)
+        fail_count = _priority_llm_consecutive_failures_by_user.get(key, 0)
+        
+        # INCREASED COOLDOWN: 120 seconds base
+        # BACKOFF: If it failed multiple times, wait longer (e.g. 5 mins after 3 fails)
+        cooldown = 120
+        if fail_count >= 3:
+            cooldown = 300 # 5 minute backoff
+            
+        if last_run and (now - last_run).total_seconds() < cooldown:
+            return
+
+        # 3. Smart Skip: Check if there's actually anything to score before starting
+        cached_df = _dynamic_cache_df_by_user.get(key)
+        if cached_df is None or cached_df.empty:
+            return
+            
+        has_unscored = False
+        for _, row in cached_df.iterrows():
+            eid = str(row.get("email_id", "")).strip()
+            is_ref = row.get("is_priority_refined", 0)
+            
+            # If any email is not refined yet, we have work to do
+            if eid and is_ref == 0:
+                has_unscored = True
+                break
+                
+        if not has_unscored:
+            # All caught up! No need to wake the AI.
+            return
+
+        # Start the worker
+        _priority_llm_worker_running_by_user[key] = True
+        _priority_llm_last_run_by_user[key] = now
+
+    worker = threading.Thread(
+        target=_run_priority_llm_enrichment,
+        args=(user_email,),
+        daemon=True,
+        name=f"priority-llm-{key[:8]}",
+    )
+    worker.start()
+
+
+def _send_demo_emails_to_gmail_inbox(user_email: str) -> Dict[str, Any]:
+    demo_emails = _load_demo_emails()
+    sent = 0
+
+    service = _get_gmail_api_service(user_email)
+    if service is None:
+        raise ValueError("Google OAuth token not available. Connect Gmail through the app first.")
+
+    for item in demo_emails:
+        subject = str(item.get("subject", "")).strip() or "Demo grievance"
+        if not subject.startswith(SEEDED_SUBJECT_PREFIX):
+            subject = f"{SEEDED_SUBJECT_PREFIX} {subject}"
+        body = str(item.get("body", "")).strip() or "This is a demo grievance email."
+        if _send_email_via_gmail_api(user_email, user_email, subject, body):
+            sent += 1
+
+    return {
+        "sent_count": sent,
+        "target_mailbox": user_email,
+    }
+
+
+def _send_excel_emails_to_gmail_inbox(user_email: str, *, only_demo: bool = True, limit: int = 0) -> Dict[str, Any]:
+    if not os.path.exists(EXCEL_FILE):
+        raise FileNotFoundError(f"Excel source not found: {EXCEL_FILE}")
+
+    df = pd.read_excel(EXCEL_FILE)
+    if df.empty:
+        return {
+            "sent_count": 0,
+            "source_rows": 0,
+            "target_mailbox": user_email,
+            "only_demo": only_demo,
+            "limit": limit,
+        }
+
+    if only_demo and "is_demo" in df.columns:
+        df = df[df["is_demo"].astype(str).str.lower().isin(["true", "1"])]
+
+    if limit and limit > 0:
+        df = df.head(limit)
+
+    service = _get_gmail_api_service(user_email)
+    if service is None:
+        raise ValueError("Google OAuth token not available. Connect Gmail through the app first.")
+
+    sent = 0
+    for _, row in df.iterrows():
+        subject = str(row.get("subject", "")).strip() or "Grievance Email"
+        if not subject.startswith(SEEDED_SUBJECT_PREFIX):
+            subject = f"{SEEDED_SUBJECT_PREFIX} {subject}"
+        content = str(row.get("content", "")).strip()
+        sender = str(row.get("sender", "")).strip()
+        sender_email = str(row.get("sender_email", "")).strip()
+
+        body_prefix = []
+        if sender:
+            body_prefix.append(f"Sender: {sender}")
+        if sender_email and sender_email.lower() != "nan":
+            body_prefix.append(f"Sender Email: {sender_email}")
+
+        full_body = "\n".join(body_prefix + ["", content if content and content.lower() != "nan" else "No content provided."]).strip()
+        if _send_email_via_gmail_api(user_email, user_email, subject, full_body):
+            sent += 1
+
+    return {
+        "sent_count": sent,
+        "source_rows": int(len(df)),
+        "target_mailbox": user_email,
+        "only_demo": only_demo,
+        "limit": limit,
+    }
+
+
+def _cleanup_seeded_emails_in_gmail(user_email: str, *, dry_run: bool = True, limit: int = 0, only_inbox: bool = True) -> Dict[str, Any]:
+    service = _get_gmail_api_service(user_email)
+    if service is None:
+        raise ValueError("Google OAuth token not available. Connect Gmail through the app first.")
+
+    query = f'subject:"{SEEDED_SUBJECT_PREFIX}"'
+    label_ids = ["INBOX"] if only_inbox else None
+    message_ids = _gmail_api_list_message_ids(service, limit=limit, query=query, label_ids=label_ids)
+
+    trashed = 0
+    if not dry_run:
+        for msg_id in message_ids:
+            try:
+                service.users().messages().trash(userId="me", id=msg_id).execute()
+                trashed += 1
+            except Exception:
+                continue
+
+    return {
+        "matched_count": len(message_ids),
+        "trashed_count": trashed,
+        "dry_run": dry_run,
+        "only_inbox": only_inbox,
+        "limit": limit,
+        "subject_prefix": SEEDED_SUBJECT_PREFIX,
+    }
+
+
+def _refresh_dynamic_cache(user_email: str, force: bool = False) -> pd.DataFrame:
+    key = _user_key(user_email)
+    with _dynamic_cache_lock:
+        cached_df = _dynamic_cache_df_by_user.get(key)
+        cached_at = _dynamic_cache_at_by_user.get(key)
+
+    now = datetime.now()
+    cache_valid = (
+        cached_df is not None
+        and cached_at is not None
+        and DYNAMIC_AUTO_REFRESH_SECONDS > 0
+        and (now - cached_at).total_seconds() < DYNAMIC_AUTO_REFRESH_SECONDS
+    )
+
+    if not force and cache_valid:
+        _schedule_priority_llm_enrichment(user_email)
+        return cached_df.copy()
+
+    df = _build_dynamic_dataframe(user_email)
+    _persist_dynamic_cache(user_email, df, cached_at=now)
+    _schedule_priority_llm_enrichment(user_email)
+
+    return df
+
+
+def _get_active_dataframe(user_email: str, force_refresh: bool = False) -> pd.DataFrame:
+    try:
+        return _refresh_dynamic_cache(user_email, force=force_refresh)
+    except Exception as exc:
+        print(f"[WARN] Dynamic refresh failed, falling back to Excel cache: {exc}")
+        if os.path.exists(EXCEL_FILE):
+            return pd.read_excel(EXCEL_FILE)
+        return pd.DataFrame(columns=COLUMNS)
 
 
 def _collect_policy_pdf_files(*directories: Path) -> list[Path]:
@@ -250,10 +1099,28 @@ def _sync_policy_pdfs_from_disk(*, include_demo: bool = True, include_uploaded: 
             "index_path": str(INDEX_PATH),
         }
 
-    if CHUNKS_PATH.exists():
-        CHUNKS_PATH.unlink()
-    if INDEX_PATH.exists():
-        INDEX_PATH.unlink()
+    # ONLY delete if we are forcing a rebuild or if the files are missing.
+    # Otherwise, we keep existing index to make startup instant.
+    if include_demo and not (CHUNKS_PATH.exists() and INDEX_PATH.exists()):
+        print("[INFO] Policy index or chunks missing. Rebuilding from scratch...")
+        if CHUNKS_PATH.exists():
+            CHUNKS_PATH.unlink()
+        if INDEX_PATH.exists():
+            INDEX_PATH.unlink()
+    elif not include_demo:
+        # If we're doing a manual sync (usually via POST /policies/load-demo), we rebuild.
+        print("[INFO] Manual policy sync requested. Rebuilding index...")
+        if CHUNKS_PATH.exists():
+            CHUNKS_PATH.unlink()
+        if INDEX_PATH.exists():
+            INDEX_PATH.unlink()
+    else:
+        print("[INFO] Current policy index found. Skipping redundant rebuild at startup.")
+        return {
+            "pdf_count": len(pdf_files),
+            "indexed_count": len(pdf_files),
+            "status": "up-to-date"
+        }
 
     generated_any = False
     for pdf_path in pdf_files:
@@ -289,27 +1156,12 @@ def _sync_demo_policy_pdfs(force_index_rebuild: bool = False) -> Dict[str, Any]:
     """Build the demo policy corpus from PDFs placed in backend/demo_policies."""
     return _sync_policy_pdfs_from_disk(include_demo=True, include_uploaded=False)
 
-def run(source_mode_override: str | None = None):
-    # Create data directory if it doesn't exist
-    os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
-
-    source_mode = (source_mode_override or EMAIL_SOURCE_MODE).strip().lower()
-
+def run(user_email: str, source_mode_override: str | None = None):
     # Ensure the active corpus reflects PDFs on disk before processing emails.
-    if source_mode == "demo":
-        _sync_policy_pdfs_from_disk(include_demo=True, include_uploaded=True)
+    _sync_policy_pdfs_from_disk(include_demo=True, include_uploaded=True)
 
-    if source_mode == "demo":
-        print("📦 Email source mode: demo (from demo_emails_from_chunks.json)")
-        df = _build_demo_dataframe()
-    elif source_mode == "files":
-        print("📂 Email source mode: files (from backend/files/*.eml)")
-        df = _build_files_dataframe()
-    elif source_mode == "dynamic":
-        print("🔌 Email source mode: dynamic (placeholder, falling back to demo source)")
-        df = _build_demo_dataframe()
-    else:
-        raise ValueError(f"Unsupported EMAIL_SOURCE_MODE: {source_mode}")
+    print(f"🔌 Email source mode: dynamic (Gmail inbox: {user_email})")
+    df = _refresh_dynamic_cache(user_email, force=True)
 
     # Clean all text fields for Excel compatibility
     print("\n🧹 Cleaning data for Excel compatibility...")
@@ -322,7 +1174,37 @@ def run(source_mode_override: str | None = None):
     print(f"📊 Data saved to: {EXCEL_FILE}")
 
 # ---------------- FASTAPI APP ----------------
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan handler for startup and shutdown procedures.
+    """
+    # STARTUP - NON-BLOCKING
+    # 1. Background sync (only if needed) and Warmup
+    def _background_startup_tasks():
+        # First, ensure we have a valid index (this is fast if skipping redundant rebuilds)
+        synced = _sync_policy_pdfs_from_disk(include_demo=True, include_uploaded=True)
+        if synced.get("pdf_count"):
+            print(f"[INFO] Policy corpus checked. Status: {synced.get('status', 'synced')}")
+        
+        # Then, warm up the model for faster reply generation later
+        print("🔥 Background model warmup starting (SentenceTransformer)...")
+        get_embedder()
+        print("✅ Background model warmup complete.")
+
+    threading.Thread(target=_background_startup_tasks, daemon=True).start()
+    
+    yield
+    # SHUTDOWN
+    print("Gracefully shutting down...")
+
+# ---------------- FASTAPI APP ----------------
+app = FastAPI(
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+    lifespan=lifespan,
+)
 
 # Enable CORS for frontend
 cors_origins = [
@@ -342,14 +1224,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_validate_runtime_configuration()
+
 # ---------------- FASTAPI APP ----------------
-
-
-@app.on_event("startup")
-def _bootstrap_demo_mode() -> None:
-    synced = _sync_policy_pdfs_from_disk(include_demo=True, include_uploaded=True)
-    if synced["pdf_count"]:
-        print("[INFO] Policy corpus synced from PDFs into policy_chunks.json for RAG retrieval.")
 
 @app.get("/")
 def root():
@@ -359,20 +1236,152 @@ def root():
 def health_check():
     """Health check endpoint for Docker/load balancer"""
     return {"status": "healthy", "service": "AI Grievance Management Backend"}
+
+
+class GoogleAuthStatusResponse(BaseModel):
+    connected: bool
+    email: str | None = None
+    auth_mode: str = "none"
+
+
+def _get_connected_gmail_identity(user_email: str) -> str | None:
+    service = _get_gmail_api_service(user_email)
+    if service is None:
+        return None
+    try:
+        profile = service.users().getProfile(userId="me").execute()
+        return str(profile.get("emailAddress", "")).strip() or None
+    except Exception:
+        return None
+
+
+@app.get("/auth/google/start")
+def start_google_auth():
+    if not _google_oauth_ready():
+        raise HTTPException(
+            status_code=500,
+            detail="Google OAuth is not configured. Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URI, and GOOGLE_OAUTH_ENCRYPTION_KEY.",
+        )
+
+    flow = _build_google_flow()
+    auth_url, state = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+    )
+    code_verifier = getattr(flow, "code_verifier", None)
+    response = RedirectResponse(url=auth_url)
+    response.set_cookie(
+        key=_oauth_state_cookie_name(),
+        value=state,
+        max_age=300,
+        httponly=True,
+        secure=_is_secure_cookie_required(),
+        samesite="lax",
+        path="/",
+    )
+    if code_verifier:
+        response.set_cookie(
+            key=_oauth_verifier_cookie_name(),
+            value=code_verifier,
+            max_age=300,
+            httponly=True,
+            secure=_is_secure_cookie_required(),
+            samesite="lax",
+            path="/",
+        )
+    return response
+
+
+@app.get("/auth/google/callback")
+def complete_google_auth(request: Request, code: str | None = None, state: str | None = None):
+    cookie_state = request.cookies.get(_oauth_state_cookie_name())
+    code_verifier = request.cookies.get(_oauth_verifier_cookie_name())
+
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing OAuth code")
+    if not state or not cookie_state or state != cookie_state:
+        raise HTTPException(status_code=400, detail="OAuth state mismatch")
+    if not code_verifier:
+        raise HTTPException(status_code=400, detail="Missing OAuth code verifier. Restart Google sign-in from the app.")
+
+    try:
+        flow = _build_google_flow(state=state)
+        flow.code_verifier = code_verifier
+        flow.fetch_token(code=code)
+        user_email = _extract_email_from_credentials(flow.credentials)
+        _save_google_credentials(user_email, flow.credentials)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Google OAuth token exchange failed: {exc}")
+
+    if GOOGLE_OAUTH_SUCCESS_REDIRECT_URL:
+        response = RedirectResponse(url=GOOGLE_OAUTH_SUCCESS_REDIRECT_URL)
+        response.delete_cookie(_oauth_state_cookie_name(), path="/")
+        response.delete_cookie(_oauth_verifier_cookie_name(), path="/")
+        response.set_cookie(
+            key=_session_cookie_name(),
+            value=_session_token_for_user(user_email),
+            max_age=86400,
+            httponly=True,
+            secure=_is_secure_cookie_required(),
+            samesite="lax",
+            path="/",
+        )
+        return response
+
+    response = HTMLResponse(content="<html><body style='font-family:Arial,sans-serif;padding:24px;'><h2>Gmail Connected</h2><p>You can close this tab and return to the application.</p></body></html>")
+    response.delete_cookie(_oauth_state_cookie_name(), path="/")
+    response.delete_cookie(_oauth_verifier_cookie_name(), path="/")
+    response.set_cookie(
+        key=_session_cookie_name(),
+        value=_session_token_for_user(user_email),
+        max_age=86400,
+        httponly=True,
+        secure=_is_secure_cookie_required(),
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.get("/auth/google/status", response_model=GoogleAuthStatusResponse)
+def google_auth_status(request: Request):
+    session_email = _user_from_session_token(request.cookies.get(_session_cookie_name()))
+    if not session_email:
+        return GoogleAuthStatusResponse(connected=False, email=None, auth_mode="none")
+
+    connected_email = _get_connected_gmail_identity(session_email)
+    if connected_email:
+        return GoogleAuthStatusResponse(connected=True, email=connected_email, auth_mode="oauth")
+
+    return GoogleAuthStatusResponse(connected=False, email=None, auth_mode="none")
+
+
+@app.post("/auth/google/logout")
+def google_auth_logout(request: Request):
+    session_email = _user_from_session_token(request.cookies.get(_session_cookie_name()))
+    if session_email:
+        token_path = _token_path_for_user(session_email)
+        if token_path.exists():
+            token_path.unlink()
+    response = JSONResponse({"success": True, "message": "Google OAuth disconnected"})
+    response.delete_cookie(_session_cookie_name(), path="/")
+    return response
     
 @app.get("/categories")
-def get_categories():
+def get_categories(request: Request):
     """Get all categories with count"""
-    if not os.path.exists(EXCEL_FILE):
+    user_email = _get_authenticated_user_email(request)
+    df = _get_active_dataframe(user_email)
+    if df.empty:
         return []
-    
-    df = pd.read_excel(EXCEL_FILE)
+
     categories = df.groupby("category").size().reset_index(name="count")
     
     return [
         {"name": row["category"], "count": int(row["count"])}
         for _, row in categories.iterrows()
     ]
+
 
 @app.get("/colleges")
 def get_colleges():
@@ -382,90 +1391,129 @@ def get_colleges():
 
 @app.get("/emails")
 def get_emails(
+    request: Request,
     category: str = Query(..., description="Email category or 'all' for all categories"),
     is_demo: str = Query(None, description="Filter by is_demo: 'true', 'false', or None for all")
 ):
-    """Get all emails for a specific category, with optional is_demo filtering"""
+    """Get all emails from persistent SQLite store, with optional category/demo filtering"""
     try:
-        print(f"Received request for category: '{category}', is_demo: {is_demo}")
-
-        if not os.path.exists(EXCEL_FILE):
-            print(f"Excel file not found: {EXCEL_FILE}")
-            return []
-
-        df = pd.read_excel(EXCEL_FILE)
-        print(f"Total records in Excel: {len(df)}")
-        print(f"Unique categories: {df['category'].unique().tolist()}")
-
-        # Backward compatibility for previously generated datasets.
-        if "priority" not in df.columns:
-            df["priority"] = 99
-        if "followup_count" not in df.columns:
-            df["followup_count"] = 0
-        if "parent_email_id" not in df.columns:
-            df["parent_email_id"] = ""
-        if "attachments" not in df.columns:
-            df["attachments"] = "[]"
-        if "content" not in df.columns:
-            df["content"] = ""
-        if "eml_file" not in df.columns:
-            df["eml_file"] = ""
-        if "is_demo" not in df.columns:
-            df["is_demo"] = False
-        df["priority"] = df["priority"].fillna(99)  # ← add this
-        # Filtering
-        filtered = df.copy()
-        if category != "all":
-            filtered = filtered[filtered["category"] == category]
-        if is_demo is not None:
-            if is_demo.lower() == "true":
-                filtered = filtered[filtered["is_demo"] == True]
-            elif is_demo.lower() == "false":
-                filtered = filtered[(filtered["is_demo"] == False) | (filtered["is_demo"].isna())]
-
-        filtered = filtered.sort_values(by="priority", ascending=True)
-        print(f"Found {len(filtered)} emails for category '{category}' and is_demo={is_demo}")
-
-        result = [
-            {
-                "id": str(row["email_id"]) if pd.notna(row["email_id"]) else "",
-                "sender": str(row["sender"]),
-                "senderEmail": str(row.get("sender_email", "student@example.edu")),
-                "instituteName": str(row.get("institute_name", "Unknown Institute")),
-                "subject": str(row["subject"]),
-                "content": str(row["content"]) if pd.notna(row["content"]) and str(row["content"]) != "nan" else "",
-                "hasAttachment": len(ast.literal_eval(str(row["attachments"]))) > 0 if pd.notna(row["attachments"]) and str(row["attachments"]) not in ["nan", "", "[]"] else False,
-                "attachments": ast.literal_eval(str(row["attachments"])) if pd.notna(row["attachments"]) and str(row["attachments"]) not in ["nan", "", "[]"] else [],
-                "emlFile": str(row["eml_file"]) if pd.notna(row["eml_file"]) and str(row["eml_file"]) != "nan" else "",
-                "category": str(row["category"]),
-                "mailType": str(row["mail_type"]).lower() if pd.notna(row["mail_type"]) else "fresh",
-                "followUpCount": int(row["followup_count"]) if pd.notna(row["followup_count"]) else 0,
-                "priority": int(row["priority"]) if pd.notna(row["priority"]) else 99,
-                "emailDate": str(row["date"]),
-                "parentEmailId": str(row["parent_email_id"]) if pd.notna(row["parent_email_id"]) else "",
-                "is_demo": bool(row["is_demo"]) if "is_demo" in row else False
-            }
-            for _, row in filtered.iterrows()
-        ]
-
-        return result
+        user_email = _get_authenticated_user_email(request)
+        
+        # IMPORTANT: Do NOT call _get_active_dataframe() here — it would overwrite the DB
+        # with in-memory cache. Only read directly from SQLite.
+        demo_bool = None
+        if is_demo:
+            demo_bool = is_demo.lower() == "true"
+            
+        emails = get_emails_from_db(user_email, category, demo_bool)
+        
+        # If the DB is empty (first login), warm it up
+        if not emails:
+            print(f"DB empty for category '{category}', warming cache...")
+            _get_active_dataframe(user_email)
+            emails = get_emails_from_db(user_email, category, demo_bool)
+        
+        print(f"Found {len(emails)} emails in DB for category '{category}'")
+        return emails
     except Exception as e:
         print(f"Error in get_emails: {str(e)}")
         import traceback
         traceback.print_exc()
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/refinement-stats")
+def get_refinement_stats_endpoint(request: Request):
+    """Get count of AI refined vs total emails"""
+    try:
+        user_email = _get_authenticated_user_email(request)
+        from database_api import get_refinement_stats
+        return get_refinement_stats(user_email)
+    except Exception as e:
+        print(f"Error fetching refinement stats: {e}")
+        return {"refined": 0, "total": 0}
 
 @app.post("/process")
-def process_emails():
-    run()
-    return {"status": "emails processed", "source_mode": EMAIL_SOURCE_MODE}
+def process_emails(request: Request):
+    user_email = _get_authenticated_user_email(request)
+    # Force-clear the in-memory cache so we re-fetch from Gmail with fresh logic
+    key = _user_key(user_email)
+    with _dynamic_cache_lock:
+        _dynamic_cache_df_by_user.pop(key, None)
+        _dynamic_cache_at_by_user.pop(key, None)
+    run(user_email)
+    return {"status": "emails processed", "source_mode": "dynamic", "mailbox": user_email}
 
 
 @app.post("/process-demo")
-def process_demo_emails():
-    """Force demo-json population regardless of configured default source mode."""
-    run(source_mode_override="demo")
-    return {"status": "demo emails processed", "source_mode": "demo"}
+def process_demo_emails(request: Request):
+    """Backwards-compatible alias for dynamic processing."""
+    user_email = _get_authenticated_user_email(request)
+    run(user_email)
+    return {"status": "emails processed", "source_mode": "dynamic", "mailbox": user_email}
+
+
+class DemoInboxSeedResponse(BaseModel):
+    success: bool
+    message: str
+    stats: Dict[str, Any]
+
+
+@app.post("/emails/seed-demo", response_model=DemoInboxSeedResponse)
+def seed_demo_emails_to_inbox(request: Request):
+    """Send demo mails into configured Gmail inbox so dynamic fetch can read them."""
+    try:
+        user_email = _get_authenticated_user_email(request)
+        stats = _send_demo_emails_to_gmail_inbox(user_email)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to seed demo emails: {exc}")
+
+    return DemoInboxSeedResponse(
+        success=True,
+        message="Demo emails sent to inbox successfully",
+        stats=stats,
+    )
+
+
+@app.post("/emails/seed-excel", response_model=DemoInboxSeedResponse)
+def seed_excel_emails_to_inbox(
+    request: Request,
+    only_demo: bool = Query(True, description="If true, seed only rows where is_demo is true."),
+    limit: int = Query(0, ge=0, description="Maximum number of rows to seed. 0 means all matching rows."),
+):
+    """Send rows from grievances.xlsx into configured Gmail inbox so dynamic fetch can read them."""
+    try:
+        user_email = _get_authenticated_user_email(request)
+        stats = _send_excel_emails_to_gmail_inbox(user_email, only_demo=only_demo, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to seed Excel emails: {exc}")
+
+    return DemoInboxSeedResponse(
+        success=True,
+        message="Excel emails sent to inbox successfully",
+        stats=stats,
+    )
+
+
+@app.post("/emails/cleanup-seeded", response_model=DemoInboxSeedResponse)
+def cleanup_seeded_emails_in_inbox(
+    request: Request,
+    dry_run: bool = Query(True, description="If true, only report matches without moving emails to trash."),
+    only_inbox: bool = Query(True, description="If true, clean only INBOX; if false, include all labels."),
+    limit: int = Query(0, ge=0, description="Maximum number of seeded emails to evaluate. 0 means all matches."),
+):
+    """Move seeded demo emails to trash based on subject prefix."""
+    try:
+        user_email = _get_authenticated_user_email(request)
+        stats = _cleanup_seeded_emails_in_gmail(user_email, dry_run=dry_run, limit=limit, only_inbox=only_inbox)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup seeded emails: {exc}")
+
+    message = "Seeded email cleanup preview generated" if dry_run else "Seeded emails moved to trash"
+    return DemoInboxSeedResponse(
+        success=True,
+        message=message,
+        stats=stats,
+    )
 
 
 class DemoPolicySyncResponse(BaseModel):
@@ -504,11 +1552,11 @@ def chat(request: ChatRequest):
     return {"answer": answer}
 
 @app.get("/dashboard")
-def dashboard():
-    if not os.path.exists(EXCEL_FILE):
+def dashboard(request: Request):
+    user_email = _get_authenticated_user_email(request)
+    df = _get_active_dataframe(user_email)
+    if df.empty:
         return {"total": 0, "fresh": 0, "followup": 0}
-    
-    df = pd.read_excel(EXCEL_FILE)
     
     return {
         "total": len(df),
@@ -740,6 +1788,7 @@ def delete_policy(policy_id: str):
         "removed_chunks": removed_chunks,
     }
 
+
 # Request model for reply generation
 class GenerateReplyRequest(BaseModel):
     email_content: str
@@ -763,6 +1812,63 @@ class GenerateReplyResponse(BaseModel):
     internal_view: Dict[str, Any] = {}
     external_view: Dict[str, Any] = {}
 
+
+class SendReplyRequest(BaseModel):
+    to_email: str
+    original_subject: str = ""
+    reply_text: str
+
+
+class SendReplyResponse(BaseModel):
+    success: bool
+    message: str
+    to_email: str
+    subject: str
+
+
+def _build_reply_subject(original_subject: str) -> str:
+    base = str(original_subject or "").strip()
+    if not base:
+        return "Reply from Education Department"
+    if base.lower().startswith("re:"):
+        return base
+    return f"RE: {base}"
+
+
+@app.post("/test-api-keys")
+def test_api_keys():
+    """Test both MAIN and PRIORITY Gemini API keys."""
+    main_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    priority_key = os.getenv("PRIORITY_GOOGLE_API_KEY") or os.getenv("PRIORITY_GEMINI_API_KEY")
+
+    results = {
+        "main": {"status": "missing", "message": "No key configured"},
+        "priority": {"status": "missing", "message": "No key configured"}
+    }
+
+    # Test MAIN key
+    if main_key and "your_google_api_key" not in main_key.lower():
+        try:
+            client = genai.Client(api_key=main_key)
+            client.models.generate_content(model="gemini-2.0-flash", contents="Hello")
+            results["main"] = {"status": "success", "message": "Key is valid"}
+        except Exception as e:
+            results["main"] = {"status": "error", "message": str(e)}
+    
+    # Test PRIORITY key
+    if priority_key and "your_google_api_key" not in priority_key.lower():
+        try:
+            client = genai.Client(api_key=priority_key)
+            client.models.generate_content(model="gemini-2.0-flash", contents="Hello")
+            results["priority"] = {"status": "success", "message": "Key is valid"}
+        except Exception as e:
+            results["priority"] = {"status": "error", "message": str(e)}
+    elif main_key and not priority_key:
+        results["priority"] = {"status": "success", "message": "Using Main key (Valid)"} if results["main"]["status"] == "success" else results["main"]
+
+    return results
+
+
 @app.post("/generate-reply")
 def generate_reply(request: GenerateReplyRequest) -> GenerateReplyResponse:
     """Generate AI-powered suggested reply using RAG system"""
@@ -784,18 +1890,181 @@ def generate_reply(request: GenerateReplyRequest) -> GenerateReplyResponse:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to generate reply: {str(e)}")
 
+
+@app.post("/send-reply", response_model=SendReplyResponse)
+def send_reply_email(request: Request, payload: SendReplyRequest):
+    user_email = _get_authenticated_user_email(request)
+    recipient = parseaddr(payload.to_email)[1].strip()
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Recipient email is required")
+
+    body = str(payload.reply_text or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Reply text is required")
+
+    subject = _build_reply_subject(payload.original_subject)
+
+    if _send_email_via_gmail_api(user_email, recipient, subject, body):
+        # 🔥 UPDATE LOCAL CACHE IMMEDIATELY TO PREVENT "BLUNDER"
+        key = _user_key(user_email)
+        with _dynamic_cache_lock:
+            cached_df = _dynamic_cache_df_by_user.get(key)
+            if cached_df is not None:
+                mask = (cached_df["sender_email"] == recipient)
+                cached_df.loc[mask, "replied"] = True
+                _dynamic_cache_df_by_user[key] = cached_df
+                
+                # Update SQLite DB for persistence
+                try:
+                    import sqlite3
+                    from database_api import DB_PATH
+                    conn = sqlite3.connect(DB_PATH)
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE emails SET replied = 1 WHERE sender_email = ? AND user_email = ?", (recipient, user_email))
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    print(f"⚠️ Failed to update replied status in DB: {e}")
+                
+        return SendReplyResponse(
+            success=True,
+            message="Reply email sent successfully",
+            to_email=recipient,
+            subject=subject,
+        )
+
+    raise HTTPException(
+        status_code=500,
+        detail="Google OAuth is required to send replies. Reconnect Gmail through the app.",
+    )
+
+
+@app.post("/emails/{email_id}/trash")
+def trash_email(email_id: str, request: Request):
+    """Move a grievance message to the local Trash DB and then to Gmail Trash"""
+    user_email = _get_authenticated_user_email(request)
+    service = _get_gmail_api_service(user_email)
+    if not service:
+        raise HTTPException(status_code=401, detail="Gmail login required.")
+
+    # 1. Update Persistent Local DB (INSTANT atomic update)
+    mark_as_trashed(user_email, email_id, True)
+
+    # 2. Update In-Memory cache
+    key = _user_key(user_email)
+    with _dynamic_cache_lock:
+        df = _dynamic_cache_df_by_user.get(key)
+        if df is not None:
+             mask = (df["email_id"] == email_id)
+             if mask.any():
+                 row = df.loc[mask].iloc[0]
+                 gmail_id = row.get("gmail_id")
+                 
+                 # Optimistically remove or mark as trashed in cache
+                 df = df.loc[~mask].reset_index(drop=True)
+                 _dynamic_cache_df_by_user[key] = df
+                 
+                 # 3. Call Gmail Trash in background (slow)
+                 if gmail_id:
+                     try:
+                         service.users().messages().trash(userId="me", id=gmail_id).execute()
+                     except Exception as e:
+                         print(f"⚠️ Gmail Trash failed: {e}")
+        
+    return {"success": True, "message": "Email moved to Trash locally and in Gmail."}
+
+
+@app.post("/emails/{email_id}/untrash")
+def untrash_email(email_id: str, request: Request):
+    """Restore a grievance message from the local Trash DB and Gmail Trash"""
+    user_email = _get_authenticated_user_email(request)
+    service = _get_gmail_api_service(user_email)
+    if not service:
+        raise HTTPException(status_code=401, detail="Gmail login required.")
+
+    # 1. Update Persistent Local DB (INSTANT atomic update)
+    mark_as_trashed(user_email, email_id, False)
+
+    return {"success": True, "message": "Email restored to Inbox successfully."}
+
+
+# ---------------- RISC WEBHOOK ----------------
+
+@app.post("/risc/webhook")
+async def risc_webhook(request: Request):
+    """
+    Handle Google Cross-Account Protection (RISC) security event notifications.
+    Standard: https://developers.google.com/identity/protocols/risc
+    """
+    try:
+        body = await request.body()
+        token = body.decode("utf-8")
+        
+        # 1. Get Google's RISC configuration
+        risc_config_uri = 'https://accounts.google.com/.well-known/risc-configuration'
+        risc_config = requests.get(risc_config_uri).json()
+        
+        # 2. Get public keys for validation
+        google_certs = requests.get(risc_config['jwks_uri']).json()
+        
+        # 3. Decode & Validate JWT
+        # aud should be your client ID. Since we have multiple components, we accept all known client IDs.
+        # iss should match risc_config['issuer']
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        
+        # We use PyJWT with the JWK set
+        # Note: In a production environment, you should cache the certs.
+        header = jwt.get_unverified_header(token)
+        kid = header.get("kid")
+        
+        public_key = None
+        for key in google_certs['keys']:
+            if key['kid'] == kid:
+                from jwt.algorithms import RSAAlgorithm
+                public_key = RSAAlgorithm.from_jwk(json.dumps(key))
+                break
+        
+        if not public_key:
+            raise Exception("Public key not found in Google's certs")
+
+        # Validate signature, issuer, and audience
+        # We don't check expiration for RISC events per Google spec
+        decoded = jwt.decode(
+            token, 
+            public_key, 
+            algorithms=['RS256'],
+            audience=client_id,
+            issuer=risc_config['issuer'],
+            options={"verify_exp": False}
+        )
+        
+        # 4. Handle events
+        events = decoded.get("events", {})
+        for event_type, event_data in events.items():
+            subject = event_data.get("subject", {})
+            user_email = subject.get("email") or subject.get("sub")
+            
+            if not user_email:
+                continue
+                
+            # Types: https://developers.google.com/identity/protocols/risc#supported_event_types
+            if "account-disabled" in event_type or "sessions-revoked" in event_type or "tokens-revoked" in event_type:
+                from database_api import revoke_user_session
+                reason = event_data.get("reason", "Google Security Event")
+                revoke_user_session(user_email, f"RISC Event: {event_type} | {reason}")
+                print(f"🛑 SECURITY REVOCATION: {user_email} due to {event_type}")
+
+        # Google expects 202 Accepted
+        from fastapi import Response
+        return Response(status_code=202)
+        
+    except Exception as e:
+        print(f"⚠️ RISC Webhook Error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid Security Event Token")
+
+
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
-    import sys
+    init_db()  # Initialize SQLite
     import uvicorn
-
-    # If script is run directly, process emails first
-    if len(sys.argv) > 1 and sys.argv[1] == "process":
-        run()
-    else:
-        port = int(os.environ.get("PORT", 8000))
-        print("\n🚀 Starting FastAPI server...")
-        print(f"📍 Backend running at: http://localhost:{port}")
-        print(f"📊 API Documentation at: http://localhost:{port}/docs")
-        print("\nPress Ctrl+C to stop the server\n")
-        uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
