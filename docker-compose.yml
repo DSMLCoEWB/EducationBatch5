@@ -9,11 +9,19 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - APP_ENV=${APP_ENV:-development}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GOOGLE_MODEL=${GOOGLE_MODEL:-gemini-2.5-flash}
       - DEMO_MODE=${DEMO_MODE:-true}
-      - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001}
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
+      - GOOGLE_OAUTH_ENCRYPTION_KEY=${GOOGLE_OAUTH_ENCRYPTION_KEY}
+      - GOOGLE_OAUTH_SUCCESS_REDIRECT_URL=${GOOGLE_OAUTH_SUCCESS_REDIRECT_URL:-http://localhost:3000}
+      - GOOGLE_OAUTH_COOKIE_SECURE=${GOOGLE_OAUTH_COOKIE_SECURE:-false}
+      - GOOGLE_OAUTH_TOKEN_PATH=${GOOGLE_OAUTH_TOKEN_PATH:-/app/data/google_oauth_token.enc}
       - RAG_WARMUP=true
     volumes:
       - ./backend/data:/app/data
@@ -32,8 +40,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://localhost:8000
-        VITE_REPLY_API_URL: http://localhost:8000
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_REPLY_API_URL: ${VITE_REPLY_API_URL:-http://localhost:8000}
     container_name: grievance-frontend
     ports:
       - "3000:80"

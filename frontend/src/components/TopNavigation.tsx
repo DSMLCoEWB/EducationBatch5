@@ -1,4 +1,5 @@
-import { Search, Calendar, FileText } from 'lucide-react';
+import { Search, Calendar, RefreshCw, Activity, AlertTriangle, CheckCircle2, Loader2, Sparkles, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { ApiKeyStatus, RefinementStats } from '@/services/api';
 
 interface TopNavigationProps {
   searchQuery: string;
@@ -6,6 +7,22 @@ interface TopNavigationProps {
   dateRange: string;
   onDateRangeChange: (range: string) => void;
   onOpenPolicyManagement: () => void;
+  autoRefreshEnabled: boolean;
+  onAutoRefreshEnabledChange: (enabled: boolean) => void;
+  refreshIntervalSeconds: number;
+  onRefreshIntervalSecondsChange: (seconds: number) => void;
+  onRefreshNow: () => void;
+  isRefreshing: boolean;
+  lastSyncedAt: Date | null;
+  gmailConnected: boolean;
+  gmailIdentity: string | null;
+  gmailAuthMode: string;
+  onConnectGmail: () => void;
+  onDisconnectGmail: () => void;
+  mainKeyStatus: ApiKeyStatus;
+  priorityKeyStatus: ApiKeyStatus;
+  refinementStats: RefinementStats;
+  onTestApiKeys: () => void;
 }
 
 export function TopNavigation({ 
@@ -13,61 +30,186 @@ export function TopNavigation({
   onSearchChange, 
   dateRange, 
   onDateRangeChange,
-  onOpenPolicyManagement
+  autoRefreshEnabled,
+  onAutoRefreshEnabledChange,
+  refreshIntervalSeconds,
+  onRefreshIntervalSecondsChange,
+  onRefreshNow,
+  isRefreshing,
+  lastSyncedAt,
+  gmailConnected,
+  gmailIdentity,
+  gmailAuthMode,
+  onConnectGmail,
+  onDisconnectGmail,
+  mainKeyStatus,
+  priorityKeyStatus,
+  refinementStats,
+  onTestApiKeys
 }: TopNavigationProps) {
+  const syncedLabel = lastSyncedAt
+    ? `Synced ${lastSyncedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : 'Not synced';
+
+  const refinementPct = refinementStats.total > 0 
+    ? Math.round((refinementStats.refined / refinementStats.total) * 100) 
+    : 0;
+
   return (
-    <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 shadow-sm">
-      <div className="flex items-center justify-between gap-6">
-        {/* App Title */}
-        <div className="flex-shrink-0">
-          <h1 className="text-2xl font-bold text-gray-900">
-            Grievance Intelligence System
+    <header className="bg-card border-b border-border px-5 py-3 sticky top-0 z-10">
+      <div className="flex items-center gap-4">
+        {/* Title */}
+        <div className="flex-shrink-0 mr-2">
+          <h1 className="text-lg font-bold text-foreground leading-tight">
+            Grievance Intelligence
           </h1>
-          <p className="text-sm text-gray-500">Education Department Portal</p>
+          <p className="text-xs text-muted-foreground">Education Department</p>
         </div>
 
-        {/* Search Bar */}
-        <div className="flex-1 max-w-2xl">
+        {/* AI Refinement Badge */}
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-gov-blue-light border border-primary/15 rounded-lg">
+          <Sparkles className="w-3.5 h-3.5 text-primary" />
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-primary">
+              AI {refinementStats.refined}/{refinementStats.total}
+            </span>
+            <div className="w-12 h-1.5 bg-primary/15 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-primary rounded-full transition-all duration-700"
+                style={{ width: `${refinementPct}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="flex-1 max-w-lg">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search by sender, subject, or content..."
+              placeholder="Search emails..."
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-9 pr-4 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary transition-all placeholder:text-muted-foreground"
             />
           </div>
         </div>
 
-        {/* Date Range Selector */}
-        <div className="flex items-center gap-3 flex-shrink-0">
+        {/* Controls */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Date filter */}
           <div className="relative">
-            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <select
               value={dateRange}
               onChange={(e) => onDateRangeChange(e.target.value)}
-              aria-label="Filter emails by date range"
-              title="Filter emails by date range"
-              className="pl-10 pr-8 py-2.5 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none cursor-pointer"
+              aria-label="Date range"
+              className="pl-8 pr-6 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/30 appearance-none cursor-pointer"
             >
               <option value="all">All time</option>
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-              <option value="365">Last year</option>
+              <option value="7">7 days</option>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="365">1 year</option>
             </select>
           </div>
 
-          <button
-            onClick={onOpenPolicyManagement}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors shadow-sm"
+          {/* Auto-refresh */}
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={autoRefreshEnabled}
+              onChange={(e) => onAutoRefreshEnabledChange(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-primary/30"
+            />
+            Auto
+          </label>
+
+          <select
+            value={refreshIntervalSeconds}
+            onChange={(e) => onRefreshIntervalSecondsChange(Number(e.target.value))}
+            disabled={!autoRefreshEnabled}
+            aria-label="Refresh interval"
+            className="px-2 py-2 text-xs bg-background border border-border rounded-lg focus:outline-none disabled:opacity-40"
           >
-            <FileText className="w-4 h-4" />
-            <span>Policy Management</span>
+            <option value={5}>5s</option>
+            <option value={15}>15s</option>
+            <option value={30}>30s</option>
+            <option value={60}>60s</option>
+          </select>
+
+          {/* Refresh button */}
+          <button
+            onClick={onRefreshNow}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-background text-foreground hover:bg-accent transition-colors text-sm"
+            title="Refresh now"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
+
+          <span className="text-[11px] text-muted-foreground whitespace-nowrap">{syncedLabel}</span>
+
+          {/* Gmail status */}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 border border-border rounded-lg bg-background">
+            {gmailConnected ? (
+              <Wifi className="w-3.5 h-3.5 text-gov-green" />
+            ) : (
+              <WifiOff className="w-3.5 h-3.5 text-gov-amber" />
+            )}
+            <span className="text-xs text-foreground whitespace-nowrap max-w-[120px] truncate">
+              {gmailConnected ? (gmailIdentity || 'Connected') : 'Disconnected'}
+            </span>
+            {gmailConnected ? (
+              <button
+                onClick={onDisconnectGmail}
+                className="p-1 text-muted-foreground hover:text-destructive rounded transition-colors"
+                title="Disconnect"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button
+                onClick={onConnectGmail}
+                className="text-xs px-2 py-0.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
+              >
+                Connect
+              </button>
+            )}
+          </div>
+
+          {/* API Keys */}
+          <div className="flex items-center gap-1.5 px-2 py-1.5 border border-border rounded-lg bg-background">
+            <button
+              onClick={onTestApiKeys}
+              disabled={mainKeyStatus.status === 'testing'}
+              className="p-1 hover:bg-accent rounded transition-colors"
+              title="Test API Keys"
+            >
+              <Activity className={`w-3.5 h-3.5 ${mainKeyStatus.status === 'testing' ? 'animate-pulse text-primary' : 'text-muted-foreground'}`} />
+            </button>
+            <ApiKeyIndicator label="M" status={mainKeyStatus} />
+            <ApiKeyIndicator label="P" status={priorityKeyStatus} />
+          </div>
         </div>
       </div>
+    </header>
+  );
+}
+
+function ApiKeyIndicator({ label, status }: { label: string; status: ApiKeyStatus }) {
+  return (
+    <div className="flex items-center gap-1" title={`${label}: ${status.message}`}>
+      {status.status === 'testing' ? (
+        <Loader2 className="w-3 h-3 animate-spin text-primary" />
+      ) : status.status === 'success' ? (
+        <CheckCircle2 className="w-3 h-3 text-gov-green" />
+      ) : status.status === 'error' ? (
+        <AlertTriangle className="w-3 h-3 text-gov-red" />
+      ) : (
+        <div className="w-3 h-3 rounded-full border border-border" />
+      )}
+      <span className="text-[10px] font-semibold text-muted-foreground uppercase">{label}</span>
     </div>
   );
 }

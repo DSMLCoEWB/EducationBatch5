@@ -1,6 +1,3 @@
-/* 
- * Policy Management System v2.2 - RE-VERIFIED 
- */
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Upload, X, CheckCircle2, Loader2, FileText, 
@@ -14,10 +11,9 @@ import {
   loadDemoPolicies,
   UploadPolicyResult, 
   IndexedPolicy,
-  DemoPolicySyncResult
-} from '../services/api';
-
-const API_BASE_URL = (import.meta as any).env.VITE_API_URL;
+  DemoPolicySyncResult,
+  API_BASE_URL
+} from '@/services/api';
 
 interface PolicyManagementModalProps {
   onClose: () => void;
@@ -27,8 +23,6 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
   const [view, setView] = useState<'list' | 'upload'>('list');
   const [policies, setPolicies] = useState<IndexedPolicy[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Upload State
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,11 +30,9 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
   const [isLoadingDemo, setIsLoadingDemo] = useState(false);
   const [demoSyncResult, setDemoSyncResult] = useState<DemoPolicySyncResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Deletion State
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const loadPolicies = async () => {
+  const loadPoliciesList = async () => {
     setLoading(true);
     try {
       const data = await fetchPolicies();
@@ -53,12 +45,9 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
   };
 
   useEffect(() => {
-    loadPolicies();
-    // Lock body scroll
+    loadPoliciesList();
     document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
+    return () => { document.body.style.overflow = 'unset'; };
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -76,16 +65,13 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
 
   const handleUpload = async () => {
     if (!file) return;
-    console.log('🚀 Starting upload for:', file.name);
     setIsUploading(true);
     setError(null);
     try {
       const result = await uploadPolicy(file);
-      console.log('✅ Ingestion successful:', result);
       setUploadResult(result);
-      loadPolicies(); // Refresh list
+      loadPoliciesList();
     } catch (err: any) {
-      console.error('❌ Upload failed:', err);
       setError(err.message || 'Failed to upload policy.');
     } finally {
       setIsUploading(false);
@@ -93,14 +79,11 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm(`Are you sure you want to delete the policy "${id}"? This will rebuild the RAG index and remove all associated data.`)) {
-      return;
-    }
-
+    if (!window.confirm(`Delete policy "${id}"? This will rebuild the RAG index.`)) return;
     setDeletingId(id);
     try {
       await deletePolicy(id);
-      loadPolicies(); // Refresh list
+      loadPoliciesList();
     } catch (err: any) {
       alert(err.message || 'Failed to delete policy.');
     } finally {
@@ -112,14 +95,12 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
     setIsLoadingDemo(true);
     setError(null);
     setDemoSyncResult(null);
-
     try {
       const result = await loadDemoPolicies();
       setDemoSyncResult(result);
-      await loadPolicies();
+      await loadPoliciesList();
     } catch (err: any) {
-      console.error('❌ Demo policy sync failed:', err);
-      setError(err.message || 'Failed to load demo policy PDFs.');
+      setError(err.message || 'Failed to load demo policies.');
     } finally {
       setIsLoadingDemo(false);
     }
@@ -127,101 +108,81 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
 
   return (
     <div 
-      className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-300"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          console.log('📝 Overlay clicked, closing...');
-          onClose();
-        }
-      }}
+      className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg h-auto max-h-[90vh] flex flex-col border border-white/20 overflow-hidden transform transition-all animate-in zoom-in-95 duration-300">
-        
+      <div className="bg-card rounded-xl shadow-modal w-full max-w-lg max-h-[85vh] flex flex-col border border-border animate-scale-in overflow-hidden">
         {/* Header */}
-        <div className="flex-shrink-0 bg-blue-600 text-white px-8 py-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Database className="w-5 h-5 text-blue-200" />
-            <h3 className="font-bold text-lg tracking-tight">Policy Management</h3>
+        <div className="bg-primary text-primary-foreground px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Database className="w-4 h-4 text-primary-foreground/70" />
+            <h3 className="font-semibold text-base">Policy Management</h3>
           </div>
-          <button
-            onClick={() => { console.log('📝 Close icon clicked'); onClose(); }}
-            aria-label="Close policy management"
-            title="Close"
-            className="p-2 hover:bg-white/10 rounded-full transition-colors"
-          >
-            <X className="w-5 h-5" />
+          <button onClick={onClose} aria-label="Close" className="p-1.5 hover:bg-primary-foreground/10 rounded-lg transition-colors">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex-shrink-0 flex border-b border-gray-100 bg-gray-50/50">
+        {/* Tabs */}
+        <div className="flex border-b border-border bg-muted/30">
           <button
-            onClick={() => { console.log('📝 Switching to list view'); setView('list'); }}
-            className={`flex-1 py-4 text-xs font-bold uppercase tracking-widest transition-all border-b-2 ${
-              view === 'list' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400'
+            onClick={() => setView('list')}
+            className={`flex-1 py-3 text-xs font-semibold uppercase tracking-wider transition-all border-b-2 ${
+              view === 'list' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            Indexed Policies ({policies.length})
+            Indexed ({policies.length})
           </button>
           <button
-            onClick={() => { 
-              console.log('📝 Switching to upload view'); 
-              setView('upload'); 
-              setFile(null); 
-              setError(null); 
-              setUploadResult(null); 
-            }}
-            className={`flex-1 py-4 text-xs font-bold uppercase tracking-widest transition-all border-b-2 ${
-              view === 'upload' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400'
+            onClick={() => { setView('upload'); setFile(null); setError(null); setUploadResult(null); }}
+            className={`flex-1 py-3 text-xs font-semibold uppercase tracking-wider transition-all border-b-2 ${
+              view === 'upload' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
             Upload New
           </button>
         </div>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-6 min-h-0 custom-scrollbar">
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 min-h-0 custom-scrollbar">
           {view === 'list' ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {loading ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-3 text-gray-400">
-                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-                  <p className="text-sm font-medium">Fetching database...</p>
+                <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  <p className="text-xs">Loading policies...</p>
                 </div>
               ) : policies.length === 0 ? (
-                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-2xl">
-                  <p className="text-gray-500 text-sm">No policies found.</p>
+                <div className="text-center py-12 border-2 border-dashed border-border rounded-xl">
+                  <p className="text-sm text-muted-foreground">No policies indexed yet.</p>
                 </div>
               ) : (
                 policies.map((policy) => (
-                  <div key={policy.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-gray-400" />
-                      <div>
-                        <p className="font-bold text-gray-900 text-sm">{policy.id}</p>
-                        <p className="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">
+                  <div key={policy.id} className="flex items-center justify-between p-3.5 border border-border rounded-lg hover:bg-accent/50 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-foreground text-sm truncate">{policy.id}</p>
+                        <p className="text-[10px] text-muted-foreground uppercase font-medium tracking-wide">
                           {policy.chunk_count} chunks • {policy.status}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
-                        onClick={() => {
-                          console.log('📝 View PDF clicked for:', policy.id);
-                          window.open(`${API_BASE_URL}/policies/${policy.id}`, '_blank');
-                        }}
-                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                        onClick={() => window.open(`${API_BASE_URL}/policies/${policy.id}`, '_blank')}
+                        className="p-1.5 text-muted-foreground hover:text-primary hover:bg-gov-blue-light rounded-md transition-colors"
                         title="View PDF"
                       >
-                        <Eye className="w-4 h-4" />
+                        <Eye className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => { console.log('📝 Delete clicked for:', policy.id); handleDelete(policy.id); }}
+                        onClick={() => handleDelete(policy.id)}
                         disabled={deletingId === policy.id}
-                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete Policy"
+                        className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-gov-red-light rounded-md transition-colors"
+                        title="Delete"
                       >
-                        {deletingId === policy.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        {deletingId === policy.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                       </button>
                     </div>
                   </div>
@@ -229,124 +190,102 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
               )}
             </div>
           ) : (
-            <div className="max-w-md mx-auto space-y-6 pt-4 pb-8">
+            <div className="max-w-sm mx-auto space-y-5 pt-2 pb-6">
               {!uploadResult ? (
                 <>
                   <div 
-                    onClick={() => { console.log('📝 Upload area clicked'); fileInputRef.current?.click(); }}
-                    className={`border-2 border-dashed rounded-3xl p-10 flex flex-col items-center justify-center gap-4 transition-all cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 ${
-                      file ? 'bg-blue-50 border-blue-500' : 'bg-gray-50 border-gray-200'
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer hover:border-primary/40 hover:bg-gov-blue-light/50 ${
+                      file ? 'bg-gov-blue-light border-primary/30' : 'bg-muted/30 border-border'
                     }`}
                   >
-                    <input type="file" ref={fileInputRef} onChange={(e) => { console.log('📝 File input changed'); handleFileChange(e); }} className="hidden" accept=".pdf" disabled={isUploading} aria-label="Upload policy PDF" title="Upload policy PDF" />
-                    
+                    <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".pdf" disabled={isUploading} aria-label="Upload PDF" />
                     {file ? (
                       <div className="text-center">
-                        <div className="w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg">
-                          <FileText className="w-8 h-8" />
+                        <div className="w-12 h-12 bg-primary text-primary-foreground rounded-xl flex items-center justify-center mx-auto mb-2">
+                          <FileText className="w-6 h-6" />
                         </div>
-                        <p className="font-bold text-gray-900 line-clamp-1 text-sm">{file.name}</p>
-                        <p className="text-[10px] text-blue-600 font-bold uppercase mt-1">Ready for indexing</p>
+                        <p className="font-semibold text-foreground text-sm truncate max-w-[200px]">{file.name}</p>
+                        <p className="text-[10px] text-primary font-semibold uppercase mt-0.5">Ready to index</p>
                       </div>
                     ) : (
                       <div className="text-center">
-                        <Upload className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-                        <p className="text-sm font-bold text-gray-900">Click to select PDF</p>
-                        <p className="text-xs text-gray-500 mt-1">Drag and drop supported</p>
+                        <Upload className="w-8 h-8 text-muted-foreground/50 mx-auto mb-1" />
+                        <p className="text-sm font-semibold text-foreground">Click to select PDF</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">PDF files only</p>
                       </div>
                     )}
                   </div>
 
                   {error && (
-                    <p className="text-red-600 bg-red-50 p-3 rounded-lg text-xs font-bold border border-red-100 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4" /> {error}
+                    <p className="text-destructive bg-gov-red-light p-3 rounded-lg text-xs font-medium border border-destructive/15 flex items-center gap-2">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {error}
                     </p>
                   )}
 
-                  {/* PROMINENT INGEST BUTTON IN CENTER */}
                   {file && (
                     <button
-                      onClick={() => { console.log('📝 Ingest Button (Main) clicked'); handleUpload(); }}
+                      onClick={handleUpload}
                       disabled={isUploading}
-                      className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-500/20 active:scale-95 transition-all flex items-center justify-center gap-3"
+                      className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
                     >
                       {isUploading ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          <span>Generating Vector Index...</span>
-                        </>
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Indexing...</>
                       ) : (
-                        <>
-                          <Database className="w-5 h-5" />
-                          <span>Ingest & Index Policy</span>
-                        </>
+                        <><Database className="w-4 h-4" /> Ingest & Index Policy</>
                       )}
                     </button>
                   )}
                 </>
               ) : (
-                <div className="text-center space-y-4">
-                   <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto">
-                     <CheckCircle2 className="w-8 h-8" />
-                   </div>
-                   <h4 className="text-xl font-bold text-gray-900">
-                     {uploadResult.stats.is_update ? 'Policy Updated' : 'Upload Complete'}
-                   </h4>
-                   <p className="text-sm text-gray-500">
-                     Document "{uploadResult.stats.policy_id}" has been {uploadResult.stats.is_update ? 'updated is now available in RAG.' : 'indexed and is now available in RAG.'}
-                   </p>
-                   <button 
-                    onClick={() => { console.log('📝 Return to list clicked'); setView('list'); loadPolicies(); }}
-                    className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold"
-                   >
-                     Done
-                   </button>
+                <div className="text-center space-y-4 pt-4">
+                  <div className="w-14 h-14 bg-gov-green-light text-gov-green rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-7 h-7" />
+                  </div>
+                  <h4 className="text-lg font-bold text-foreground">
+                    {uploadResult.stats.is_update ? 'Policy Updated' : 'Upload Complete'}
+                  </h4>
+                  <p className="text-sm text-muted-foreground">
+                    Document "{uploadResult.stats.policy_id}" is now available in RAG.
+                  </p>
+                  <button 
+                    onClick={() => { setView('list'); loadPoliciesList(); }}
+                    className="w-full py-2.5 bg-foreground text-background rounded-lg font-semibold text-sm"
+                  >
+                    Done
+                  </button>
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Simple Footer */}
-        <div className="flex-shrink-0 px-8 py-5 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+        {/* Footer */}
+        <div className="px-6 py-3 bg-muted/30 border-t border-border flex items-center justify-between">
           <button
-            onClick={() => { console.log('📝 Footer Secondary button clicked'); view === 'upload' ? setView('list') : onClose(); }}
-            className="text-gray-500 font-bold hover:text-gray-900 transition-colors text-sm"
+            onClick={() => view === 'upload' ? setView('list') : onClose()}
+            className="text-sm text-muted-foreground font-medium hover:text-foreground transition-colors"
           >
-            {view === 'upload' ? 'Cancel' : 'Close Dashboard'}
+            {view === 'upload' ? 'Cancel' : 'Close'}
           </button>
-
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {view === 'list' && (
               <button
                 onClick={handleLoadDemoPolicies}
                 disabled={isLoadingDemo}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-semibold hover:opacity-90 transition-colors disabled:opacity-60"
               >
                 {isLoadingDemo ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Loading Demo PDFs</span>
-                  </>
+                  <><Loader2 className="w-3 h-3 animate-spin" /> Loading...</>
                 ) : (
-                  <>
-                    <RefreshCw className="w-4 h-4" />
-                    <span>Load Demo PDFs</span>
-                  </>
+                  <><RefreshCw className="w-3 h-3" /> Load Demo PDFs</>
                 )}
               </button>
             )}
-
-            {view === 'upload' && file && !uploadResult && (
-              <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest animate-pulse">
-                System Ready
-              </p>
-            )}
-
             {demoSyncResult && view === 'list' && !isLoadingDemo && (
-              <p className="text-[10px] text-green-600 font-black uppercase tracking-widest">
-                Loaded {demoSyncResult.stats.pdf_count} PDFs
-              </p>
+              <span className="text-[10px] text-gov-green font-semibold uppercase">
+                ✓ {demoSyncResult.stats.pdf_count} loaded
+              </span>
             )}
           </div>
         </div>

@@ -98,12 +98,25 @@ docker-compose down
 ```env
 GOOGLE_API_KEY=your_api_key_from_google_cloud
 GEMINI_API_KEY=your_gemini_api_key
+GOOGLE_OAUTH_CLIENT_ID=your_oauth_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=your_oauth_client_secret
+GOOGLE_OAUTH_REDIRECT_URI=https://api.yourdomain.com/auth/google/callback
+GOOGLE_OAUTH_ENCRYPTION_KEY=your_fernet_key
 ```
 
 **CORS Configuration (for frontend domain):**
 ```env
 CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+APP_ENV=production
+GOOGLE_OAUTH_COOKIE_SECURE=true
+GOOGLE_OAUTH_SUCCESS_REDIRECT_URL=https://yourdomain.com
 ```
+
+**Security notes:**
+- Do not keep backend secrets in the repository.
+- Use a secret manager or encrypted deployment environment variables.
+- Keep OAuth consent screen in Testing only while validating internally; move to production only when you are ready for external use.
+- Never expose backend docs in production; the app disables them automatically when `APP_ENV=production`.
 
 **Optional: RAG Tuning (keep defaults for most cases):**
 ```env

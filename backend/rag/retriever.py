@@ -16,7 +16,14 @@ SIMILARITY_THRESHOLD = 0.50
 MIN_SCORE = 0.55
 
 # ---------- EMBEDDING ----------
-embedder = SentenceTransformer("all-MiniLM-L6-v2")
+_embedder = None
+
+def get_embedder():
+    global _embedder
+    if _embedder is None:
+        print("[INFO]: Loading SentenceTransformer model for retrieval...")
+        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    return _embedder
 
 index = None
 policy_chunks = []
@@ -85,51 +92,54 @@ def retrieve_policy_chunks(query: str):
     print("Query:", query)
 
     # Encode query
-    query_emb = embedder.encode([query], normalize_embeddings=True)
+    emb_model = get_embedder()
+    query_emb = emb_model.encode([query], normalize_embeddings=True)
     query_emb = np.asarray(query_emb).astype("float32")
 
     # Search FAISS
     scores, indices = index.search(query_emb, TOP_K)
 
-    results = []
+    # Filter and collect candidate indexes
+    candidate_idxs = [int(idx) for idx in indices[0] if idx != -1]
+    if not candidate_idxs:
+        return []
+        
+    # Map back to chunks
+    candidate_chunks = [policy_chunks[idx] for idx in candidate_idxs]
     
-    # Track unique sections for consistency filter
-    sections_seen = set()
+    # Optimized Batch Encoding for semantic re-ranking
+    texts_to_score = [c.get("text", "") for c in candidate_chunks]
+    
+    print(f"Re-ranking {len(texts_to_score)} candidates using batch encoding...")
+    chunk_embs = emb_model.encode(texts_to_score, normalize_embeddings=True)
+    chunk_embs = np.asarray(chunk_embs).astype("float32") # Matrix: (len(batch), dim)
+    
+    # Batch calculate cosine similarities
+    # (n, dim) dot (dim,) -> (n,)
+    semantic_scores = np.dot(chunk_embs, query_emb[0])
 
-    for score, idx in zip(scores[0], indices[0]):
-        if idx == -1:
-            continue
+    results = []
+    for i, chunk in enumerate(candidate_chunks):
+        score = float(semantic_scores[i])
         
-        chunk = policy_chunks[idx]
-        
-        # TASK 1: Add semantic re-ranking
-        chunk_text = chunk.get("text", "")
-        chunk_emb = embedder.encode([chunk_text], normalize_embeddings=True)
-        chunk_emb = np.asarray(chunk_emb).astype("float32")
-        
-        # Cosine similarity dot product
-        semantics_score = float(np.dot(query_emb[0], chunk_emb[0]))
-        
-        if semantics_score >= MIN_SCORE:
+        if score >= MIN_SCORE:
             section = chunk.get("section_title", "General")
-            
             res = {
-                "text": chunk_text,
+                "text": chunk.get("text", ""),
                 "metadata": {
                     "policy_id": chunk.get("policy_id", "DEMO_POLICY"),
                     "section": section,
-                    "clause_id": chunk.get("clause_id", str(idx))
+                    "clause_id": chunk.get("clause_id", "N/A")
                 },
-                "score": semantics_score
+                "score": score
             }
             results.append(res)
-            sections_seen.add(section)
 
     # LIMIT results to top 3 and Sort
     results.sort(key=lambda x: x["score"], reverse=True)
     results = results[:3]
     
-    # TASK 1: Add consistency filter
+    # Consistency filter: if results come from 3 different sections, prefer the absolute top section
     unique_sections = set(res["metadata"]["section"] for res in results)
     if len(unique_sections) > 2 and results:
         highest_scoring_section = results[0]["metadata"]["section"]

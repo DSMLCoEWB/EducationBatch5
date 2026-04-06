@@ -1,8 +1,25 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const API_GENERATE_URL = import.meta.env.VITE_REPLY_API_URL || API_BASE_URL;
 
 if (!API_BASE_URL) {
-  throw new Error("VITE_API_URL is not defined");
+  console.warn("VITE_API_URL is not defined — API calls will fail. Set this environment variable to connect to your backend.");
+}
+
+async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const response = await fetch(input, {
+    ...init,
+    credentials: 'include',
+    headers: {
+      ...init.headers,
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+  });
+
+  if (response.status === 401) {
+    throw new Error('Unauthorized');
+  }
+
+  return response;
 }
 
 /* ============================
@@ -10,21 +27,23 @@ if (!API_BASE_URL) {
 ============================ */
 
 export interface BackendEmail {
-  id: string; // was email_id
-  parentEmailId: string; // was parent_email_id
+  id: string;
+  parentEmailId: string;
   sender: string;
   subject: string;
   category: string;
-  mailType: string; // was mail_type
-  followUpCount: number; // was followup_count
-  emailDate: string; // was date
+  mailType: string;
+  followUpCount: number;
+  emailDate: string;
   content: string;
   attachments: string[];
-  emlFile: string; // was eml_file
+  emlFile: string;
   is_demo?: boolean;
   priority: number;
   senderEmail?: string;
   instituteName?: string;
+  replied?: boolean;
+  threadId?: string;
 }
 
 export interface BackendCategory {
@@ -82,64 +101,77 @@ export interface DemoPolicySyncResult {
   };
 }
 
+export interface SendReplyResult {
+  success: boolean;
+  message: string;
+  to_email: string;
+  subject: string;
+}
+
+export interface GmailAuthStatus {
+  connected: boolean;
+  email: string | null;
+  auth_mode: 'oauth' | 'app_password' | 'none' | string;
+}
+
+export interface ApiKeyStatus {
+  status: 'success' | 'error' | 'missing' | 'testing';
+  message: string;
+}
+
+export interface ApiKeyTestResult {
+  main: ApiKeyStatus;
+  priority: ApiKeyStatus;
+}
+
+export interface RefinementStats {
+  refined: number;
+  total: number;
+}
+
 /* ============================
    EMAIL & DASHBOARD APIs
 ============================ */
 
-// Fetch all categories
 export async function fetchCategories(): Promise<BackendCategory[]> {
-  const response = await fetch(`${API_BASE_URL}/categories`);
+  const response = await apiFetch(`${API_BASE_URL}/categories`);
   if (!response.ok) throw new Error("Failed to fetch categories");
   return response.json();
 }
 
-// Fetch emails for a category
 export async function fetchEmailsByCategory(
   category: string
 ): Promise<BackendEmail[]> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/emails?category=${encodeURIComponent(category)}`
   );
   if (!response.ok) throw new Error("Failed to fetch emails");
   return response.json();
 }
 
-// Fetch all emails
 export async function fetchAllEmails(): Promise<BackendEmail[]> {
-  const categories = await fetchCategories();
-  const allEmails: BackendEmail[] = [];
-
-  for (const category of categories) {
-    const emails = await fetchEmailsByCategory(category.name);
-    allEmails.push(...emails);
-  }
-
-  return allEmails;
+  return fetchEmailsByCategory('all');
 }
 
-// Dashboard stats
 export async function fetchDashboard(): Promise<BackendDashboard> {
-  const response = await fetch(`${API_BASE_URL}/dashboard`);
+  const response = await apiFetch(`${API_BASE_URL}/dashboard`);
   if (!response.ok) throw new Error("Failed to fetch dashboard");
   return response.json();
 }
 
-// Process new emails
 export async function processEmails(): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/process`, {
+  const response = await apiFetch(`${API_BASE_URL}/process`, {
     method: "POST",
   });
   if (!response.ok) throw new Error("Failed to process emails");
 }
 
 /* ============================
-   CHATBOT API  ✅ FIXED
+   CHATBOT API
 ============================ */
 
-// Ask chatbot (POST — correct)
-
 export async function askChatbot(question: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/chat`, {
+  const response = await apiFetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -152,8 +184,6 @@ export async function askChatbot(question: string): Promise<string> {
   }
 
   const data = await response.json();
-
-  // Works even if backend returns { reply } or { answer }
   return data.reply || data.answer || "";
 }
 
@@ -162,7 +192,7 @@ export async function askChatbot(question: string): Promise<string> {
 ============================ */
 
 export async function fetchColleges(): Promise<string[]> {
-  const response = await fetch(`${API_BASE_URL}/colleges`);
+  const response = await apiFetch(`${API_BASE_URL}/colleges`);
   if (!response.ok) throw new Error("Failed to fetch colleges");
   const data = await response.json();
   return data.colleges;
@@ -188,7 +218,7 @@ export async function generateReplyDetailed(
   sender: string = "",
   category: string = ""
 ): Promise<GenerateReplyResult> {
-  const response = await fetch(`${API_GENERATE_URL}/generate-reply`, {
+  const response = await apiFetch(`${API_GENERATE_URL}/generate-reply`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -209,16 +239,85 @@ export async function generateReplyDetailed(
   return data as GenerateReplyResult;
 }
 
+export async function trashEmail(emailId: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/emails/${encodeURIComponent(emailId)}/trash`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to delete email");
+  }
+}
+
+export async function restoreEmail(emailId: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/emails/${encodeURIComponent(emailId)}/untrash`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to restore email");
+  }
+}
+
+export async function sendReplyEmail(
+  toEmail: string,
+  originalSubject: string,
+  replyText: string
+): Promise<SendReplyResult> {
+  const response = await apiFetch(`${API_BASE_URL}/send-reply`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      to_email: toEmail,
+      original_subject: originalSubject,
+      reply_text: replyText,
+    }),
+  });
+
+  if (!response.ok) {
+    let detail = "Failed to send reply email";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // Ignore
+    }
+    throw new Error(detail);
+  }
+
+  return (await response.json()) as SendReplyResult;
+}
+
+export async function fetchGmailAuthStatus(): Promise<GmailAuthStatus> {
+  const response = await apiFetch(`${API_BASE_URL}/auth/google/status`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch Gmail auth status');
+  }
+  return (await response.json()) as GmailAuthStatus;
+}
+
+export function getGoogleAuthStartUrl(): string {
+  return `${API_BASE_URL}/auth/google/start`;
+}
+
+export async function disconnectGoogleAuth(): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/auth/google/logout`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to disconnect Google auth');
+  }
+}
+
 /* ============================
    POLICY MANAGEMENT APIs
 ============================ */
 
 export async function fetchPolicies(): Promise<IndexedPolicy[]> {
-  const response = await fetch(`${API_BASE_URL}/policies`);
+  const response = await apiFetch(`${API_BASE_URL}/policies`);
   if (!response.ok) {
     throw new Error('Failed to fetch policies');
   }
-
   const data = await response.json();
   return (data.policies || []) as IndexedPolicy[];
 }
@@ -227,7 +326,7 @@ export async function uploadPolicy(file: File): Promise<UploadPolicyResult> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_BASE_URL}/policies/upload`, {
+  const response = await apiFetch(`${API_BASE_URL}/policies/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -238,7 +337,7 @@ export async function uploadPolicy(file: File): Promise<UploadPolicyResult> {
       const err = await response.json();
       detail = err.detail || detail;
     } catch {
-      // Ignore JSON parsing failure and keep default message.
+      // Ignore
     }
     throw new Error(detail);
   }
@@ -247,7 +346,7 @@ export async function uploadPolicy(file: File): Promise<UploadPolicyResult> {
 }
 
 export async function loadDemoPolicies(): Promise<DemoPolicySyncResult> {
-  const response = await fetch(`${API_BASE_URL}/policies/load-demo`, {
+  const response = await apiFetch(`${API_BASE_URL}/policies/load-demo`, {
     method: 'POST',
   });
 
@@ -257,7 +356,7 @@ export async function loadDemoPolicies(): Promise<DemoPolicySyncResult> {
       const err = await response.json();
       detail = err.detail || detail;
     } catch {
-      // Ignore JSON parsing failure and keep default message.
+      // Ignore
     }
     throw new Error(detail);
   }
@@ -266,7 +365,7 @@ export async function loadDemoPolicies(): Promise<DemoPolicySyncResult> {
 }
 
 export async function deletePolicy(policyId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/policies/${encodeURIComponent(policyId)}`, {
+  const response = await apiFetch(`${API_BASE_URL}/policies/${encodeURIComponent(policyId)}`, {
     method: 'DELETE',
   });
 
@@ -276,8 +375,30 @@ export async function deletePolicy(policyId: string): Promise<void> {
       const err = await response.json();
       detail = err.detail || detail;
     } catch {
-      // Ignore JSON parsing failure and keep default message.
+      // Ignore
     }
     throw new Error(detail);
   }
 }
+
+/* ============================
+   SYSTEM HEALTH
+============================ */
+
+export async function testApiKeys(): Promise<ApiKeyTestResult> {
+  const response = await apiFetch(`${API_BASE_URL}/test-api-keys`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to test API keys');
+  }
+  return response.json();
+}
+
+export async function fetchRefinementStats(): Promise<RefinementStats> {
+  const response = await apiFetch(`${API_BASE_URL}/refinement-stats`);
+  if (!response.ok) throw new Error("Failed to fetch refinement stats");
+  return response.json();
+}
+
+export { API_BASE_URL };

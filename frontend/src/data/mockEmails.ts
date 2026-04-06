@@ -22,7 +22,7 @@ const generateMockEmails = (): Email[] => {
     'Dr. Shalini Gupta'
   ];
 
-  const subjectTemplates = {
+  const subjectTemplates: Record<string, string[]> = {
     suspension: [
       'Urgent: Student Suspension Case - Disciplinary Action Required',
       'Request for Review - Student Disciplinary Matter',
@@ -49,33 +49,32 @@ const generateMockEmails = (): Email[] => {
     ]
   };
 
-  const contentTemplates = {
+  const contentTemplates: Record<string, string[]> = {
     suspension: [
-      'We are writing to inform you about a serious disciplinary incident involving a student. The matter requires immediate attention from the department. The student has been temporarily suspended pending investigation.',
-      'This is a follow-up to our previous communication regarding the suspension case. We request your guidance on the next steps to be taken in this matter.',
-      'We need urgent approval for the disciplinary action taken against the student. The case has been reviewed by our internal committee and we await your decision.'
+      'We are writing to inform you about a serious disciplinary incident involving a student.',
+      'This is a follow-up to our previous communication regarding the suspension case.',
+      'We need urgent approval for the disciplinary action taken against the student.'
     ],
     fir: [
-      'We regret to inform you that an FIR has been filed against one of our students. The matter involves serious allegations and requires immediate legal intervention.',
-      'Further to our previous email, the police investigation is ongoing. We need guidance on how to proceed with the student\'s academic status during this period.',
-      'The court hearing is scheduled for next week. We require official documentation from the department to present in court.'
+      'We regret to inform you that an FIR has been filed against one of our students.',
+      'Further to our previous email, the police investigation is ongoing.',
+      'The court hearing is scheduled for next week.'
     ],
     semester: [
-      'We are facing significant challenges with the current semester examination schedule. Due to unforeseen circumstances, we request postponement of exams.',
-      'Several students have requested re-evaluation of their semester results. We need clarification on the official process and timeline.',
-      'The supplementary examinations need to be scheduled urgently. We await your approval and guidelines for the same.'
+      'We are facing significant challenges with the current semester examination schedule.',
+      'Several students have requested re-evaluation of their semester results.',
+      'The supplementary examinations need to be scheduled urgently.'
     ],
     miscellaneous: [
-      'We are updating you on the ongoing infrastructure development at our institution. The project is progressing as planned.',
-      'Please find attached our annual report. We welcome your feedback and suggestions for improvement.',
-      'We have a few administrative queries that need clarification. Your guidance would be much appreciated.'
+      'We are updating you on the ongoing infrastructure development at our institution.',
+      'Please find attached our annual report.',
+      'We have a few administrative queries that need clarification.'
     ]
   };
 
   const emails: Email[] = [];
   const now = new Date();
 
-  // Generate 150 emails over the last 30 days
   for (let i = 0; i < 150; i++) {
     const category = categories[Math.floor(Math.random() * categories.length)];
     const institution = institutions[Math.floor(Math.random() * institutions.length)];
@@ -87,8 +86,8 @@ const generateMockEmails = (): Email[] => {
     const emailDate = new Date(now);
     emailDate.setDate(emailDate.getDate() - daysAgo);
 
-    const subjects = subjectTemplates[category];
-    const contents = contentTemplates[category];
+    const subjects = subjectTemplates[category] || subjectTemplates.miscellaneous;
+    const contents = contentTemplates[category] || contentTemplates.miscellaneous;
 
     const email: Email = {
       id: `email-${i + 1}`,
@@ -98,19 +97,21 @@ const generateMockEmails = (): Email[] => {
       subject: subjects[Math.floor(Math.random() * subjects.length)],
       content: contents[Math.floor(Math.random() * contents.length)],
       hasAttachment: Math.random() > 0.6,
+      attachments: [],
+      emlFile: '',
       category,
       mailType: isFollowUp ? 'follow-up' : 'fresh',
       followUpCount,
+      priority: Math.floor(Math.random() * 6) + 1,
       emailDate,
       parentEmailId: isFollowUp ? `email-${Math.max(1, i - Math.floor(Math.random() * 20))}` : undefined,
-      replied: Math.random() > 0.7, // 30% of emails are replied to
+      replied: Math.random() > 0.7,
       replyText: undefined
     };
 
     emails.push(email);
   }
 
-  // Sort by date (newest first)
   return emails.sort((a, b) => b.emailDate.getTime() - a.emailDate.getTime());
 };
 

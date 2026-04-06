@@ -5,8 +5,13 @@ import {
   ShieldAlert, 
   GraduationCap, 
   Folder,
-  FileText
+  FileText,
+  Send,
+  Trash2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
+import { useState } from 'react';
 
 interface SidebarProps {
   activeView: string;
@@ -15,50 +20,69 @@ interface SidebarProps {
 }
 
 const iconMap: Record<string, React.ReactNode> = {
-  dashboard: <LayoutDashboard className="w-5 h-5" />,
-  inbox: <Inbox className="w-5 h-5" />,
-  'alert-circle': <AlertCircle className="w-5 h-5" />,
-  'shield-alert': <ShieldAlert className="w-5 h-5" />,
-  'graduation-cap': <GraduationCap className="w-5 h-5" />,
-  folder: <Folder className="w-5 h-5" />,
+  dashboard: <LayoutDashboard className="w-[18px] h-[18px]" />,
+  inbox: <Inbox className="w-[18px] h-[18px]" />,
+  'alert-circle': <AlertCircle className="w-[18px] h-[18px]" />,
+  'shield-alert': <ShieldAlert className="w-[18px] h-[18px]" />,
+  'graduation-cap': <GraduationCap className="w-[18px] h-[18px]" />,
+  folder: <Folder className="w-[18px] h-[18px]" />,
+  send: <Send className="w-[18px] h-[18px]" />,
+  trash: <Trash2 className="w-[18px] h-[18px]" />,
 };
 
 export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement }: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'all', label: 'All Emails', icon: 'inbox' },
-    { id: 'suspension', label: 'Suspension / Disciplinary', icon: 'alert-circle' },
+    { id: 'suspension', label: 'Suspension', icon: 'alert-circle' },
     { id: 'fir', label: 'FIR / Arrest', icon: 'shield-alert' },
-    { id: 'semester', label: 'Semester / Examination', icon: 'graduation-cap' },
-    { id: 'miscellaneous', label: 'Miscellaneous', icon: 'folder' }
+    { id: 'semester', label: 'Semester', icon: 'graduation-cap' },
+    { id: 'miscellaneous', label: 'Miscellaneous', icon: 'folder' },
+    { id: 'Sent', label: 'Sent', icon: 'send' },
+    { id: 'trash', label: 'Trash', icon: 'trash' }
   ];
 
   return (
-    <div className="w-64 bg-white border-r border-gray-200 h-screen sticky top-0 overflow-y-auto flex flex-col">
-      <nav className="p-4 space-y-1 flex-1">
+    <div className={`bg-card border-r border-border h-full sticky top-0 overflow-y-auto flex flex-col transition-all duration-200 ${collapsed ? 'w-16' : 'w-56'}`}>
+      {/* Collapse toggle */}
+      <div className="flex justify-end p-2">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        </button>
+      </div>
+
+      <nav className="px-2 space-y-0.5 flex-1">
         {menuItems.map((item) => (
           <button
             key={item.id}
             onClick={() => onViewChange(item.id)}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+            title={collapsed ? item.label : undefined}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all duration-150 text-sm ${
               activeView === item.id
-                ? 'bg-blue-50 text-blue-700 font-medium'
-                : 'text-gray-700 hover:bg-gray-50'
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
             }`}
           >
-            {iconMap[item.icon]}
-            <span className="text-sm">{item.label}</span>
+            <span className="flex-shrink-0">{iconMap[item.icon]}</span>
+            {!collapsed && <span className="truncate">{item.label}</span>}
           </button>
         ))}
       </nav>
 
-      <div className="p-4 pt-0 border-t border-gray-100">
+      <div className="p-2 border-t border-border">
         <button
           onClick={onOpenPolicyManagement}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-gray-700 hover:bg-blue-50 hover:text-blue-700"
+          title={collapsed ? 'Policy Documents' : undefined}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-colors text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          <FileText className="w-5 h-5" />
-          <span className="text-sm font-medium">Policy Documents</span>
+          <FileText className="w-[18px] h-[18px] flex-shrink-0" />
+          {!collapsed && <span className="font-medium truncate">Policy Documents</span>}
         </button>
       </div>
     </div>

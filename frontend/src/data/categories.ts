@@ -4,44 +4,58 @@ export const categories: CategoryInfo[] = [
   {
     id: 'all',
     label: 'All Emails',
-    color: 'text-gray-700',
-    bgColor: 'bg-gray-100',
+    color: 'text-foreground',
+    bgColor: 'bg-muted',
     icon: 'inbox'
   },
   {
     id: 'demo',
     label: 'Demo Emails',
-    color: 'text-green-700',
-    bgColor: 'bg-green-50',
+    color: 'text-gov-green',
+    bgColor: 'bg-gov-green-light',
     icon: 'star'
   },
   {
     id: 'suspension',
     label: 'Suspension / Disciplinary',
-    color: 'text-orange-700',
-    bgColor: 'bg-orange-50',
+    color: 'text-gov-orange',
+    bgColor: 'bg-gov-orange-light',
     icon: 'alert-circle'
   },
   {
     id: 'fir',
     label: 'FIR / Arrest',
-    color: 'text-red-700',
-    bgColor: 'bg-red-50',
+    color: 'text-gov-red',
+    bgColor: 'bg-gov-red-light',
     icon: 'shield-alert'
   },
   {
     id: 'semester',
     label: 'Semester / Examination',
-    color: 'text-blue-700',
-    bgColor: 'bg-blue-50',
+    color: 'text-primary',
+    bgColor: 'bg-gov-blue-light',
     icon: 'graduation-cap'
   },
   {
     id: 'miscellaneous',
     label: 'Miscellaneous',
-    color: 'text-gray-700',
-    bgColor: 'bg-gray-50',
+    color: 'text-muted-foreground',
+    bgColor: 'bg-muted',
     icon: 'folder'
+  },
+  {
+    id: 'Sent',
+    label: 'Sent Emails',
+    color: 'text-gov-purple',
+    bgColor: 'bg-gov-purple-light',
+    icon: 'send'
+  },
+  {
+    id: 'trash',
+    label: 'Trash',
+    color: 'text-gov-red',
+    bgColor: 'bg-gov-red-light',
+    icon: 'trash'
   }
 ];
 

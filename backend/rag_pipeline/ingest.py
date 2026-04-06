@@ -7,6 +7,7 @@ import faiss
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
+from rag.retriever import get_embedder
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 RAG_DATA_DIR = BASE_DIR / "rag" / "data"
@@ -428,9 +429,8 @@ def ingest_policy_document(file_path: str, policy_id: Optional[str] = None, sect
             }
         )
     
-    # Generate embeddings for new chunks
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    embedder = SentenceTransformer("all-MiniLM-L6-v2", device=device)
+    # Generate embeddings for new chunks using singleton
+    embedder = get_embedder()
     
     texts_to_embed = [chunk["text"] for chunk in new_chunks]
     embeddings = embedder.encode(
@@ -484,8 +484,8 @@ def main() -> None:
     if not texts:
         raise ValueError("No valid text fields found in policy chunks")
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    embedder = SentenceTransformer("all-MiniLM-L6-v2", device=device)
+    # Use singleton for main script execution
+    embedder = get_embedder()
 
     embeddings = embedder.encode(
         texts,

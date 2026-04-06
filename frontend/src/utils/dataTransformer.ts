@@ -1,5 +1,5 @@
-import { Email, EmailCategory, MailType } from '../types';
-import { BackendEmail } from '../services/api';
+import { Email, EmailCategory, MailType } from '@/types';
+import { BackendEmail } from '@/services/api';
 import { matchCollegeName, initializeCollegeDatabase } from './collegeNameMatcher';
 
 export { initializeCollegeDatabase }; // Re-export for easy access
@@ -22,6 +22,7 @@ const categoryMap: Record<string, EmailCategory> = {
   'miscellaneous': 'miscellaneous',
   'other': 'miscellaneous',
   'Other': 'miscellaneous',
+  'Sent': 'Sent',
 };
 
 // Extract institution name from content or sender
@@ -311,32 +312,37 @@ function extractSenderName(sender: string): string {
 }
 
 // Transform backend email to frontend Email type
-export function transformBackendEmail(backendEmail: BackendEmail): Email {
-  const category = categoryMap[backendEmail.category] || 'miscellaneous';
-  // Backend now sends "fresh" or "follow-up" in camelCase mailType
-  const mailType: MailType = backendEmail.mailType?.toLowerCase().includes('fresh') ? 'fresh' : 'follow-up';
+export function transformBackendEmail(backendEmail: any): Email {
+  // Support both snake_case (backend) and camelCase (frontend types)
+  const categoryStr = backendEmail.category || '';
+  const category = categoryMap[categoryStr] || 'miscellaneous';
+  
+  const rawMailType = (backendEmail.mail_type || backendEmail.mailType || '').toLowerCase();
+  const mailType: MailType = rawMailType.includes('fresh') ? 'fresh' : 'follow-up';
+  
   const content = backendEmail.content || '';
   const sender = backendEmail.sender || '';
   const subject = backendEmail.subject || 'No Subject';
   
   return {
-    id: backendEmail.id || `email-${Date.now()}-${Math.random()}`,
+    id: backendEmail.email_id || backendEmail.id || `email-${Date.now()}-${Math.random()}`,
     sender: extractSenderName(sender),
-    senderEmail: backendEmail.senderEmail || extractSenderEmail(sender),
-    instituteName: backendEmail.instituteName || extractInstitutionName(sender, content, subject),
+    senderEmail: backendEmail.sender_email || backendEmail.senderEmail || extractSenderEmail(sender),
+    instituteName: backendEmail.institute_name || backendEmail.instituteName || extractInstitutionName(sender, content, subject),
     subject: subject,
     content: content,
     priority: backendEmail.priority ?? 99,
     hasAttachment: (backendEmail.attachments && backendEmail.attachments.length > 0) || content.toLowerCase().includes('attachment') || content.toLowerCase().includes('attached'),
     attachments: backendEmail.attachments || [],
-    emlFile: backendEmail.emlFile || '',
+    emlFile: backendEmail.eml_file || backendEmail.emlFile || '',
     category,
     mailType,
-    followUpCount: backendEmail.followUpCount || 0,
-    emailDate: new Date(backendEmail.emailDate || new Date()),
-    parentEmailId: backendEmail.parentEmailId || undefined,
-    replied: false,
+    followUpCount: backendEmail.followup_count || backendEmail.followUpCount || 0,
+    emailDate: new Date(backendEmail.date || backendEmail.emailDate || new Date()),
+    parentEmailId: backendEmail.parent_email_id || backendEmail.parentEmailId || undefined,
+    replied: !!backendEmail.replied,
     is_demo: !!backendEmail.is_demo,
+    threadId: backendEmail.thread_id || backendEmail.threadId,
   };
 }
 
