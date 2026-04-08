@@ -17,6 +17,7 @@ export interface Email {
   instituteName: string;
   subject: string;
   content: string;
+  snippet: string;
   hasAttachment: boolean;
   attachments: string[];
   emlFile: string;

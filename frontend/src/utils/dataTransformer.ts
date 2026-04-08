@@ -25,6 +25,38 @@ const categoryMap: Record<string, EmailCategory> = {
   'Sent': 'Sent',
 };
 
+/**
+ * Creates a clean text snippet for email previews by stripping HTML tags,
+ * especially <style> and <script> tags which can leak internal code into the UI.
+ */
+function createSnippet(html: string): string {
+  if (!html) return "";
+
+  // 1. Remove style and script tags and their entire contents
+  let clean = html.replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, "");
+
+  // 2. Strip all other HTML tags
+  clean = clean.replace(/<[^>]*>/g, " ");
+
+  // 3. Decode some common HTML entities
+  clean = clean
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"');
+
+  // 4. Normalize whitespace (remove multiple spaces, newlines, etc.)
+  clean = clean.replace(/\s+/g, " ").trim();
+
+  // 5. Truncate to a reasonable length for the table preview
+  if (clean.length > 180) {
+    return clean.substring(0, 180) + "...";
+  }
+
+  return clean;
+}
+
 // Extract institution name from content or sender
 function extractInstitutionName(sender: string, content: string, subject: string = ''): string {
   // Helper to check if text is NOT a valid college name (reject subject lines, sentences, etc.)
@@ -331,6 +363,7 @@ export function transformBackendEmail(backendEmail: any): Email {
     instituteName: backendEmail.institute_name || backendEmail.instituteName || extractInstitutionName(sender, content, subject),
     subject: subject,
     content: content,
+    snippet: createSnippet(content),
     priority: backendEmail.priority ?? 99,
     hasAttachment: (backendEmail.attachments && backendEmail.attachments.length > 0) || content.toLowerCase().includes('attachment') || content.toLowerCase().includes('attached'),
     attachments: backendEmail.attachments || [],
