@@ -6,6 +6,7 @@ import time
 from collections import deque
 from google import genai
 from dotenv import load_dotenv
+from ai_utils import generate_content_with_fallback, ULTIMATE_FALLBACK_LIST
 
 load_dotenv()
 
@@ -45,10 +46,15 @@ def _score_with_llm(prompt: str) -> str | None:
         return None
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+        response = generate_content_with_fallback(
+            client=client,
             contents=prompt,
+            model_list=ULTIMATE_FALLBACK_LIST,
+            label="Priority-LLM"
         )
+        if not response:
+            return None
+            
         return (getattr(response, "text", "") or "").strip()
     except Exception as exc:
         print(f"Priority LLM call failed: {exc}")

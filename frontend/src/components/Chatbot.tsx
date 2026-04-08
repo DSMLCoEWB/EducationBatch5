@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Bot } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, Maximize2, Minimize2, Sparkles, Database, FileText } from 'lucide-react';
 import { Email } from '@/types';
 import { askChatbot } from '@/services/api';
 
@@ -12,15 +12,17 @@ interface Message {
   type: 'user' | 'bot';
   content: string;
   timestamp: Date;
+  sources?: { section: string; text: string }[];
 }
 
-export function Chatbot({ emails }: ChatbotProps) {
+export function Chatbot({ }: ChatbotProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       type: 'bot',
-      content: 'Hello! I can help you query the grievance email database. Ask me questions like:\n\n• "How many suspension emails in the last 7 days?"\n• "Show follow-up emails from XYZ College"\n• "How many emails had attachments?"',
+      content: 'Hello! I am your **AI Education Assistant**. I can help you with:\n\n*   **Policy Queries**: "How do I handle student suspension?"\n*   **Data Analysis**: "How many pending grievances in Pune?"\n*   **Status Updates**: "Show latest follow-ups from Shivaji College."',
       timestamp: new Date()
     }
   ]);
@@ -29,67 +31,10 @@ export function Chatbot({ emails }: ChatbotProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const processQuery = async (query: string): Promise<string> => {
-    try {
-      return await askChatbot(query);
-    } catch (error) {
-      console.error('Chatbot API error, using fallback:', error);
-      return processFallbackQuery(query);
+    if (isOpen) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  };
-
-  const processFallbackQuery = (query: string): string => {
-    const lowerQuery = query.toLowerCase();
-
-    if (lowerQuery.includes('suspension') && (lowerQuery.includes('how many') || lowerQuery.includes('count'))) {
-      const days = lowerQuery.match(/(\d+)\s*days?/)?.[1];
-      let filtered = emails.filter(e => e.category === 'suspension');
-      if (days) {
-        const daysAgo = new Date();
-        daysAgo.setDate(daysAgo.getDate() - parseInt(days));
-        filtered = filtered.filter(e => new Date(e.emailDate) >= daysAgo);
-      }
-      return `${filtered.length} suspension email${filtered.length !== 1 ? 's' : ''}${days ? ` in the last ${days} days` : ''}.`;
-    }
-
-    if (lowerQuery.includes('fir') && (lowerQuery.includes('how many') || lowerQuery.includes('count'))) {
-      const days = lowerQuery.match(/(\d+)\s*days?/)?.[1];
-      let filtered = emails.filter(e => e.category === 'fir');
-      if (days) {
-        const daysAgo = new Date();
-        daysAgo.setDate(daysAgo.getDate() - parseInt(days));
-        filtered = filtered.filter(e => new Date(e.emailDate) >= daysAgo);
-      }
-      return `${filtered.length} FIR/arrest email${filtered.length !== 1 ? 's' : ''}${days ? ` in the last ${days} days` : ''}.`;
-    }
-
-    if (lowerQuery.includes('attachment') && (lowerQuery.includes('how many') || lowerQuery.includes('count'))) {
-      const withAttachments = emails.filter(e => e.hasAttachment);
-      return `${withAttachments.length} email${withAttachments.length !== 1 ? 's' : ''} with attachments.`;
-    }
-
-    if (lowerQuery.includes('follow') && lowerQuery.includes('up')) {
-      const followUps = emails.filter(e => e.mailType === 'follow-up');
-      const collegeMatch = lowerQuery.match(/from\s+([a-z\s]+)/i);
-      if (collegeMatch) {
-        const collegeName = collegeMatch[1].trim();
-        const collegeFollowUps = followUps.filter(e => e.instituteName.toLowerCase().includes(collegeName));
-        if (collegeFollowUps.length === 0) return `No follow-up emails found from "${collegeName}".`;
-        const list = collegeFollowUps.slice(0, 5).map(e => `• ${e.subject} (${new Date(e.emailDate).toLocaleDateString()})`).join('\n');
-        return `Found ${collegeFollowUps.length} follow-up email${collegeFollowUps.length !== 1 ? 's' : ''} from "${collegeName}":\n\n${list}${collegeFollowUps.length > 5 ? '\n\n...and more' : ''}`;
-      }
-      return `${followUps.length} follow-up email${followUps.length !== 1 ? 's' : ''}.`;
-    }
-
-    if ((lowerQuery.includes('total') || lowerQuery.includes('how many')) && lowerQuery.includes('email')) {
-      return `${emails.length} total email${emails.length !== 1 ? 's' : ''}.`;
-    }
-
-    return "I'm not sure how to answer that. Try:\n\n• \"How many suspension emails?\"\n• \"Show follow-up emails from [College]\"\n• \"Count emails with attachments\"";
-  };
+  }, [messages, isOpen]);
 
   const handleSend = async () => {
     if (!inputValue.trim()) return;
@@ -107,18 +52,19 @@ export function Chatbot({ emails }: ChatbotProps) {
     setIsLoading(true);
 
     try {
-      const answer = await processQuery(query);
+      const answer = await askChatbot(query);
+      
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         type: 'bot',
-        content: answer,
+        content: answer || "I'm sorry, I couldn't process that. Please try rephrasing.",
         timestamp: new Date()
       }]);
-    } catch {
+    } catch (err) {
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         type: 'bot',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: 'Failed to connect to AI engine. Please ensure the backend is running.',
         timestamp: new Date()
       }]);
     } finally {
@@ -126,56 +72,107 @@ export function Chatbot({ emails }: ChatbotProps) {
     }
   };
 
+  const formatMessage = (content: string) => {
+    // Simple pseudo-markdown to HTML for 'Premium' feel without dependencies
+    return content
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/\n/g, '<br/>')
+      .replace(/•\s?(.*?)(?=<br\/>|$)/g, '<li class="ml-4">$1</li>');
+  };
+
   return (
     <>
-      {/* Floating button */}
+      {/* Floating Sparkle Button */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 w-12 h-12 bg-primary text-primary-foreground rounded-full shadow-elevated hover:shadow-modal transition-all flex items-center justify-center z-40 hover:scale-105 active:scale-95"
-          aria-label="Open chat assistant"
+          className="fixed bottom-6 right-6 group flex items-center gap-3 bg-primary text-primary-foreground pl-4 pr-5 py-3 rounded-full shadow-2xl hover:shadow-primary/30 transition-all z-40 hover:scale-105 active:scale-95 animate-in fade-in zoom-in duration-300"
         >
-          <MessageCircle className="w-5 h-5" />
+          <div className="relative">
+            <Sparkles className="w-5 h-5 animate-pulse" />
+            <div className="absolute inset-0 bg-white/20 rounded-full animate-ping scale-150" />
+          </div>
+          <span className="font-semibold text-sm tracking-tight">AI Assistant</span>
         </button>
       )}
 
-      {/* Chat panel */}
+      {/* Modern Glassmorphic Chat Panel */}
       {isOpen && (
-        <div className="fixed bottom-6 right-6 w-[380px] h-[560px] bg-card rounded-xl shadow-modal z-40 flex flex-col border border-border animate-scale-in overflow-hidden">
+        <div 
+          className={`fixed bottom-6 right-6 ${
+            isExpanded ? 'w-[800px] h-[80vh]' : 'w-[420px] h-[600px]'
+          } bg-card/80 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-50 flex flex-col border border-white/20 transition-all duration-500 ease-out animate-in slide-in-from-bottom-10`}
+        >
           {/* Header */}
-          <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between rounded-t-xl">
-            <div className="flex items-center gap-2">
-              <Bot className="w-4 h-4" />
-              <h3 className="font-semibold text-sm">AI Assistant</h3>
+          <div className="p-4 flex items-center justify-between border-b border-white/10 bg-gradient-to-r from-primary/10 to-transparent rounded-t-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center border border-primary/30">
+                <Bot className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm tracking-tight text-foreground">AICOE Intelligent Assistant</h3>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">Active reasoning</span>
+                </div>
+              </div>
             </div>
-            <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-primary-foreground/10 rounded transition-colors">
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={() => setIsExpanded(!isExpanded)} 
+                className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-muted-foreground"
+                title={isExpanded ? "Minimize" : "Expand"}
+              >
+                {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
+              <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-gov-red/10 hover:text-gov-red rounded-lg transition-colors text-muted-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+          {/* Messages Area */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar scroll-smooth">
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-xl px-3.5 py-2.5 ${
-                  message.type === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-foreground'
-                }`}>
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                  <p className={`text-[10px] mt-1 ${message.type === 'user' ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
-                    {message.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
+                <div className={`flex gap-3 max-w-[85%] ${message.type === 'user' ? 'flex-row-reverse' : ''}`}>
+                  <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold ${
+                    message.type === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted border border-border'
+                  }`}>
+                    {message.type === 'user' ? 'YOU' : <Bot className="w-4 h-4" />}
+                  </div>
+                  <div className="space-y-1">
+                    <div className={`rounded-2xl px-4 py-3 shadow-sm ${
+                      message.type === 'user'
+                        ? 'bg-primary text-primary-foreground rounded-tr-none'
+                        : 'bg-background border border-border rounded-tl-none'
+                    }`}>
+                      <div 
+                        className={`text-sm leading-relaxed prose prose-sm max-w-none ${message.type === 'user' ? 'prose-invert' : 'prose-headings:text-primary'}`}
+                        dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
+                      />
+                    </div>
+                    <span className={`text-[10px] font-medium opacity-50 px-1 block ${message.type === 'user' ? 'text-right' : 'text-left'}`}>
+                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
+            
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-muted rounded-xl px-4 py-3">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className="flex gap-3 max-w-[85%]">
+                  <div className="w-7 h-7 rounded-full bg-muted border border-border flex items-center justify-center">
+                    <Bot className="w-4 h-4 animate-bounce" />
+                  </div>
+                  <div className="bg-background border border-border rounded-2xl rounded-tl-none px-4 py-3 shadow-sm">
+                    <div className="flex gap-1.5 py-1">
+                      <div className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                      <div className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                      <div className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -183,24 +180,44 @@ export function Chatbot({ emails }: ChatbotProps) {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input */}
-          <div className="border-t border-border p-3">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder="Ask a question..."
-                className="flex-1 px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/30 placeholder:text-muted-foreground"
-              />
-              <button
-                onClick={handleSend}
-                disabled={isLoading || !inputValue.trim()}
-                className="px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-              >
-                <Send className="w-4 h-4" />
-              </button>
+          {/* Input Area */}
+          <div className="p-4 bg-gradient-to-t from-background to-transparent">
+            <div className="relative group">
+              <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/50 to-primary/20 rounded-xl blur opacity-30 group-focus-within:opacity-100 transition duration-500"></div>
+              <div className="relative flex items-center bg-background border border-border rounded-xl px-3 py-2 shadow-inner">
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  placeholder="Query policy manual or database..."
+                  className="flex-1 bg-transparent px-2 py-1.5 text-sm focus:outline-none placeholder:text-muted-foreground/50"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={isLoading || !inputValue.trim()}
+                  className="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-all disabled:opacity-30 disabled:grayscale transform active:scale-95 shadow-lg shadow-primary/20"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            
+            {/* Quick Actions Footer */}
+            <div className="flex gap-2 mt-3 overflow-x-auto pb-1 no-scrollbar">
+               {[
+                 { label: 'Policy Check', icon: FileText },
+                 { label: 'Data Stats', icon: Database }
+               ].map((action, i) => (
+                 <button 
+                  key={i}
+                  onClick={() => setInputValue(prev => prev + (prev ? ' ' : '') + action.label)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted hover:bg-primary/10 hover:text-primary transition-all text-[10px] font-bold whitespace-nowrap border border-border group"
+                 >
+                   <action.icon className="w-3 h-3 text-muted-foreground group-hover:text-primary" />
+                   {action.label}
+                 </button>
+               ))}
             </div>
           </div>
         </div>

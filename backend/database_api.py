@@ -2,7 +2,7 @@ import sqlite3
 import json
 import os
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "grievances.db")
 
@@ -47,6 +47,18 @@ def init_db():
             reason TEXT
         )
     """)
+
+    # Create chat_history table for conversational memory
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT,
+            session_id TEXT,
+            role TEXT,
+            message TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     # [MIGRATION]: Add is_priority_refined if it doesn't exist in older databases
     try:
@@ -77,7 +89,7 @@ def init_db():
 
 def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
     """Save or update a batch of emails in the database."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     cursor = conn.cursor()
     
     for email in emails:
@@ -102,23 +114,22 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
                 is_demo, replied, is_trashed, is_inbox, is_sent, is_priority_refined, user_email, last_synced
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
-                gmail_id=excluded.gmail_id,
-                thread_id=excluded.thread_id,
-                sender=excluded.sender,
-                sender_email=excluded.sender_email,
-                subject=excluded.subject,
-                content=excluded.content,
+                gmail_id=COALESCE(excluded.gmail_id, gmail_id),
+                thread_id=COALESCE(excluded.thread_id, thread_id),
+                sender=COALESCE(excluded.sender, sender),
+                sender_email=COALESCE(excluded.sender_email, sender_email),
+                subject=COALESCE(excluded.subject, subject),
+                content=COALESCE(excluded.content, content),
                 category=CASE 
                     WHEN is_trashed=1 OR excluded.is_trashed=1 THEN 'trash' 
                     WHEN category IS NULL OR category = 'Sent' OR category = '' THEN excluded.category 
                     ELSE category 
                 END,
-                mail_type=excluded.mail_type,
-                priority=excluded.priority,
-                date=excluded.date,
-                has_attachment=excluded.has_attachment,
-                attachments=excluded.attachments,
-                replied=MIN(replied, excluded.replied),
+                mail_type=COALESCE(excluded.mail_type, mail_type),
+                priority=COALESCE(excluded.priority, priority),
+                date=COALESCE(excluded.date, date),
+                attachments=COALESCE(excluded.attachments, attachments),
+                replied=MAX(replied, excluded.replied),
                 is_trashed=MAX(is_trashed, excluded.is_trashed),
                 is_inbox=MAX(is_inbox, excluded.is_inbox),
                 is_sent=MAX(is_sent, excluded.is_sent),
@@ -150,14 +161,106 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
     conn.commit()
     conn.close()
 
+def reconcile_email_flags(user_email: str, folder_type: str, active_gmail_ids: Set[str]):
+    """
+    Ensure parity between Gmail and Local DB for a specific folder.
+    - Negative Sync: Unsets the flag locally if missing from Gmail.
+    - Positive Sync: Sets the flag locally if present in Gmail (restores corrupted state).
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    cursor = conn.cursor()
+    
+    flag_column = {
+        'inbox': 'is_inbox',
+        'sent': 'is_sent',
+        'trash': 'is_trashed'
+    }.get(folder_type)
+    
+    if not flag_column:
+        conn.close()
+        return
+
+    # Base params for both operations
+    base_where = "user_email = ? AND is_demo = 0 AND gmail_id IS NOT NULL"
+
+    # --- 1. POSITIVE RECONCILIATION (Ensure what is in Gmail is in System) ---
+    if active_gmail_ids:
+        placeholders = ",".join(["?"] * len(active_gmail_ids))
+        pos_query = f"UPDATE emails SET {flag_column} = 1"
+        if folder_type == 'trash':
+            pos_query += ", category = 'trash'"
+        pos_query += f" WHERE {base_where} AND {flag_column} = 0 AND gmail_id IN ({placeholders})"
+        
+        cursor.execute(pos_query, [user_email] + list(active_gmail_ids))
+        pos_changes = conn.total_changes
+        if pos_changes > 0:
+            print(f"✅ [Reconcile] Restored {pos_changes} emails to local {folder_type} (Matched Gmail).")
+
+    # --- 2. NEGATIVE RECONCILIATION (Ensure what is NOT in Gmail is NOT in System) ---
+    neg_query = f"UPDATE emails SET {flag_column} = 0"
+    if folder_type == 'trash':
+        neg_query += ", category = 'miscellaneous'"
+    neg_query += f" WHERE {base_where} AND {flag_column} = 1"
+    
+    if active_gmail_ids:
+        neg_query += f" AND gmail_id NOT IN ({placeholders})"
+        cursor.execute(neg_query, [user_email] + list(active_gmail_ids))
+    else:
+        cursor.execute(neg_query, [user_email])
+        
+    neg_changes = conn.total_changes - (pos_changes if active_gmail_ids else 0)
+    if neg_changes > 0:
+        print(f"🔄 [Reconcile] Removed {neg_changes} emails from local {folder_type} (Ghost check).")
+        # Update last_synced for emails that were modified
+        cursor.execute(f"UPDATE emails SET last_synced = CURRENT_TIMESTAMP WHERE {base_where} AND {flag_column} = 0", [user_email])
+        
+    conn.commit()
+    conn.close()
+
+def purge_orphaned_emails(user_email: str, retention_days: int = 30):
+    """
+    Permanently delete emails that are no longer in ANY Gmail folder (Inbox, Sent, Trash)
+    and have been in this 'orphaned' state for longer than the retention period.
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    cursor = conn.cursor()
+    
+    # An 'orphaned' email has all major status flags set to 0 and is not a local demo email.
+    # We use last_synced to track how long it has been since its flags were reconciled to 0.
+    query = """
+        DELETE FROM emails 
+        WHERE user_email = ? 
+          AND is_inbox = 0 
+          AND is_sent = 0 
+          AND is_trashed = 0 
+          AND is_demo = 0
+          AND last_synced < datetime('now', '-' || ? || ' days')
+    """
+    
+    cursor.execute(query, (user_email, retention_days))
+    purged_count = conn.total_changes
+    
+    if purged_count > 0:
+        print(f"🚮 [Cleanup] Permanently purged {purged_count} records older than {retention_days} days to save storage.")
+    
+    conn.commit()
+    conn.close()
+    return purged_count
+
 def mark_as_trashed(user_email: str, email_id: str, is_trashed: bool = True):
     """Mark an email as trashed in the local database for a specific user."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE emails SET is_trashed = ?, category = ? WHERE id = ? AND user_email = ?", 
-        (1 if is_trashed else 0, 'trash' if is_trashed else 'miscellaneous', email_id, user_email)
-    )
+    if is_trashed:
+        cursor.execute(
+            "UPDATE emails SET is_trashed = 1, category = 'trash' WHERE id = ? AND user_email = ?", 
+            (email_id, user_email)
+        )
+    else:
+        cursor.execute(
+            "UPDATE emails SET is_trashed = 0, is_inbox = 1, category = 'miscellaneous' WHERE id = ? AND user_email = ?", 
+            (email_id, user_email)
+        )
     conn.commit()
     conn.close()
 
@@ -220,7 +323,7 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
         
     return result
 
-def get_existing_gmail_ids(user_email: str) -> set[str]:
+def get_existing_gmail_ids(user_email: str) -> set:
     """Return a set of all Gmail IDs already present in the database for this user."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -266,3 +369,31 @@ def get_refinement_stats(user_email: str) -> Dict[str, int]:
     refined = cursor.fetchone()[0] or 0
     conn.close()
     return {"refined": refined, "total": total}
+
+def save_chat_message(user_email: str, session_id: str, role: str, message: str):
+    """Save a single chat message to history."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO chat_history (user_email, session_id, role, message) VALUES (?, ?, ?, ?)",
+        (user_email, session_id, role, message)
+    )
+    conn.commit()
+    conn.close()
+
+def get_chat_history(user_email: str, session_id: str, limit: int = 10) -> List[Dict[str, str]]:
+    """Retrieve the RECENT chat history for a session (latest N messages, sorted chronologically)."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    # We use a subquery to get the latest messages first, then re-sort them chronologically
+    cursor.execute(f"""
+        SELECT role, message FROM (
+            SELECT role, message, timestamp FROM chat_history 
+            WHERE user_email = ? AND session_id = ? 
+            ORDER BY timestamp DESC LIMIT ?
+        ) ORDER BY timestamp ASC
+    """, (user_email, session_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]

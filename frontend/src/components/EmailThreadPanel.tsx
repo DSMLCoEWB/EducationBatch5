@@ -1,59 +1,68 @@
-import { X, Paperclip, User, Mail, Calendar } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Paperclip, User, Mail, Calendar, Loader2, Reply } from 'lucide-react';
 import { Email } from '@/types';
 import { getCategoryInfo } from '@/data/categories';
-import { API_BASE_URL } from '@/services/api';
+import { API_BASE_URL, fetchEmailThread, sendReply } from '@/services/api';
+import { transformBackendEmails } from '@/utils/dataTransformer';
+import { ReplyModal } from './ReplyModal';
+import { toast } from 'sonner';
 
 interface EmailThreadPanelProps {
   email: Email;
-  allEmails: Email[];
   onClose: () => void;
 }
 
-export function EmailThreadPanel({ email, allEmails, onClose }: EmailThreadPanelProps) {
-  const getEmailThread = (currentEmail: Email): Email[] => {
-    const threadSet = new Set<string>();
-    const threadEmails: Email[] = [];
+export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
+  const [thread, setThread] = useState<Email[]>([]);
+  const [loading, setLoading] = useState(true);
 
-    if (currentEmail.threadId) {
-      allEmails
-        .filter(e => e.threadId === currentEmail.threadId)
-        .forEach(e => {
-          if (!threadSet.has(e.id)) {
-            threadSet.add(e.id);
-            threadEmails.push(e);
-          }
-        });
-    }
-
-    const addWithLinks = (em: Email) => {
-      if (threadSet.has(em.id)) return;
-      threadSet.add(em.id);
-      threadEmails.push(em);
-      allEmails.filter(e => e.parentEmailId === em.id).forEach(child => addWithLinks(child));
-      if (em.parentEmailId) {
-        const parent = allEmails.find(p => p.id === em.parentEmailId);
-        if (parent) addWithLinks(parent);
+  useEffect(() => {
+    async function loadFullThread() {
+      if (!email.threadId) {
+        setThread([email]);
+        setLoading(false);
+        return;
       }
-    };
-
-    if (threadEmails.length === 0) addWithLinks(currentEmail);
-
-    if (threadEmails.length === 1) {
-      const baseSubject = currentEmail.subject.toLowerCase().replace(/^(re|fwd|aw|reply):\s*/i, '').trim();
-      allEmails.filter(e => {
-        if (threadSet.has(e.id)) return false;
-        const otherSubject = e.subject.toLowerCase().replace(/^(re|fwd|aw|reply):\s*/i, '').trim();
-        return (e.senderEmail === currentEmail.senderEmail || e.senderEmail === 'me') && otherSubject === baseSubject;
-      }).forEach(e => {
-        threadSet.add(e.id);
-        threadEmails.push(e);
-      });
+      
+      try {
+        setLoading(true);
+        const backendThread = await fetchEmailThread(email.threadId);
+        const transformed = transformBackendEmails(backendThread);
+        setThread(transformed);
+      } catch (err) {
+        console.error("Failed to load thread:", err);
+        setThread([email]);
+      } finally {
+        setLoading(false);
+      }
     }
     
-    return threadEmails.sort((a, b) => new Date(a.emailDate).getTime() - new Date(b.emailDate).getTime());
+    loadFullThread();
+  }, [email]);
+
+  const handleReplyInThread = async (emailToReply: Email, replyText: string) => {
+    try {
+      const success = await sendReply(
+        emailToReply.senderEmail || '',
+        replyText,
+        emailToReply.subject,
+        emailToReply.threadId,
+        emailToReply.id
+      );
+      if (success) {
+        toast.success("Reply sent successfully");
+        // Reload thread to show the new message
+        const backendThread = await fetchEmailThread(email.threadId || '');
+        setThread(transformBackendEmails(backendThread));
+      } else {
+        toast.error("Failed to send reply");
+      }
+    } catch (err) {
+      toast.error("Error sending reply");
+      console.error(err);
+    }
   };
 
-  const thread = getEmailThread(email);
   const categoryInfo = getCategoryInfo(email.category);
 
   return (
@@ -82,16 +91,24 @@ export function EmailThreadPanel({ email, allEmails, onClose }: EmailThreadPanel
           </button>
         </div>
 
-        {/* Thread */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
-          {thread.map((threadEmail, index) => (
-            <EmailCard 
-              key={threadEmail.id} 
-              email={threadEmail} 
-              isParent={index === 0}
-              isCurrentEmail={threadEmail.id === email.id}
-            />
-          ))}
+        {/* Thread Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <Loader2 className="w-8 h-8 text-primary animate-spin" />
+              <p className="text-sm text-muted-foreground">Retrieving conversation history...</p>
+            </div>
+          ) : (
+            thread.map((threadEmail, index) => (
+              <EmailCard 
+                key={threadEmail.id} 
+                email={threadEmail} 
+                isParent={index === 0}
+                isCurrentEmail={threadEmail.id === email.id}
+                onReply={handleReplyInThread}
+              />
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -102,16 +119,19 @@ interface EmailCardProps {
   email: Email;
   isParent: boolean;
   isCurrentEmail: boolean;
+  onReply: (email: Email, replyText: string) => Promise<void>;
+  key?: React.Key;
 }
 
-function EmailCard({ email, isParent, isCurrentEmail }: EmailCardProps) {
+function EmailCard({ email, isParent, isCurrentEmail, onReply }: EmailCardProps) {
+  const [showReplyModal, setShowReplyModal] = useState(false);
   return (
-    <div className={`border rounded-xl p-5 transition-all ${
+    <div className={`border rounded-xl p-5 mb-4 transition-all ${
       isCurrentEmail 
-        ? 'border-primary/30 bg-gov-blue-light shadow-card' 
+        ? 'border-primary bg-gov-blue-light shadow-md ring-1 ring-primary/20' 
         : isParent 
-          ? 'border-border bg-card shadow-card' 
-          : 'border-border bg-muted/30 ml-6'
+          ? 'border-border bg-card shadow-sm' 
+          : 'border-border bg-muted/20 ml-8'
     }`}>
       {/* Header */}
       <div className="flex items-start gap-3 mb-4">
@@ -156,9 +176,10 @@ function EmailCard({ email, isParent, isCurrentEmail }: EmailCardProps) {
       {/* Content */}
       <div className="bg-background rounded-lg border border-border p-4 mb-3">
         <div className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Content</div>
-        <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words min-h-[80px] max-h-[400px] overflow-y-auto custom-scrollbar">
-          {email.content || '(No content available)'}
-        </div>
+        <div 
+          className="text-sm text-foreground leading-relaxed break-words min-h-[80px] max-h-[400px] overflow-y-auto custom-scrollbar prose-sm prose-primary max-w-none"
+          dangerouslySetInnerHTML={{ __html: (email.content || '(No content available)').replace(/__API_BASE_URL__/g, API_BASE_URL) }}
+        />
       </div>
 
       {/* Attachments */}
@@ -192,6 +213,24 @@ function EmailCard({ email, isParent, isCurrentEmail }: EmailCardProps) {
             </a>
           )}
         </div>
+      )}
+      {/* Footer Actions */}
+      <div className="mt-4 pt-3 border-t border-border flex justify-end">
+        <button
+          onClick={() => setShowReplyModal(true)}
+          className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-primary hover:bg-primary/10 rounded-lg transition-all"
+        >
+          <Reply className="w-3.5 h-3.5" />
+          Reply to this message
+        </button>
+      </div>
+
+      {showReplyModal && (
+        <ReplyModal
+          email={email}
+          onClose={() => setShowReplyModal(false)}
+          onSendReply={(text) => onReply(email, text)}
+        />
       )}
     </div>
   );

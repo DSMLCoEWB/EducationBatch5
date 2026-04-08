@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Shield } from 'lucide-react';
 import { TopNavigation } from '@/components/TopNavigation';
 import { Sidebar } from '@/components/Sidebar';
@@ -8,6 +8,7 @@ import { EmailThreadPanel } from '@/components/EmailThreadPanel';
 import { Chatbot } from '@/components/Chatbot';
 import { PolicyManagementModal } from '@/components/PolicyManagementModal';
 import { LoginPage } from '@/components/LoginPage';
+import { ComposeModal } from '@/components/ComposeModal';
 import { Email } from '@/types';
 import {
   disconnectGoogleAuth,
@@ -41,6 +42,7 @@ export default function App() {
   const [gmailAuthMode, setGmailAuthMode] = useState<string>('none');
   const [error, setError] = useState<string | null>(null);
   const [showPolicyManagement, setShowPolicyManagement] = useState(false);
+  const [showComposeModal, setShowComposeModal] = useState(false);
   const [mainKeyStatus, setMainKeyStatus] = useState<ApiKeyStatus>({ status: 'missing', message: 'Not tested' });
   const [priorityKeyStatus, setPriorityKeyStatus] = useState<ApiKeyStatus>({ status: 'missing', message: 'Not tested' });
   const [refinementStats, setRefinementStats] = useState<RefinementStats>({ refined: 0, total: 0 });
@@ -168,7 +170,10 @@ export default function App() {
 
   const handleRestoreEmail = async (id: string) => {
     try {
-      setEmails(prev => prev.filter(email => email.id !== id));
+      // Visually restore to Inbox in React state immediately by toggling the flag rather than deleting it.
+      setEmails(prev => prev.map(email => 
+        email.id === id ? { ...email, isTrashed: 0, isInbox: 1 } : email
+      ));
       await restoreEmail(id);
     } catch (error) {
       console.error("Failed to restore email:", error);
@@ -277,7 +282,12 @@ export default function App() {
         refinementStats={refinementStats} onTestApiKeys={handleTestApiKeys}
       />
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar activeView={activeView} onViewChange={setActiveView} onOpenPolicyManagement={() => setShowPolicyManagement(true)} />
+          <Sidebar 
+            activeView={activeView} 
+            onViewChange={setActiveView} 
+            onOpenPolicyManagement={() => setShowPolicyManagement(true)}
+            onCompose={() => setShowComposeModal(true)}
+          />
         {activeView === 'dashboard' ? (
           <Dashboard emails={filteredEmails} />
         ) : (
@@ -286,10 +296,14 @@ export default function App() {
         )}
       </div>
       {selectedEmail && (
-        <EmailThreadPanel email={selectedEmail} allEmails={emails} onClose={() => setSelectedEmail(null)} />
+        <EmailThreadPanel 
+          email={selectedEmail} 
+          onClose={() => setSelectedEmail(null)} 
+        />
       )}
       <Chatbot emails={filteredEmails} />
       {showPolicyManagement && <PolicyManagementModal onClose={() => setShowPolicyManagement(false)} />}
+      {showComposeModal && <ComposeModal onClose={() => setShowComposeModal(false)} />}
     </div>
   );
 }

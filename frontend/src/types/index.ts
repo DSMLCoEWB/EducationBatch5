@@ -30,6 +30,7 @@ export interface Email {
   replyText?: string;
   is_demo?: boolean;
   threadId?: string;
+  threadCount?: number;
 }
 
 export interface CategoryInfo {
