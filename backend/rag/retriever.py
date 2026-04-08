@@ -2,6 +2,7 @@ import os
 import json
 import faiss
 import numpy as np
+import re
 from sentence_transformers import SentenceTransformer
 
 # ---------- CONFIG ----------
@@ -29,6 +30,20 @@ index = None
 policy_chunks = []
 _last_index_mtime = None
 _last_chunks_mtime = None
+
+
+def strip_html(text: str) -> str:
+    """Removes HTML tags and normalizes whitespace for cleaner semantic embeddings."""
+    if not text:
+        return ""
+    # Remove script and style tags and their contents
+    clean = re.sub(r"<(style|script)[^>]*>[\s\S]*?<\/\1>", " ", text, flags=re.IGNORECASE)
+    # Remove all other tags
+    clean = re.sub(r"<[^>]*>", " ", clean)
+    # Decode some common HTML entities
+    clean = clean.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    # Normalize whitespace
+    return " ".join(clean.split()).strip()
 
 
 def _choose_chunks_path() -> str:
@@ -89,11 +104,13 @@ def retrieve_policy_chunks(query: str):
         print("[WARN]: Retriever not initialized or empty.")
         return []
 
-    print("Query:", query)
+    # Clean query: Remove HTML pollution which ruins semantic embedding
+    clean_query = strip_html(query)
+    print("Cleaned Query:", clean_query[:300] + ("..." if len(clean_query) > 300 else ""))
 
     # Encode query
     emb_model = get_embedder()
-    query_emb = emb_model.encode([query], normalize_embeddings=True)
+    query_emb = emb_model.encode([clean_query], normalize_embeddings=True)
     query_emb = np.asarray(query_emb).astype("float32")
 
     # Search FAISS

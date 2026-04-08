@@ -360,11 +360,7 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
         </td>
         <td className="px-4 py-3 hidden xl:table-cell">
           <div className="text-xs text-muted-foreground max-w-[200px] line-clamp-2">
-            {email.content ? (() => {
-              const tmp = document.createElement("DIV");
-              tmp.innerHTML = email.content;
-              return tmp.textContent || tmp.innerText || "";
-            })() : ""}
+            {email.snippet || ""}
           </div>
         </td>
         <td className="px-4 py-3 text-center">
