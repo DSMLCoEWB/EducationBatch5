@@ -1,4 +1,5 @@
 import { 
+  Plus,
   LayoutDashboard, 
   Inbox, 
   AlertCircle, 
@@ -11,12 +12,13 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 interface SidebarProps {
   activeView: string;
   onViewChange: (view: string) => void;
   onOpenPolicyManagement: () => void;
+  onCompose: () => void;
 }
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -30,12 +32,12 @@ const iconMap: Record<string, React.ReactNode> = {
   trash: <Trash2 className="w-[18px] h-[18px]" />,
 };
 
-export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement }: SidebarProps) {
+export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCompose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-    { id: 'all', label: 'All Emails', icon: 'inbox' },
+    { id: 'all', label: 'Inbox', icon: 'inbox' },
     { id: 'suspension', label: 'Suspension', icon: 'alert-circle' },
     { id: 'fir', label: 'FIR / Arrest', icon: 'shield-alert' },
     { id: 'semester', label: 'Semester', icon: 'graduation-cap' },
@@ -54,6 +56,19 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement }: Si
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        </button>
+      </div>
+
+      {/* Compose Button */}
+      <div className="px-3 mb-4">
+        <button
+          onClick={onCompose}
+          className={`w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-white shadow-sm border border-border hover:shadow-md transition-all duration-200 text-foreground font-semibold group ${
+            collapsed ? 'px-0' : 'px-4'
+          }`}
+        >
+          <Plus className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" />
+          {!collapsed && <span>Compose</span>}
         </button>
       </div>
 

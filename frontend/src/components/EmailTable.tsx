@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Paperclip,
   ArrowUpDown,
@@ -42,7 +42,44 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     showOnlyFIR: false
   });
 
-  let filteredEmails = [...emails];
+  // --- THREAD GROUPING LOGIC ---
+  const threadedEmails = useMemo(() => {
+    const threadGroups: Record<string, Email[]> = {};
+    const noThreadEmails: Email[] = [];
+
+    emails.forEach(email => {
+      if (email.threadId) {
+        if (!threadGroups[email.threadId]) threadGroups[email.threadId] = [];
+        threadGroups[email.threadId].push(email);
+      } else {
+        noThreadEmails.push(email);
+      }
+    });
+
+    const results: (Email & { threadCount: number })[] = [];
+
+    // Process groups
+    Object.entries(threadGroups).forEach(([tid, group]) => {
+      // Sort group by date descending to find the latest
+      const sortedGroup = [...group].sort((a, b) => 
+        new Date(b.emailDate).getTime() - new Date(a.emailDate).getTime()
+      );
+      const latest = sortedGroup[0];
+      results.push({
+        ...latest,
+        threadCount: group.length
+      });
+    });
+
+    // Process no-thread emails
+    noThreadEmails.forEach(email => {
+      results.push({ ...email, threadCount: 1 });
+    });
+
+    return results;
+  }, [emails]);
+
+  let filteredEmails = [...threadedEmails];
 
   if (filters.hasAttachment !== null) {
     filteredEmails = filteredEmails.filter(e => e.hasAttachment === filters.hasAttachment);
@@ -251,12 +288,13 @@ function FilterChip({ label, active, onClick }: { label: string; active: boolean
 }
 
 interface EmailRowProps {
-  email: Email;
+  email: Email & { threadCount?: number };
   categoryId: string;
   onClick: () => void;
   onUpdateEmail: (emailId: string, updates: Partial<Email>) => void;
   onDeleteEmail: (emailId: string) => void;
   onRestoreEmail: (emailId: string) => void;
+  key?: React.Key;
 }
 
 function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, onRestoreEmail }: EmailRowProps) {
@@ -308,6 +346,11 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
         <td className="px-4 py-3">
           <div className="flex items-center gap-1.5 max-w-[200px]">
             <span className="font-medium text-foreground text-sm truncate">{email.subject}</span>
+            {email.threadCount > 1 && (
+              <span className="text-xs text-muted-foreground font-medium ml-1">
+                ({email.threadCount})
+              </span>
+            )}
             {email.is_demo && (
               <span className="flex-shrink-0 text-[10px] font-semibold bg-gov-amber-light text-gov-amber px-1.5 py-0.5 rounded border border-gov-amber/20">
                 Demo
@@ -316,7 +359,13 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           </div>
         </td>
         <td className="px-4 py-3 hidden xl:table-cell">
-          <div className="text-xs text-muted-foreground max-w-[200px] line-clamp-2">{email.content}</div>
+          <div className="text-xs text-muted-foreground max-w-[200px] line-clamp-2">
+            {email.content ? (() => {
+              const tmp = document.createElement("DIV");
+              tmp.innerHTML = email.content;
+              return tmp.textContent || tmp.innerText || "";
+            })() : ""}
+          </div>
         </td>
         <td className="px-4 py-3 text-center">
           {email.hasAttachment && <Paperclip className="w-3.5 h-3.5 text-muted-foreground mx-auto" />}

@@ -2,8 +2,9 @@ import email
 import base64
 from itertools import count
 import os
+import sqlite3
 import pandas as pd
-from database_api import init_db, save_emails_batch, get_emails_from_db, mark_as_trashed, delete_all_for_user, get_existing_gmail_ids
+from database_api import init_db, save_emails_batch, get_emails_from_db, mark_as_trashed, delete_all_for_user, get_existing_gmail_ids, DB_PATH
 import re
 import json
 import ast
@@ -24,7 +25,7 @@ from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
 from contextlib import asynccontextmanager
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from email_parser import parse_eml
 from classifier import classify_grievance
 from followup import detect_followup
@@ -32,6 +33,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from chatbot import ask
+from agent_engine import get_chatbot_response
 from priority_llm import get_llm_priority, get_batch_priorities, apply_thread_escalation
 from pydantic import BaseModel
 from rag.reply_generator import generate_suggested_reply_with_evidence
@@ -86,7 +88,11 @@ GOOGLE_OAUTH_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.settings.basic",
+    "https://www.googleapis.com/auth/userinfo.profile",
 ]
+
+_user_display_name_cache: Dict[str, str] = {}
 
 SEEDED_SUBJECT_PREFIX = "[AICOE-SEED]"
 APP_SESSION_SECRET = os.getenv("APP_SESSION_SECRET", GOOGLE_OAUTH_ENCRYPTION_KEY).strip()
@@ -312,26 +318,54 @@ def _decode_header_value(raw_value: str | None) -> str:
         return str(raw_value).strip()
 
 
-def _extract_email_body(msg: email.message.Message) -> str:
+def _extract_email_body(msg: email.message.Message, gmail_id: str | None = None) -> str:
+    import re
+    html_parts: list[str] = []
+    text_parts: list[str] = []
+
     if msg.is_multipart():
-        text_parts: list[str] = []
         for part in msg.walk():
             content_type = part.get_content_type()
             disposition = str(part.get("Content-Disposition", "")).lower()
             if "attachment" in disposition:
                 continue
-            if content_type == "text/plain":
-                payload = part.get_payload(decode=True)
-                if payload:
-                    charset = part.get_content_charset() or "utf-8"
-                    text_parts.append(payload.decode(charset, errors="replace"))
-        return "\n".join(t.strip() for t in text_parts if t.strip()).strip()
+                
+            payload = part.get_payload(decode=True)
+            if not payload:
+                continue
+                
+            charset = part.get_content_charset() or "utf-8"
+            decoded = payload.decode(charset, errors="replace")
+            
+            if content_type == "text/html":
+                if gmail_id:
+                    # Replace inline cid tags with a token the frontend can replace
+                    decoded = re.sub(r'cid:([^\s\'"]+)', f'__API_BASE_URL__/api/emails/attachments/inline/{gmail_id}/\\1', decoded)
+                html_parts.append(decoded)
+            elif content_type == "text/plain":
+                text_parts.append(decoded)
+                
+        if html_parts:
+            return "\n<br>\n".join(html_parts)
+            
+        # For plain text, preserve spacing using <br> and html escape to prevent XSS
+        import html
+        text_content = "\n".join(t.strip() for t in text_parts if t.strip()).strip()
+        return html.escape(text_content).replace('\n', '<br>\n')
 
     payload = msg.get_payload(decode=True)
     if not payload:
         return ""
     charset = msg.get_content_charset() or "utf-8"
-    return payload.decode(charset, errors="replace").strip()
+    decoded = payload.decode(charset, errors="replace").strip()
+    
+    if msg.get_content_type() == "text/html":
+        if gmail_id:
+            decoded = re.sub(r'cid:([^\s\'"]+)', f'__API_BASE_URL__/api/emails/attachments/inline/{gmail_id}/\\1', decoded)
+        return decoded
+        
+    import html
+    return html.escape(decoded).replace('\n', '<br>\n')
 
 
 def _extract_attachment_names(msg: email.message.Message) -> list[str]:
@@ -528,14 +562,27 @@ def _fetch_dynamic_gmail_messages_oauth(user_email: str, limit: int = 0, query: 
     message_ids = _gmail_api_list_message_ids(service, limit=limit, query=query)
     
     # NEW: Filter out IDs that already exist in our database to avoid redundant fetching
+    # BUT: If we are specifically fetching INBOX, we want to keep the IDs to ensure their 'is_inbox' flag is set to 1.
     existing_ids = get_existing_gmail_ids(user_email)
-    new_message_ids = [mid for mid in message_ids if mid not in existing_ids] or []
+    
+    is_inbox_query = "in:inbox" in query.lower()
+    new_message_ids = []
+    existing_inbox_ids = []
+
+    for mid in message_ids:
+        if mid in existing_ids:
+            if is_inbox_query:
+                existing_inbox_ids.append(mid)
+        else:
+            new_message_ids.append(mid)
     
     if len(new_message_ids) < len(message_ids):
         print(f"⏩ [Sync] Skipping {len(message_ids) - len(new_message_ids)} messages already in DB.")
         
     messages: list[dict[str, Any]] = []
+    all_matched_ids = set(message_ids)
 
+    # 1. Process TRULY new messages
     for msg_id in new_message_ids:
         try:
             payload = service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
@@ -554,12 +601,12 @@ def _fetch_dynamic_gmail_messages_oauth(user_email: str, limit: int = 0, query: 
 
         date_header = msg.get("Date")
         try:
-            email_date = parsedate_to_datetime(date_header).date().isoformat() if date_header else datetime.now().date().isoformat()
+            email_date = parsedate_to_datetime(date_header).isoformat() if date_header else datetime.now().isoformat()
         except Exception:
-            email_date = datetime.now().date().isoformat()
+            email_date = datetime.now().isoformat()
 
-        body = _extract_email_body(msg)
-        content = f"{subject}\n{body}".strip()
+        body = _extract_email_body(msg, gmail_id=msg_id)
+        content = body.strip()
         message_id = str(msg.get("Message-ID", "")).strip()
         parent_message_id = str(msg.get("In-Reply-To", "")).strip()
         attachments = _extract_attachment_names(msg)
@@ -580,59 +627,147 @@ def _fetch_dynamic_gmail_messages_oauth(user_email: str, limit: int = 0, query: 
             }
         )
 
-    return messages
+    return messages, all_matched_ids
 
 
-def _send_email_via_gmail_api(user_email: str, to_email: str, subject: str, body: str) -> bool:
+def _get_user_display_name(user_email: str) -> str:
+    """Fetch user's Send-As name from Gmail Settings, with caching and fallback to profile/email prefix."""
+    if user_email in _user_display_name_cache:
+        return _user_display_name_cache[user_email]
+
+    logger.info(f"🔍 Fetching display name for {user_email}...")
+    try:
+        service = _get_gmail_api_service(user_email)
+        if service:
+            # 1. Try Gmail Settings (Send As) - This is the primary source for Gmail "Alias" name
+            try:
+                send_as = service.users().settings().sendAs().list(userId='me').execute()
+                primary = next((s for s in send_as.get('sendAs', []) if s.get('isPrimary')), None)
+                if primary and primary.get('displayName'):
+                    logger.info(f"✅ Found Gmail Send-As name: {primary['displayName']}")
+                    _user_display_name_cache[user_email] = primary['displayName']
+                    return primary['displayName']
+            except Exception as se:
+                logger.warning(f"Gmail Settings name fetch failed: {se}")
+            
+            # 2. Try People API (as fallback)
+            try:
+                people_service = build('people', 'v1', credentials=_get_google_credentials(user_email))
+                profile = people_service.people().get(resourceName='people/me', personFields='names').execute()
+                if 'names' in profile and profile['names']:
+                    name = profile['names'][0].get('displayName')
+                    if name:
+                        logger.info(f"✅ Found People API profile name: {name}")
+                        _user_display_name_cache[user_email] = name
+                        return name
+            except Exception as pe:
+                logger.warning(f"People API fallback failed: {pe}")
+    except Exception as e:
+        logger.error(f"Failed to fetch user display name from APIs: {e}")
+
+    # 3. Ultimate Fallback: Email Prefix
+    fallback_name = user_email.split('@')[0].capitalize()
+    logger.info(f"⚠️ Falling back to email prefix name: {fallback_name}")
+    _user_display_name_cache[user_email] = fallback_name
+    return fallback_name
+
+
+def _get_google_credentials(user_email: str) -> Optional[Credentials]:
+    """Helper to get Credentials object for building other services."""
+    token_path = GOOGLE_OAUTH_TOKENS_DIR / f"{hashlib.sha256(user_email.encode()).hexdigest()}.enc"
+    if not token_path.exists():
+        return None
+    try:
+        fernet = _get_google_fernet()
+        with open(token_path, "rb") as f:
+            enc_data = f.read()
+        creds_json = fernet.decrypt(enc_data).decode("utf-8")
+        return Credentials.from_authorized_user_info(json.loads(creds_json))
+    except Exception:
+        return None
+
+
+def _send_email_via_gmail_api(user_email: str, to_email: str, subject: str, body: str, thread_id: str = None, in_reply_to: str = None) -> str | None:
     service = _get_gmail_api_service(user_email)
     if service is None:
-        return False
+        return None
 
+    display_name = _get_user_display_name(user_email)
     msg = EmailMessage()
     msg["To"] = to_email
+    msg["From"] = f"{display_name} <{user_email}>"
     msg["Subject"] = subject
+    
+    # Threading Headers
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = in_reply_to
+        
     msg.set_content(body)
     raw_msg = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
 
     try:
-        service.users().messages().send(userId="me", body={"raw": raw_msg}).execute()
-        return True
-    except HttpError:
-        return False
+        body_payload = {"raw": raw_msg}
+        if thread_id:
+            body_payload["threadId"] = thread_id
+            
+        sent_msg = service.users().messages().send(userId="me", body=body_payload).execute()
+        return sent_msg.get("id")
+    except HttpError as e:
+        logger.error(f"Gmail Send Error: {e}")
+        return None
 
 
-def _fetch_dynamic_gmail_messages(user_email: str, limit: int = 0) -> list[dict[str, Any]]:
+def _fetch_dynamic_gmail_messages(user_email: str, limit: int = 0) -> tuple[list[dict[str, Any]], dict[str, set[str]]]:
     """Fetch messages from both INBOX and SENT to track full conversation state."""
     service = _get_gmail_api_service(user_email)
     if service is None:
         raise ValueError("Gmail OAuth token not available or invalid. Reconnect Gmail through the app.")
     
     # Fetch from Inbox
-    inbox_messages = _fetch_dynamic_gmail_messages_oauth(user_email, limit=limit, query="in:inbox")
+    inbox_messages, inbox_ids = _fetch_dynamic_gmail_messages_oauth(user_email, limit=limit, query="in:inbox")
     for msg in inbox_messages:
         msg["is_inbox"] = True
     
     # Fetch from Sent - increase limit to match Inbox for full coverage
     sent_limit = limit if limit > 0 else 100
-    sent_messages = _fetch_dynamic_gmail_messages_oauth(user_email, limit=sent_limit, query="in:sent")
+    sent_messages, sent_ids = _fetch_dynamic_gmail_messages_oauth(user_email, limit=sent_limit, query="in:sent")
     for msg in sent_messages:
         msg["is_sent"] = True
         msg["is_sent_by_me"] = True
-        # Don't force 'Sent' category; let classification handle it if it's a grievance.
 
     # Fetch from Trash - increase limit similarly
-    trash_limit = limit if limit > 0 else 50
-    trash_messages = _fetch_dynamic_gmail_messages_oauth(user_email, limit=trash_limit, query="in:trash")
+    trash_limit = limit if limit > 0 else 100
+    trash_messages, trash_ids = _fetch_dynamic_gmail_messages_oauth(user_email, limit=trash_limit, query="in:trash")
     for msg in trash_messages:
         msg["category"] = "trash"
 
     # Combine all (deduplication happens later by ID in DB)
-    return inbox_messages + sent_messages + trash_messages
+    return inbox_messages + sent_messages + trash_messages, {
+        "inbox_ids": inbox_ids,
+        "sent_ids": sent_ids,
+        "trash_ids": trash_ids
+    }
 
 
 def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
-    # 1. Fetch only NEW messages from Gmail (skipped ones are already in DB)
-    new_messages = _fetch_dynamic_gmail_messages(user_email, limit=DYNAMIC_FETCH_LIMIT)
+    try:
+        new_messages, folder_ids = _fetch_dynamic_gmail_messages(user_email)
+    except Exception as e:
+        new_messages = []
+        folder_ids = {}
+    
+    # 1.5. RECONCILE FLAGS (Fix Ghost Emails)
+    # If this is a full sync (which it is here because limit=0), we reconcile the flags.
+    from database_api import reconcile_email_flags, purge_orphaned_emails
+    if folder_ids:
+        reconcile_email_flags(user_email, 'inbox', folder_ids.get("inbox_ids", set()))
+        reconcile_email_flags(user_email, 'sent', folder_ids.get("sent_ids", set()))
+        reconcile_email_flags(user_email, 'trash', folder_ids.get("trash_ids", set()))
+        
+        # 1.6. LEAN SYNC PURGE
+        # Permanently delete emails that have been 'orphaned' (not in any folder) for 30+ days.
+        purge_orphaned_emails(user_email)
     
     # 2. Load existing emails from DB to provide context for followup detection
     from database_api import get_emails_from_db
@@ -646,9 +781,14 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
 
     # 3. Process new messages
     new_rows = []
+    # [THREAD CONTEXT FIX]: Maintain a dynamic context of emails processed in THIS batch 
+    # to link them correctly even if they aren't in the database yet.
+    current_context_df = existing_df.copy()
+
     for msg in new_messages:
+
         category = classify_grievance(msg["content"])
-        mail_type, parent_id, followup_count = detect_followup(msg, existing_df)
+        mail_type, parent_id, followup_count = detect_followup(msg, current_context_df)
 
         # Always score immediately with deterministic heuristic in request path.
         # Optional LLM refinement is applied asynchronously in background.
@@ -701,6 +841,8 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
         }
 
         new_rows.append(row)
+        # Add to local context so subsequent emails in same thread can see it
+        current_context_df = pd.concat([current_context_df, pd.DataFrame([row])], ignore_index=True)
 
     # 6. Final Merge
     if not new_messages:
@@ -772,7 +914,10 @@ def _run_priority_llm_enrichment(user_email: str) -> None:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM emails WHERE user_email = ? AND is_priority_refined = 1", (user_email,))
             db_refined_ids = {str(row[0]).strip().lower() for row in cursor.fetchall()}
-            scored_ids.update(db_refined_ids)
+            # [CACHE LEAK FIX]: Directly equate scored_ids to the database truth. This solves the bug 
+            # where wiping the database would leave 70 stale IDs in RAM causing the stats screen to report
+            # 70/70 completion when none had actually been re-scored yet.
+            scored_ids = db_refined_ids
             _priority_llm_scored_ids_by_user[key] = scored_ids
             conn.close()
         except Exception as db_err:
@@ -896,9 +1041,9 @@ def _schedule_priority_llm_enrichment(user_email: str) -> None:
         last_run = _priority_llm_last_run_by_user.get(key)
         fail_count = _priority_llm_consecutive_failures_by_user.get(key, 0)
         
-        # INCREASED COOLDOWN: 120 seconds base
+        # INCREASED COOLDOWN: 60 seconds base
         # BACKOFF: If it failed multiple times, wait longer (e.g. 5 mins after 3 fails)
-        cooldown = 120
+        cooldown = 60
         if fail_count >= 3:
             cooldown = 300 # 5 minute backoff
             
@@ -1421,6 +1566,53 @@ def get_emails(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/emails/threads/{thread_id}")
+def get_email_thread(thread_id: str, request: Request):
+    """Get all emails belonging to a specific thread, sorted by date."""
+    try:
+        user_email = _get_authenticated_user_email(request)
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Fetch all messages in the thread
+        try:
+            # Try date-based sort
+            cursor.execute("""
+                SELECT * FROM emails 
+                WHERE thread_id = ? AND user_email = ?
+                ORDER BY date ASC
+            """, (thread_id, user_email))
+        except sqlite3.OperationalError as se:
+            logger.error(f"SQL Error in get_email_thread: {se}")
+            # Fallback for older DB schemas
+            cursor.execute("""
+                SELECT * FROM emails 
+                WHERE thread_id = ?
+                ORDER BY id ASC
+            """, (thread_id,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        # Convert rows to list of dicts
+        results = []
+        for row in rows:
+            d = dict(row)
+            # Re-format attachments if stored as JSON string
+            if d.get("attachments") and isinstance(d["attachments"], str):
+                try:
+                    d["attachments"] = json.loads(d["attachments"])
+                except:
+                    pass
+            results.append(d)
+            
+        return results
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to fetch thread: {e}")
+
 @app.get("/refinement-stats")
 def get_refinement_stats_endpoint(request: Request):
     """Get count of AI refined vs total emails"""
@@ -1540,16 +1732,17 @@ class ChatRequest(BaseModel):
     message: str
 
 @app.post("/chat")
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, fastapi_req: Request):
     print("📥 CHAT MESSAGE:", repr(request.message))
 
     if not request.message or not request.message.strip():
         raise HTTPException(status_code=400, detail="Empty message")
 
-    answer = ask(request.message)
+    user_email = _get_authenticated_user_email(fastapi_req)
+    answer = get_chatbot_response(request.message, user_email)
 
     print("🤖 CHAT ANSWER:", repr(answer))
-    return {"answer": answer}
+    return {"reply": answer}
 
 @app.get("/dashboard")
 def dashboard(request: Request):
@@ -1594,6 +1787,59 @@ def download_attachment(filename: str):
         media_type=media_type,
         filename=original_name
     )
+
+@app.get("/api/emails/attachments/inline/{gmail_id}/{cid}")
+def get_inline_attachment(gmail_id: str, cid: str, request: Request):
+    """Proxy inline images securely through our backend to avoid CORS/Auth issues"""
+    user_email = _get_authenticated_user_email(request)
+    service = _get_gmail_api_service(user_email)
+    if not service:
+        raise HTTPException(status_code=401, detail="Gmail login required")
+        
+    try:
+        msg = service.users().messages().get(userId='me', id=gmail_id).execute()
+        
+        def find_part_by_cid(parts, target_cid):
+            for part in parts:
+                if part.get("headers"):
+                    headers = {h["name"].lower(): h["value"] for h in part["headers"]}
+                    if "content-id" in headers and target_cid in headers["content-id"]:
+                        return part
+                if "parts" in part:
+                    found = find_part_by_cid(part["parts"], target_cid)
+                    if found:
+                        return found
+            return None
+            
+        target_part = None
+        if "payload" in msg:
+            if "parts" in msg["payload"]:
+                target_part = find_part_by_cid(msg["payload"]["parts"], cid)
+                
+        if not target_part:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+            
+        attachment_id = target_part.get("body", {}).get("attachmentId")
+        if not attachment_id:
+             if target_part.get("body", {}).get("data"):
+                 import base64
+                 data = base64.urlsafe_b64decode(target_part["body"]["data"])
+                 return Response(content=data, media_type=target_part.get("mimeType", "image/jpeg"))
+             raise HTTPException(status_code=404, detail="Attachment ID not found")
+             
+        attachment = service.users().messages().attachments().get(
+            userId='me', messageId=gmail_id, id=attachment_id
+        ).execute()
+        
+        import base64
+        data = base64.urlsafe_b64decode(attachment["data"])
+        from fastapi.responses import Response
+        return Response(content=data, media_type=target_part.get("mimeType", "image/jpeg"))
+        
+    except Exception as e:
+        logger.error(f"Error serving inline image {cid}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/download/email/{eml_filename}")
 def download_eml(eml_filename: str):
@@ -1815,15 +2061,22 @@ class GenerateReplyResponse(BaseModel):
 
 class SendReplyRequest(BaseModel):
     to_email: str
-    original_subject: str = ""
     reply_text: str
+    original_subject: str = ""
+    thread_id: str = None
+    in_reply_to: str = None
 
+class ComposeRequest(BaseModel):
+    to_email: str
+    subject: str
+    body: str
 
 class SendReplyResponse(BaseModel):
     success: bool
     message: str
     to_email: str
     subject: str
+    gmail_id: str = None
 
 
 def _build_reply_subject(original_subject: str) -> str:
@@ -1891,6 +2144,24 @@ def generate_reply(request: GenerateReplyRequest) -> GenerateReplyResponse:
         raise HTTPException(status_code=500, detail=f"Failed to generate reply: {str(e)}")
 
 
+@app.post("/emails/compose", response_model=SendReplyResponse)
+def compose_new_email(request: Request, payload: ComposeRequest):
+    user_email = _get_authenticated_user_email(request)
+    recipient = parseaddr(payload.to_email)[1].strip()
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Recipient email is required")
+    
+    gmail_id = _send_email_via_gmail_api(user_email, recipient, payload.subject, payload.body)
+    if gmail_id:
+        return SendReplyResponse(
+            success=True,
+            message="Email sent successfully",
+            to_email=recipient,
+            subject=payload.subject,
+            gmail_id=gmail_id
+        )
+    raise HTTPException(status_code=500, detail="Failed to send email via Gmail API")
+
 @app.post("/send-reply", response_model=SendReplyResponse)
 def send_reply_email(request: Request, payload: SendReplyRequest):
     user_email = _get_authenticated_user_email(request)
@@ -1904,23 +2175,37 @@ def send_reply_email(request: Request, payload: SendReplyRequest):
 
     subject = _build_reply_subject(payload.original_subject)
 
-    if _send_email_via_gmail_api(user_email, recipient, subject, body):
-        # 🔥 UPDATE LOCAL CACHE IMMEDIATELY TO PREVENT "BLUNDER"
+    gmail_id = _send_email_via_gmail_api(
+        user_email, 
+        recipient, 
+        subject, 
+        body, 
+        thread_id=payload.thread_id, 
+        in_reply_to=payload.in_reply_to
+    )
+
+    if gmail_id:
+        # 🔥 UPDATE LOCAL CACHE & DB
         key = _user_key(user_email)
         with _dynamic_cache_lock:
             cached_df = _dynamic_cache_df_by_user.get(key)
             if cached_df is not None:
-                mask = (cached_df["sender_email"] == recipient)
+                # Group update: Mark the whole thread as replied if applicable
+                if payload.thread_id:
+                    mask = (cached_df["thread_id"] == payload.thread_id)
+                else:
+                    mask = (cached_df["sender_email"] == recipient)
                 cached_df.loc[mask, "replied"] = True
                 _dynamic_cache_df_by_user[key] = cached_df
                 
                 # Update SQLite DB for persistence
                 try:
-                    import sqlite3
-                    from database_api import DB_PATH
                     conn = sqlite3.connect(DB_PATH)
                     cursor = conn.cursor()
-                    cursor.execute("UPDATE emails SET replied = 1 WHERE sender_email = ? AND user_email = ?", (recipient, user_email))
+                    if payload.thread_id:
+                        cursor.execute("UPDATE emails SET replied = 1 WHERE thread_id = ? AND user_email = ?", (payload.thread_id, user_email))
+                    else:
+                        cursor.execute("UPDATE emails SET replied = 1 WHERE sender_email = ? AND user_email = ?", (recipient, user_email))
                     conn.commit()
                     conn.close()
                 except Exception as e:
@@ -1931,6 +2216,7 @@ def send_reply_email(request: Request, payload: SendReplyRequest):
             message="Reply email sent successfully",
             to_email=recipient,
             subject=subject,
+            gmail_id=gmail_id
         )
 
     raise HTTPException(
@@ -1982,10 +2268,78 @@ def untrash_email(email_id: str, request: Request):
     if not service:
         raise HTTPException(status_code=401, detail="Gmail login required.")
 
-    # 1. Update Persistent Local DB (INSTANT atomic update)
-    mark_as_trashed(user_email, email_id, False)
+    # 1. Update Persistent Local DB (INSTANT atomic update) - SET is_inbox = 1
+    # We use a direct DB query here to ensure is_inbox is explicitly set, 
+    # instead of just relying on mark_as_trashed which doesn't know the exact previous state.
+    from database_api import DB_PATH
+    import sqlite3
+    
+    gmail_id = None
+    is_demo = 0
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=30)
+        cursor = conn.cursor()
+        
+        # Verify ownership and get details
+        cursor.execute("SELECT gmail_id, is_demo FROM emails WHERE id = ? AND user_email = ?", (email_id, user_email))
+        row = cursor.fetchone()
+        
+        if row:
+            gmail_id = row[0]
+            is_demo = row[1]
+            
+            # Execute explicit restore flags
+            cursor.execute(
+                "UPDATE emails SET is_trashed = 0, is_inbox = 1, category = 'miscellaneous' WHERE id = ? AND user_email = ?", 
+                (email_id, user_email)
+            )
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ Local Untrash failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update local database.")
 
-    return {"success": True, "message": "Email restored to Inbox successfully."}
+    if not row:
+         raise HTTPException(status_code=404, detail="Email not found or access denied.")
+
+    message_appendix = ""
+
+    # 2. Re-sync with Gmail Trash directory directly
+    if is_demo:
+         message_appendix = " (Note: This is a local Demo email, so it does not exist in your real Gmail account.)"
+    elif gmail_id:
+        try:
+            # 2a. Remove from Trash
+            service.users().messages().untrash(userId="me", id=gmail_id).execute()
+            
+            # 2b. Explicitly add INBOX label to ensure it appears in the Gmail app Inbox
+            # This fixes the issue where untrash only archives the message.
+            service.users().messages().modify(
+                userId="me", 
+                id=gmail_id, 
+                body={"addLabelIds": ["INBOX"]}
+            ).execute()
+        except HttpError as err:
+            error_details = json.loads(err.content.decode('utf-8'))
+            if error_details.get("error", {}).get("code") == 404:
+                 print(f"⚠️ Gmail Untrash failed: Email not found in Gmail. It might have been permanently deleted.")
+                 message_appendix = " (Warning: This email could not be found in your actual Gmail account. It may have been permanently deleted there, but is now restored locally.)"
+            else:
+                 print(f"⚠️ Gmail Untrash failed: {err}")
+                 message_appendix = " (Warning: Failed to sync restoration with Google servers. Check your Gmail trash manually.)"
+        except Exception as e:
+            print(f"⚠️ Gmail Untrash failed: {e}")
+            message_appendix = " (Warning: Failed to communicate with Google servers.)"
+    else:
+        message_appendix = " (Warning: Missing Gmail ID. Could not restore in Gmail app.)"
+
+    # 3. Aggressively purge cache so the next UI GET call physically restages the email into Inbox array
+    key = _user_key(user_email)
+    with _dynamic_cache_lock:
+        if key in _dynamic_cache_at_by_user:
+            _dynamic_cache_at_by_user[key] = None
+
+    return {"success": True, "message": f"Email restored to Inbox.{message_appendix}"}
 
 
 # ---------------- RISC WEBHOOK ----------------

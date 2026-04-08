@@ -3,7 +3,7 @@ import { CategoryInfo } from '../types';
 export const categories: CategoryInfo[] = [
   {
     id: 'all',
-    label: 'All Emails',
+    label: 'Inbox',
     color: 'text-foreground',
     bgColor: 'bg-muted',
     icon: 'inbox'
@@ -45,7 +45,7 @@ export const categories: CategoryInfo[] = [
   },
   {
     id: 'Sent',
-    label: 'Sent Emails',
+    label: 'Sent',
     color: 'text-gov-purple',
     bgColor: 'bg-gov-purple-light',
     icon: 'send'

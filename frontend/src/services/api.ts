@@ -166,6 +166,12 @@ export async function processEmails(): Promise<void> {
   if (!response.ok) throw new Error("Failed to process emails");
 }
 
+export async function fetchEmailThread(threadId: string): Promise<BackendEmail[]> {
+  const response = await apiFetch(`${API_BASE_URL}/emails/threads/${encodeURIComponent(threadId)}`);
+  if (!response.ok) throw new Error("Failed to fetch email thread");
+  return response.json();
+}
+
 /* ============================
    CHATBOT API
 ============================ */
@@ -246,6 +252,37 @@ export async function trashEmail(emailId: string): Promise<void> {
   if (!response.ok) {
     throw new Error("Failed to delete email");
   }
+}
+
+export async function composeEmail(to: string, subject: string, body: string): Promise<{ success: boolean; message: string }> {
+  const response = await apiFetch(`${API_BASE_URL}/emails/compose`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to_email: to, subject, body }),
+  });
+  return response.json();
+}
+
+export async function sendReply(
+  toEmail: string,
+  replyText: string,
+  originalSubject: string = "",
+  threadId: string = "",
+  inReplyTo: string = ""
+): Promise<boolean> {
+  const response = await apiFetch(`${API_BASE_URL}/send-reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      to_email: toEmail,
+      reply_text: replyText,
+      original_subject: originalSubject,
+      thread_id: threadId,
+      in_reply_to: inReplyTo
+    }),
+  });
+  const data = await response.json();
+  return data.success;
 }
 
 export async function restoreEmail(emailId: string): Promise<void> {

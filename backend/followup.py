@@ -7,12 +7,17 @@ def get_model():
 
 def has_explicit_reference(subject, content):
     """Check if email has explicit references to previous communication"""
-    text = (subject + " " + content).lower()
+    subject_lower = subject.lower().strip()
+    content_lower = content.lower()
     
-    # Check for common follow-up indicators
+    # 1. High-confidence subject markers
+    # We strip common prefixes like [AICOE-SEED] or [EXTERNAL] first
+    clean_subject = re.sub(r'^\[[^\]]+\]\s*', '', subject_lower)
+    if clean_subject.startswith(('re:', 'fwd:', 'aw:', 'wg:')):
+        return True
+
+    # 2. Body-based follow-up indicators (Strict word boundaries)
     followup_patterns = [
-        r'\bre:?\s',  # Re: or Re
-        r'\bfwd:?\s',  # Fwd: or Fwd
         r'\bregarding previous',
         r'\bas mentioned',
         r'\bas per previous',
@@ -29,7 +34,7 @@ def has_explicit_reference(subject, content):
     ]
     
     for pattern in followup_patterns:
-        if re.search(pattern, text):
+        if re.search(pattern, content_lower):
             return True
     return False
 
@@ -37,11 +42,16 @@ def detect_followup(email, df):
     # 0. Gmail Threading - Only treat as follow-up if it's explicitly a response (Re:/Fwd:),
     # otherwise treat as a separate grievance even if Gmail threads them (common in self-tests).
     subject = email.get("subject", "")
-    is_explicit_thread = subject.lower().startswith(('re:', 'fwd:', 'aw:', 'wg:'))
+    # Strip prefixes like [AICOE-SEED] for checking thread status
+    clean_subject = re.sub(r'^\[[^\]]+\]\s*', '', subject.lower().strip())
+    is_explicit_thread = clean_subject.startswith(('re:', 'fwd:', 'aw:', 'wg:'))
+    
+    eid = email.get("email_id")
     
     if email.get("thread_id") and not df.empty and is_explicit_thread:
         # Check if any other email in the cache has the same thread_id
-        same_thread = df[df["thread_id"] == email["thread_id"]]
+        # EXCLUDE the current email itself if it happens to be in df (re-processing case)
+        same_thread = df[(df["thread_id"] == email["thread_id"]) & (df["email_id"] != eid)]
         if not same_thread.empty:
             # Mark it as a follow-up to the most recent email in that thread
             parent = same_thread.iloc[-1]
@@ -58,7 +68,8 @@ def detect_followup(email, df):
     content = email.get("content", "")
     
     if has_explicit_reference(subject, content) and not df.empty and email.get("sender"):
-        same_sender_df = df[df["sender"] == email["sender"]]
+        # Filter by sender, and exclude current email
+        same_sender_df = df[(df["sender"] == email["sender"]) & (df["email_id"] != eid)]
         if not same_sender_df.empty:
             # Find the most recent email from same sender as parent
             parent = same_sender_df.iloc[-1]

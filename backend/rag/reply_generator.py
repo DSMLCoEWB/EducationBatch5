@@ -5,8 +5,8 @@ from typing import Dict, Any, List
 from dotenv import load_dotenv
 
 from rag.retriever import retrieve_policy_chunks
-
 from google import genai
+from ai_utils import generate_content_with_fallback, ULTIMATE_FALLBACK_LIST
 
 # ---------- CONFIG ----------
 load_dotenv()
@@ -31,12 +31,14 @@ Primary Goal: Generate a formal, helpful, and policy-grounded email reply.
 
 Rules:
 1. Strict Grounding: Use ONLY the provided policy context.
-2. Complete Response: Output a FULL email (Subject, Salutation, Body, Signature).
-3. Minimum Length: The body must be 3-5 sentences minimum.
-4. Policy Citation: You MUST explicitly mention specific clause IDs (e.g., "As per MSC-06...") to support your statements.
-5. Delay Handling: If the user query is about a delay or pending status, you MUST mention the specific escalation path (e.g., nodal officer) or response timelines from the policy.
-6. Tone: Professional, authoritative yet respectful.
-7. Language: Formal English.
+2. Complete Response: Output a FULL email body (Salutation, Body, Signature).
+3. NO REDUNDANT SUBJECT: DO NOT include a "Subject:" line in your response. The system handles the subject separately.
+4. NO HARD WRAPPING: Do NOT insert line breaks within paragraphs. Let the text flow naturally. Only use double newlines between paragraphs.
+5. Minimum Length: The body must be 3-5 sentences minimum.
+6. Policy Citation: You MUST explicitly mention specific clause IDs (e.g., "As per MSC-06...") to support your statements.
+7. Delay Handling: If the user query is about a delay or pending status, you MUST mention the specific escalation path (e.g., nodal officer) or response timelines from the policy.
+8. Tone: Professional, authoritative yet respectful.
+9. Language: Formal English.
 
 If the provided policy context is insufficient, weak, or unrelated:
 - DO NOT attempt to infer or combine unrelated clauses
@@ -45,8 +47,6 @@ If the provided policy context is insufficient, weak, or unrelated:
 """
 
 FALLBACK_TEMPLATE = """
-Subject: RE: {subject}
-
 Dear Sir/Madam,
 
 Your grievance has been received and is under review. 
@@ -79,10 +79,11 @@ Write a professional reply email to the student/staff member.
 - You MUST use the policy context provided.
 - You MUST mention specific clause IDs (e.g., MSC-03, SUS-01).
 - If there's a delay mentioned (e.g., 30 days pending), refer back to the specific delay/escalation rules in the policy chunks.
-- Ensure the email has a clear Subject (RE: {subject}), starts with "Dear {sender}," and ends with "Sincerely, Grievance Support Desk".
+- Ensure the email starts with "Dear {sender}," and ends with "Sincerely, Grievance Support Desk".
+- IMPORTANT: DO NOT include a "Subject:" line. Start directly with the Salutation.
+- IMPORTANT: Do NOT hard-wrap the text.
 
 OUTPUT FORMAT:
-Subject: RE: {subject}
 Dear {sender},
 
 [Professional body using policy context and referencing clause IDs]
@@ -98,21 +99,14 @@ def generate_reply(subject: str, sender: str, email: str, chunks: List[Dict[str,
 
     prompt = build_prompt(subject, sender, email, chunks)
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-        )
-    except Exception as e_primary:
-        print(f"[WARN]: gemini-2.0-flash failed ({e_primary}), falling back to gemini-flash-latest...")
-        try:
-            response = client.models.generate_content(
-                model="gemini-flash-latest",
-                contents=prompt,
-            )
-        except Exception as e_secondary:
-            print(f"[ERROR]: Both LLM Generations Error: {e_secondary}")
-            return ""
+    response = generate_content_with_fallback(
+        client=client,
+        contents=prompt,
+        model_list=ULTIMATE_FALLBACK_LIST,
+        label="RAG-Generator"
+    )
+    if not response:
+        return ""
 
     reply = ""
     if response and response.text:
@@ -123,6 +117,12 @@ def generate_reply(subject: str, sender: str, email: str, chunks: List[Dict[str,
         print(f"[WARN]: LLM response too short ({len(reply) if reply else 0} chars)")
         return ""
         
+    # Task: Strip redundant "Subject:" if LLM prepended it
+    if "subject:" in reply.lower():
+        lines = reply.split('\n')
+        lines = [l for l in lines if not l.strip().lower().startswith("subject:")]
+        reply = "\n".join(lines).strip()
+
     return reply
 
 
