@@ -21,8 +21,11 @@ import {
   trashEmail,
   restoreEmail,
   fetchRefinementStats,
+  updateSyncInterval,
+  fetchSyncStatus,
   ApiKeyStatus,
-  RefinementStats
+  RefinementStats,
+  SyncStatus
 } from '@/services/api';
 import { transformBackendEmails, initializeCollegeDatabase } from '@/utils/dataTransformer';
 
@@ -154,6 +157,28 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [autoRefreshEnabled, refreshIntervalSeconds, loadEmails, refreshGmailAuthStatus, refreshRefinementStats]);
 
+  // Unified Sync Status Polling (Background Sync Visibility)
+  useEffect(() => {
+    if (!gmailConnected) return;
+    
+    const pollStatus = async () => {
+      try {
+        const { syncing } = await fetchSyncStatus();
+        if (syncing) {
+          setIsRefreshing(true);
+        } else if (!isRefreshing) {
+          // Only stop the spinner if a manual refresh isn't also running
+          setIsRefreshing(false); 
+        }
+      } catch (err) {
+        // Silent fail for status polling to avoid console noise
+      }
+    };
+
+    const statusTimer = window.setInterval(pollStatus, 2000);
+    return () => window.clearInterval(statusTimer);
+  }, [gmailConnected, isRefreshing]);
+
   const handleUpdateEmail = (emailId: string, updates: Partial<Email>) => {
     setEmails(prev => prev.map(email => email.id === emailId ? { ...email, ...updates } : email));
   };
@@ -268,7 +293,11 @@ export default function App() {
         dateRange={dateRange} onDateRangeChange={setDateRange}
         onOpenPolicyManagement={() => setShowPolicyManagement(true)}
         autoRefreshEnabled={autoRefreshEnabled} onAutoRefreshEnabledChange={setAutoRefreshEnabled}
-        refreshIntervalSeconds={refreshIntervalSeconds} onRefreshIntervalSecondsChange={setRefreshIntervalSeconds}
+        refreshIntervalSeconds={refreshIntervalSeconds} 
+        onRefreshIntervalSecondsChange={(seconds) => {
+          setRefreshIntervalSeconds(seconds);
+          void updateSyncInterval(seconds).catch(e => console.error("Failed to update backend interval:", e));
+        }}
         onRefreshNow={async () => { await loadEmails(true); await refreshRefinementStats(); }}
         isRefreshing={isRefreshing} lastSyncedAt={lastSyncedAt}
         gmailConnected={gmailConnected} gmailIdentity={gmailIdentity} gmailAuthMode={gmailAuthMode}

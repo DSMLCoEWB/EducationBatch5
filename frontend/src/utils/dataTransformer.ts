@@ -376,6 +376,7 @@ export function transformBackendEmail(backendEmail: any): Email {
     replied: !!backendEmail.replied,
     is_demo: !!backendEmail.is_demo,
     threadId: backendEmail.thread_id || backendEmail.threadId,
+    attachmentContent: backendEmail.attachment_content || backendEmail.attachmentContent,
   };
 }
 

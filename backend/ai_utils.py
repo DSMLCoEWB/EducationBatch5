@@ -6,13 +6,15 @@ from google.genai import types
 # --- ULTIMATE MODEL FALLBACK SEQUENCE (Best-to-Least Verified Free Tier) ---
 # Ordered by Priority: 1. Latest Stable -> 2. Latest Previews -> 3. High Volume Fallbacks
 ULTIMATE_FALLBACK_LIST = [
-    # Primary: Latest Stable Production Model
-    "gemini-flash-latest",           # Recommended for stability
+    # Primary: High Quota Free Model (500 RPD)
+    "gemini-3.1-flash-lite-preview", 
     
-    # Tier 1: Latest Reasoning (Gemini 3.x Family)
-    "gemini-3.1-flash-lite-preview", # Most advanced small model (500 RPD)
-    "gemini-3-flash-preview",        # Frontier performance (20 RPD)
-    "gemini-2.5-flash-lite",         # High efficiency
+    # Tier 1: Latest Stable Production Model
+    "gemini-flash-latest",
+    
+    # Tier 2: Latest Reasoning Previews
+    "gemini-3-flash-preview", 
+    "gemini-2.5-flash-lite",
     
     # Tier 3: Professional Design & Reasoning (Gemma 4 Family)
     "gemma-4-31b",                  # Professional design core (1,500 RPD)
@@ -46,35 +48,47 @@ def generate_content_with_fallback(
 
     last_error = None
     for model_name in model_list:
-        try:
-            print(f"[{label}]: Attempting generation with {model_name}...")
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=config
-            )
-            
-            # If we got here, it succeeded
-            if response and (response.text or (hasattr(response, 'candidates') and response.candidates)):
-                print(f"[{label}]: Success with {model_name}")
-                return response
-            
-            print(f"[{label}]: Empty response from {model_name}, moving to next...")
-            
-        except Exception as e:
-            last_error = e
-            err_msg = str(e).lower()
-            
-            if "429" in err_msg or "rate limit" in err_msg:
-                print(f"[{label}]: Rate limit hit on {model_name}. Falling back...")
-                continue
-            elif "404" in err_msg or "not found" in err_msg:
-                print(f"[{label}]: Model {model_name} not available or deprecated. Falling back...")
-                continue
-            else:
-                # For other errors (auth, network), we log but try one more just in case
-                print(f"[{label}]: Unexpected error with {model_name}: {e}")
-                continue
+        # Internal Retry Loop for the current model (Handle temporary congestion)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    wait_time = (2 ** attempt) + 0.5 # Exponential backoff: 2.5s, 4.5s...
+                    print(f"[{label}]: Rate limit backoff. Waiting {wait_time}s before retry {attempt} on {model_name}...")
+                    time.sleep(wait_time)
+
+                print(f"[{label}]: Attempting generation with {model_name}...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
+                
+                # If we got here, it succeeded
+                if response and (response.text or (hasattr(response, 'candidates') and response.candidates)):
+                    print(f"[{label}]: Success with {model_name}")
+                    return response
+                
+                print(f"[{label}]: Empty response from {model_name}, moving to next...")
+                break # Exit retry loop and move to next model
+                
+            except Exception as e:
+                last_error = e
+                err_msg = str(e).lower()
+                
+                if "429" in err_msg or "rate limit" in err_msg:
+                    if attempt < max_retries - 1:
+                        continue # Retry same model
+                    else:
+                        print(f"[{label}]: Rate limit hit on {model_name} after {max_retries} attempts. Falling back to next model...")
+                        break # Move to next model
+                elif "404" in err_msg or "not found" in err_msg:
+                    print(f"[{label}]: Model {model_name} not available or deprecated. Falling back...")
+                    break # Move to next model
+                else:
+                    # For other errors (auth, network), we log and skip
+                    print(f"[{label}]: Unexpected error with {model_name}: {e}")
+                    break # Move to next model
 
     print(f"[{label}]: FATAL - All models failed in fallback loop. Last error: {last_error}")
     return None

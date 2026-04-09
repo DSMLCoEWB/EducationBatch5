@@ -4,7 +4,7 @@ from itertools import count
 import os
 import sqlite3
 import pandas as pd
-from database_api import init_db, save_emails_batch, get_emails_from_db, mark_as_trashed, delete_all_for_user, get_existing_gmail_ids, DB_PATH
+from database_api import init_db, save_emails_batch, get_emails_from_db, mark_as_trashed, delete_all_for_user, get_existing_gmail_ids, update_email_attachment_content, DB_PATH
 import re
 import json
 import ast
@@ -26,10 +26,10 @@ from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional, Set
-from email_parser import parse_eml
+from email_parser import parse_eml, ATTACHMENTS_DIR, extract_attachment_text, extract_text_from_attachment_ai
 from classifier import classify_grievance
 from followup import detect_followup
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from chatbot import ask
@@ -99,7 +99,17 @@ APP_SESSION_SECRET = os.getenv("APP_SESSION_SECRET", GOOGLE_OAUTH_ENCRYPTION_KEY
 
 _dynamic_cache_df_by_user: Dict[str, pd.DataFrame] = {}
 _dynamic_cache_at_by_user: Dict[str, datetime] = {}
-_dynamic_cache_lock = threading.Lock()
+_is_syncing_by_user: Dict[str, bool] = {} # user_email -> bool
+_user_locks: Dict[str, threading.Lock] = {}
+_user_locks_main_lock = threading.Lock()
+
+def _get_user_lock(user_email: str) -> threading.Lock:
+    """Returns a thread-safe lock unique to each user_email."""
+    key = _user_key(user_email)
+    with _user_locks_main_lock:
+        if key not in _user_locks:
+            _user_locks[key] = threading.Lock()
+        return _user_locks[key]
 _priority_llm_worker_running_by_user: Dict[str, bool] = {}
 _priority_llm_last_run_by_user: Dict[str, datetime] = {}
 _priority_llm_consecutive_failures_by_user: Dict[str, int] = {}
@@ -157,7 +167,7 @@ except Exception as e:
 COLUMNS = [
     "email_id", "parent_email_id", "sender", "subject",
     "category", "mail_type", "followup_count","priority",
-    "date", "content", "attachments", "eml_file"
+    "date", "content", "attachments", "attachment_content", "eml_file"
 ]
 
 def clean_for_excel(text):
@@ -513,18 +523,17 @@ def _is_secure_cookie_required() -> bool:
 
 
 def _gmail_api_list_message_ids(
-    service: Any,
-    limit: int = 0,
-    *,
-    query: str | None = None,
-    label_ids: list[str] | None = None,
+    service: Any, 
+    limit: int = 0, 
+    label_ids: list[str] = None, 
+    query: str = ""
 ) -> list[str]:
     message_ids: list[str] = []
     page_token = None
     remaining = limit if limit > 0 else None
     
-    # If a query is provided, we typically want to search across all labels
-    # Use empty list for 'all labels' or explicitly provided label_ids
+    # Priority: If label_ids are provided (e.g. ['INBOX']), use them directly.
+    # This is more reliable than query strings like "in:inbox" which have index lag.
     labels = label_ids
     if not labels and not query:
         labels = ["INBOX"]
@@ -540,7 +549,11 @@ def _gmail_api_list_message_ids(
         )
         resp = req.execute()
         items = resp.get("messages", [])
-        message_ids.extend([item.get("id") for item in items if item.get("id")])
+        
+        for item in items:
+            mid = item.get("id")
+            if mid and mid not in message_ids:
+                message_ids.append(mid)
 
         if remaining is not None:
             remaining -= len(items)
@@ -548,41 +561,38 @@ def _gmail_api_list_message_ids(
                 break
 
         page_token = resp.get("nextPageToken")
-        if not page_token or not items:
+        if not page_token:
             break
-
+            
     return message_ids
 
 
-def _fetch_dynamic_gmail_messages_oauth(user_email: str, limit: int = 0, query: str = "") -> list[dict[str, Any]]:
+def _fetch_dynamic_gmail_messages_oauth(
+    user_email: str, 
+    limit: int = 0, 
+    query: str = "",
+    label_ids: list[str] = None
+) -> tuple[list[dict[str, Any]], list[str]]:
     service = _get_gmail_api_service(user_email)
     if service is None:
         raise ValueError("Google OAuth token not available. Connect Gmail first.")
 
-    message_ids = _gmail_api_list_message_ids(service, limit=limit, query=query)
+    message_ids = _gmail_api_list_message_ids(service, limit=limit, query=query, label_ids=label_ids)
     
     # NEW: Filter out IDs that already exist in our database to avoid redundant fetching
-    # BUT: If we are specifically fetching INBOX, we want to keep the IDs to ensure their 'is_inbox' flag is set to 1.
     existing_ids = get_existing_gmail_ids(user_email)
     
-    is_inbox_query = "in:inbox" in query.lower()
     new_message_ids = []
-    existing_inbox_ids = []
-
     for mid in message_ids:
-        if mid in existing_ids:
-            if is_inbox_query:
-                existing_inbox_ids.append(mid)
-        else:
+        if mid not in existing_ids:
             new_message_ids.append(mid)
     
     if len(new_message_ids) < len(message_ids):
-        print(f"⏩ [Sync] Skipping {len(message_ids) - len(new_message_ids)} messages already in DB.")
+        logger.info(f"⏩ [Sync] Skipping {len(message_ids) - len(new_message_ids)} messages already in DB.")
         
     messages: list[dict[str, Any]] = []
-    all_matched_ids = set(message_ids)
 
-    # 1. Process TRULY new messages
+    # Process truly new messages
     for msg_id in new_message_ids:
         try:
             payload = service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
@@ -591,43 +601,74 @@ def _fetch_dynamic_gmail_messages_oauth(user_email: str, limit: int = 0, query: 
                 continue
             msg_bytes = base64.urlsafe_b64decode(raw_str.encode("utf-8"))
             msg = email.message_from_bytes(msg_bytes)
-        except Exception:
-            continue
+            
+            # --- EMAIL PARSING ---
+            subject = _decode_header_value(msg.get("Subject")) or "(No Subject)"
+            sender_full = _decode_header_value(msg.get("From"))
+            sender_name, sender_email = parseaddr(sender_full)
+            sender_name = sender_name.strip() or sender_email or "Unknown Sender"
 
-        subject = _decode_header_value(msg.get("Subject")) or "(No Subject)"
-        sender_full = _decode_header_value(msg.get("From"))
-        sender_name, sender_email = parseaddr(sender_full)
-        sender_name = sender_name.strip() or sender_email or "Unknown Sender"
+            date_header = msg.get("Date")
+            try:
+                email_date = parsedate_to_datetime(date_header).isoformat() if date_header else datetime.now().isoformat()
+            except Exception:
+                email_date = datetime.now().isoformat()
 
-        date_header = msg.get("Date")
-        try:
-            email_date = parsedate_to_datetime(date_header).isoformat() if date_header else datetime.now().isoformat()
-        except Exception:
-            email_date = datetime.now().isoformat()
+            body = _extract_email_body(msg, gmail_id=msg_id)
+            content = body.strip()
+            message_id = str(msg.get("Message-ID", "")).strip()
+            parent_message_id = str(msg.get("In-Reply-To", "")).strip()
+            
+            # --- ATTACHMENT PROCESSING ---
+            attachment_names = []
+            attachment_content_extracted = ""
+            
+            for part in msg.walk():
+                filename = part.get_filename()
+                if filename:
+                    safe_name = _decode_header_value(filename)
+                    payload_data = part.get_payload(decode=True)
+                    if not payload_data:
+                        continue
+                    
+                    # Generate unique filename
+                    from hashlib import md5
+                    file_hash = md5(payload_data).hexdigest()[:8]
+                    unique_name = f"{file_hash}_{safe_name.replace(' ', '_')}"
+                    attachment_path = os.path.join(ATTACHMENTS_DIR, unique_name)
+                    
+                    # Save locally
+                    try:
+                        with open(attachment_path, "wb") as f:
+                            f.write(payload_data)
+                        attachment_names.append(unique_name)
+                        
+                        # OCR / Extraction
+                        attachment_content_extracted += extract_attachment_text(attachment_path)
+                    except Exception as e:
+                        logger.error(f"⚠️ Failed to process attachment {safe_name}: {e}")
 
-        body = _extract_email_body(msg, gmail_id=msg_id)
-        content = body.strip()
-        message_id = str(msg.get("Message-ID", "")).strip()
-        parent_message_id = str(msg.get("In-Reply-To", "")).strip()
-        attachments = _extract_attachment_names(msg)
-
-        messages.append(
-            {
+            # Collect into the common format
+            messages.append({
                 "email_id": _generate_email_id(message_id or content),
                 "parent_email_id": _generate_email_id(parent_message_id) if parent_message_id else "",
-                "thread_id": str(payload.get("threadId", "")).strip(), # Gmail native thread ID
+                "thread_id": str(payload.get("threadId", "")).strip(),
                 "sender": sender_name,
                 "sender_email": sender_email or "",
                 "subject": subject,
                 "date": email_date,
                 "content": content,
-                "attachments": attachments,
+                "attachments": attachment_names,
+                "attachment_content": attachment_content_extracted,
                 "raw_message_id": message_id,
-                "gmail_id": msg_id, # Internal Gmail hex ID
-            }
-        )
+                "gmail_id": msg_id,
+            })
+            
+        except Exception as e:
+            logger.error(f"Error fetching message {msg_id}: {e}")
+            continue
 
-    return messages, all_matched_ids
+    return messages, message_ids
 
 
 def _get_user_display_name(user_email: str) -> str:
@@ -724,29 +765,33 @@ def _fetch_dynamic_gmail_messages(user_email: str, limit: int = 0) -> tuple[list
     if service is None:
         raise ValueError("Gmail OAuth token not available or invalid. Reconnect Gmail through the app.")
     
-    # Fetch from Inbox
-    inbox_messages, inbox_ids = _fetch_dynamic_gmail_messages_oauth(user_email, limit=limit, query="in:inbox")
+    # 1. Fetch from Primary Inbox Only (Zero-Lag direct label access)
+    inbox_ids_raw = _gmail_api_list_message_ids(service, limit=limit, label_ids=["INBOX"])
+    inbox_messages, _ = _fetch_dynamic_gmail_messages_oauth(user_email, limit=limit, label_ids=["INBOX"])
     for msg in inbox_messages:
         msg["is_inbox"] = True
+    inbox_ids_set = set(inbox_ids_raw)
     
-    # Fetch from Sent - increase limit to match Inbox for full coverage
+    # 2. Fetch from Sent
     sent_limit = limit if limit > 0 else 100
-    sent_messages, sent_ids = _fetch_dynamic_gmail_messages_oauth(user_email, limit=sent_limit, query="in:sent")
+    sent_ids_raw = _gmail_api_list_message_ids(service, limit=sent_limit, label_ids=["SENT"])
+    sent_messages, _ = _fetch_dynamic_gmail_messages_oauth(user_email, limit=sent_limit, label_ids=["SENT"])
     for msg in sent_messages:
         msg["is_sent"] = True
         msg["is_sent_by_me"] = True
 
-    # Fetch from Trash - increase limit similarly
+    # 3. Fetch from Trash
     trash_limit = limit if limit > 0 else 100
-    trash_messages, trash_ids = _fetch_dynamic_gmail_messages_oauth(user_email, limit=trash_limit, query="in:trash")
+    trash_ids_raw = _gmail_api_list_message_ids(service, limit=trash_limit, label_ids=["TRASH"])
+    trash_messages, _ = _fetch_dynamic_gmail_messages_oauth(user_email, limit=trash_limit, label_ids=["TRASH"])
     for msg in trash_messages:
         msg["category"] = "trash"
+        msg["is_trashed"] = True
 
-    # Combine all (deduplication happens later by ID in DB)
     return inbox_messages + sent_messages + trash_messages, {
-        "inbox_ids": inbox_ids,
-        "sent_ids": sent_ids,
-        "trash_ids": trash_ids
+        "inbox_ids": inbox_ids_set,
+        "sent_ids": set(sent_ids_raw),
+        "trash_ids": set(trash_ids_raw)
     }
 
 
@@ -830,7 +875,8 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
             "priority": int(final_priority),
             "date": msg.get("date", datetime.now().date().isoformat()),
             "content": msg.get("content", ""),
-            "attachments": json.dumps(msg.get("attachments", []), ensure_ascii=False),
+            "attachments": msg.get("attachments", []),
+            "attachment_content": msg.get("attachment_content", ""),
             "eml_file": msg.get("raw_message_id", ""),
             "gmail_id": msg.get("gmail_id", ""),
             "is_demo": False,
@@ -871,7 +917,8 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
 def _persist_dynamic_cache(user_email: str, df: pd.DataFrame, *, cached_at: datetime | None = None) -> None:
     key = _user_key(user_email)
     stamp = cached_at or datetime.now()
-    with _dynamic_cache_lock:
+    lock = _get_user_lock(user_email)
+    with lock:
         _dynamic_cache_df_by_user[key] = df.copy()
         _dynamic_cache_at_by_user[key] = stamp
 
@@ -895,7 +942,8 @@ def _run_priority_llm_enrichment(user_email: str) -> None:
     newly_scored = set()
 
     try:
-        with _dynamic_cache_lock:
+        lock = _get_user_lock(user_email)
+        with lock:
             cached_df = _dynamic_cache_df_by_user.get(key)
             if cached_df is not None:
                 snapshot_df = cached_df.copy()
@@ -982,7 +1030,8 @@ def _run_priority_llm_enrichment(user_email: str) -> None:
 
         # 4. Save results of this batch immediately to the live cache
         persist_df: pd.DataFrame | None = None
-        with _dynamic_cache_lock:
+        lock = _get_user_lock(user_email)
+        with lock:
             live_df = _dynamic_cache_df_by_user.get(key)
             if live_df is not None:
                 live_df = live_df.copy()
@@ -995,7 +1044,11 @@ def _run_priority_llm_enrichment(user_email: str) -> None:
                 _dynamic_cache_df_by_user[key] = live_df
                 _dynamic_cache_at_by_user[key] = datetime.now()
                 
-                scored_store = _priority_llm_scored_ids_by_user.setdefault(key, set())
+                # --- THREAD SAFE SET UPDATE ---
+                scored_store = _priority_llm_scored_ids_by_user.get(key)
+                if scored_store is None:
+                    scored_store = set()
+                    _priority_llm_scored_ids_by_user[key] = scored_store
                 scored_store.update(newly_scored)
                 persist_df = live_df
 
@@ -1014,7 +1067,8 @@ def _run_priority_llm_enrichment(user_email: str) -> None:
         print(f"Priority enrichment thread error: {exc}")
     finally:
         # 5. Handle success/failure status for backoff
-        with _dynamic_cache_lock:
+        lock = _get_user_lock(user_email)
+        with lock:
             _priority_llm_worker_running_by_user[key] = False
             if updates:
                 # Any successful update resets the failure count
@@ -1033,7 +1087,8 @@ def _schedule_priority_llm_enrichment(user_email: str) -> None:
     now = datetime.now()
 
     # 1. Check if a worker is already active
-    with _dynamic_cache_lock:
+    lock = _get_user_lock(user_email)
+    with lock:
         if _priority_llm_worker_running_by_user.get(key, False):
             return
             
@@ -1184,34 +1239,48 @@ def _cleanup_seeded_emails_in_gmail(user_email: str, *, dry_run: bool = True, li
     }
 
 
-def _refresh_dynamic_cache(user_email: str, force: bool = False) -> pd.DataFrame:
+def _refresh_dynamic_cache(user_email: str, force_refresh: bool = False) -> pd.DataFrame:
     key = _user_key(user_email)
-    with _dynamic_cache_lock:
+    lock = _get_user_lock(user_email)
+    
+    # 1. Check if another sync is already in progress for this user
+    if _is_syncing_by_user.get(user_email, False):
+        logger.info(f"⏳ [Sync] Sync already in progress for {user_email}. Skipping overlapping request.")
+        with lock:
+            return _dynamic_cache_df_by_user.get(key, pd.DataFrame(columns=COLUMNS)).copy()
+
+    with lock:
         cached_df = _dynamic_cache_df_by_user.get(key)
         cached_at = _dynamic_cache_at_by_user.get(key)
+        
+        now = datetime.now()
+        cache_valid = (
+            cached_df is not None
+            and cached_at is not None
+            and DYNAMIC_AUTO_REFRESH_SECONDS > 0
+            and (now - cached_at).total_seconds() < DYNAMIC_AUTO_REFRESH_SECONDS
+        )
 
-    now = datetime.now()
-    cache_valid = (
-        cached_df is not None
-        and cached_at is not None
-        and DYNAMIC_AUTO_REFRESH_SECONDS > 0
-        and (now - cached_at).total_seconds() < DYNAMIC_AUTO_REFRESH_SECONDS
-    )
+        if not force_refresh and cache_valid:
+            _schedule_priority_llm_enrichment(user_email)
+            return cached_df.copy()
 
-    if not force and cache_valid:
+    # 2. Perform the actual refresh with robust state protection
+    _is_syncing_by_user[user_email] = True
+    try:
+        logger.info(f"🔄 [Sync] Starting high-parity Gmail sync for {user_email}...")
+        df = _build_dynamic_dataframe(user_email)
+        _persist_dynamic_cache(user_email, df, cached_at=datetime.now())
         _schedule_priority_llm_enrichment(user_email)
-        return cached_df.copy()
-
-    df = _build_dynamic_dataframe(user_email)
-    _persist_dynamic_cache(user_email, df, cached_at=now)
-    _schedule_priority_llm_enrichment(user_email)
-
-    return df
+        return df
+    finally:
+        _is_syncing_by_user[user_email] = False
+        logger.info(f"✅ [Sync] Sync finished for {user_email}.")
 
 
 def _get_active_dataframe(user_email: str, force_refresh: bool = False) -> pd.DataFrame:
     try:
-        return _refresh_dynamic_cache(user_email, force=force_refresh)
+        return _refresh_dynamic_cache(user_email, force_refresh=force_refresh)
     except Exception as exc:
         print(f"[WARN] Dynamic refresh failed, falling back to Excel cache: {exc}")
         if os.path.exists(EXCEL_FILE):
@@ -1318,30 +1387,64 @@ def run(user_email: str, source_mode_override: str | None = None):
     print(f"\n✅ Processing complete! Total records: {len(df)}")
     print(f"📊 Data saved to: {EXCEL_FILE}")
 
+# --- BACKGROUND SYNC WORKER ---
+_background_sync_running_by_user: Dict[str, bool] = {}
+_user_sync_intervals: Dict[str, int] = {} # user_email -> seconds
+
+def _run_background_sync_loop(user_email: str):
+    """Background loop that refreshes the Gmail cache every N seconds."""
+    if _background_sync_running_by_user.get(user_email):
+        logger.info(f"🔁 [Sync] Worker already running for {user_email}.")
+        return
+
+    _background_sync_running_by_user[user_email] = True
+    logger.info(f"🚀 [Sync] Automatic Background Worker started for {user_email}.")
+    
+    while _background_sync_running_by_user.get(user_email):
+        try:
+            # Refresh both message IDs and classifications
+            _refresh_dynamic_cache(user_email, force_refresh=True)
+            logger.info(f"✅ [Sync] Automatic periodic refresh complete for {user_email}.")
+        except Exception as e:
+            logger.error(f"❌ [Sync] Periodic background sync failed: {e}")
+        
+        # Determine how long to sleep (respect dynamic settings)
+        interval = _user_sync_intervals.get(user_email, DYNAMIC_AUTO_REFRESH_SECONDS)
+        time.sleep(max(5, interval)) # Min 5s safety
+
 # ---------------- FASTAPI APP ----------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     FastAPI lifespan handler for startup and shutdown procedures.
     """
-    # STARTUP - NON-BLOCKING
-    # 1. Background sync (only if needed) and Warmup
+    # 1. Background startup (Warmup & Search Index check)
     def _background_startup_tasks():
-        # First, ensure we have a valid index (this is fast if skipping redundant rebuilds)
         synced = _sync_policy_pdfs_from_disk(include_demo=True, include_uploaded=True)
         if synced.get("pdf_count"):
             print(f"[INFO] Policy corpus checked. Status: {synced.get('status', 'synced')}")
         
-        # Then, warm up the model for faster reply generation later
-        print("🔥 Background model warmup starting (SentenceTransformer)...")
         get_embedder()
         print("✅ Background model warmup complete.")
 
     threading.Thread(target=_background_startup_tasks, daemon=True).start()
     
+    # 2. AUTO-SYNC: Check if we have a default/seeded user to start syncing for
+    # In a full multi-user app, this would start on first user login.
+    # Here we check for the GMAIL_ADDRESS in .env as the primary user.
+    if GMAIL_ADDRESS and GMAIL_ADDRESS != "your-project@gmail.com":
+        threading.Thread(
+            target=_run_background_sync_loop, 
+            args=(GMAIL_ADDRESS,), 
+            daemon=True,
+            name=f"sync-{GMAIL_ADDRESS[:8]}"
+        ).start()
+
     yield
     # SHUTDOWN
     print("Gracefully shutting down...")
+    for key in _background_sync_running_by_user:
+        _background_sync_running_by_user[key] = False
 
 # ---------------- FASTAPI APP ----------------
 app = FastAPI(
@@ -1513,11 +1616,13 @@ def google_auth_logout(request: Request):
     return response
     
 @app.get("/categories")
-def get_categories(request: Request):
+def get_categories(request: Request, background_tasks: BackgroundTasks):
     """Get all categories with count"""
     user_email = _get_authenticated_user_email(request)
     df = _get_active_dataframe(user_email)
     if df.empty:
+        # If DB is empty, trigger a sync in the background
+        background_tasks.add_task(_refresh_dynamic_cache, user_email)
         return []
 
     categories = df.groupby("category").size().reset_index(name="count")
@@ -1537,6 +1642,7 @@ def get_colleges():
 @app.get("/emails")
 def get_emails(
     request: Request,
+    background_tasks: BackgroundTasks,
     category: str = Query(..., description="Email category or 'all' for all categories"),
     is_demo: str = Query(None, description="Filter by is_demo: 'true', 'false', or None for all")
 ):
@@ -1544,19 +1650,16 @@ def get_emails(
     try:
         user_email = _get_authenticated_user_email(request)
         
-        # IMPORTANT: Do NOT call _get_active_dataframe() here — it would overwrite the DB
-        # with in-memory cache. Only read directly from SQLite.
         demo_bool = None
         if is_demo:
             demo_bool = is_demo.lower() == "true"
             
         emails = get_emails_from_db(user_email, category, demo_bool)
         
-        # If the DB is empty (first login), warm it up
+        # If the DB is empty (first login), warm it up in the background
         if not emails:
-            print(f"DB empty for category '{category}', warming cache...")
-            _get_active_dataframe(user_email)
-            emails = get_emails_from_db(user_email, category, demo_bool)
+            print(f"DB empty for category '{category}', triggering background sync...")
+            background_tasks.add_task(_refresh_dynamic_cache, user_email)
         
         print(f"Found {len(emails)} emails in DB for category '{category}'")
         return emails
@@ -1624,15 +1727,59 @@ def get_refinement_stats_endpoint(request: Request):
         print(f"Error fetching refinement stats: {e}")
         return {"refined": 0, "total": 0}
 
+@app.get("/sync-status")
+def get_sync_status(request: Request):
+    """Check if the background sync worker is currently active."""
+    user_email = _get_authenticated_user_email(request)
+    return {"syncing": _is_syncing_by_user.get(user_email, False)}
+
+@app.post("/emails/{email_id}/attachments/reprocess")
+def reprocess_attachment(request: Request, email_id: str, filename: str = Query(...)):
+    """Force an AI OCR re-scan of a specific attachment for an email."""
+    try:
+        user_email = _get_authenticated_user_email(request)
+        file_path = os.path.join(ATTACHMENTS_DIR, filename)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Attachment file not found locally.")
+            
+        logger.info(f"🔍 [OCR] Manually re-processing {filename} for email {email_id}...")
+        extracted_text = extract_text_from_attachment_ai(file_path)
+        
+        if extracted_text:
+            update_email_attachment_content(user_email, email_id, extracted_text)
+            # Clear cache so the frontend sees the new content immediately
+            key = _user_key(user_email)
+            with _get_user_lock(user_email):
+                _dynamic_cache_df_by_user.pop(key, None)
+            return {"status": "success", "extracted_text": extracted_text}
+        else:
+            return {"status": "failed", "detail": "AI OCR returned no text."}
+            
+    except Exception as e:
+        logger.error(f"Error reprocessing attachment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/settings/sync-interval")
+def update_sync_interval(request: Request, interval: int = Query(..., ge=5, le=3600)):
+    """Update the background sync interval for the current user."""
+    user_email = _get_authenticated_user_email(request)
+    _user_sync_intervals[user_email] = interval
+    logger.info(f"⏳ [Settings] Sync interval for {user_email} updated to {interval}s")
+    return {"status": "success", "interval": interval}
+
 @app.post("/process")
 def process_emails(request: Request):
     user_email = _get_authenticated_user_email(request)
     # Force-clear the in-memory cache so we re-fetch from Gmail with fresh logic
     key = _user_key(user_email)
-    with _dynamic_cache_lock:
+    lock = _get_user_lock(user_email)
+    with lock:
         _dynamic_cache_df_by_user.pop(key, None)
         _dynamic_cache_at_by_user.pop(key, None)
-    run(user_email)
+    
+    # Use the High-Reliability sync logic
+    _refresh_dynamic_cache(user_email, force_refresh=True)
     return {"status": "emails processed", "source_mode": "dynamic", "mailbox": user_email}
 
 
@@ -1640,7 +1787,7 @@ def process_emails(request: Request):
 def process_demo_emails(request: Request):
     """Backwards-compatible alias for dynamic processing."""
     user_email = _get_authenticated_user_email(request)
-    run(user_email)
+    _refresh_dynamic_cache(user_email, force_refresh=True)
     return {"status": "emails processed", "source_mode": "dynamic", "mailbox": user_email}
 
 
@@ -2041,6 +2188,7 @@ class GenerateReplyRequest(BaseModel):
     email_subject: str = ""
     sender: str = ""
     category: str = ""
+    attachment_content: str = ""
 
 
 class GenerateReplyResponse(BaseModel):
@@ -2135,6 +2283,7 @@ def generate_reply(request: GenerateReplyRequest) -> GenerateReplyResponse:
             email_subject=request.email_subject,
             sender=request.sender,
             category=request.category,
+            attachment_content=request.attachment_content
         )
         return GenerateReplyResponse(**reply_bundle)
     except Exception as e:
@@ -2187,7 +2336,8 @@ def send_reply_email(request: Request, payload: SendReplyRequest):
     if gmail_id:
         # 🔥 UPDATE LOCAL CACHE & DB
         key = _user_key(user_email)
-        with _dynamic_cache_lock:
+        lock = _get_user_lock(user_email)
+        with lock:
             cached_df = _dynamic_cache_df_by_user.get(key)
             if cached_df is not None:
                 # Group update: Mark the whole thread as replied if applicable
@@ -2238,7 +2388,8 @@ def trash_email(email_id: str, request: Request):
 
     # 2. Update In-Memory cache
     key = _user_key(user_email)
-    with _dynamic_cache_lock:
+    lock = _get_user_lock(user_email)
+    with lock:
         df = _dynamic_cache_df_by_user.get(key)
         if df is not None:
              mask = (df["email_id"] == email_id)
@@ -2335,7 +2486,8 @@ def untrash_email(email_id: str, request: Request):
 
     # 3. Aggressively purge cache so the next UI GET call physically restages the email into Inbox array
     key = _user_key(user_email)
-    with _dynamic_cache_lock:
+    lock = _get_user_lock(user_email)
+    with lock:
         if key in _dynamic_cache_at_by_user:
             _dynamic_cache_at_by_user[key] = None
 

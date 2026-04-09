@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Send, Sparkles, CheckCircle2, X, Loader2 } from 'lucide-react';
 import { Email } from '@/types';
 import { GenerateReplyResult, generateReplyDetailed } from '@/services/api';
@@ -39,7 +39,13 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
     setGenerationError(null);
     setRagEvidence(null);
     try {
-      const aiResult = await generateReplyDetailed(email.content, email.subject, email.sender, email.category);
+      const aiResult = await generateReplyDetailed(
+        email.content, 
+        email.subject, 
+        email.sender, 
+        email.category,
+        email.attachmentContent
+      );
       setReplyText(aiResult.suggested_reply);
       setRagEvidence(aiResult);
       setShowPolicyEvidence(false);

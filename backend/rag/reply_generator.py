@@ -57,7 +57,7 @@ Grievance Support Desk
 """.strip()
 
 
-def build_prompt(subject: str, sender: str, email: str, chunks: List[Dict[str, Any]]) -> str:
+def build_prompt(subject: str, sender: str, email: str, chunks: List[Dict[str, Any]], attachment_text: str = "") -> str:
     context = "\n\n".join(
         f"[Clause {c['metadata']['clause_id']}] {c['text']}"
         for c in chunks
@@ -70,6 +70,9 @@ USER EMAIL:
 Subject: {subject}
 From: {sender}
 Content: {email}
+
+ATTACHMENT CONTENT (OCR):
+{attachment_text if attachment_text else "None"}
 
 POLICY CONTEXT:
 {context}
@@ -93,11 +96,11 @@ Grievance Support Desk
 """.strip()
 
 
-def generate_reply(subject: str, sender: str, email: str, chunks: List[Dict[str, Any]]) -> str:
+def generate_reply(subject: str, sender: str, email: str, chunks: List[Dict[str, Any]], attachment_text: str = "") -> str:
     if not client:
         return ""
 
-    prompt = build_prompt(subject, sender, email, chunks)
+    prompt = build_prompt(subject, sender, email, chunks, attachment_text)
 
     response = generate_content_with_fallback(
         client=client,
@@ -130,7 +133,8 @@ def generate_suggested_reply_with_evidence(
     email_content: str,
     email_subject: str = "",
     sender: str = "",
-    category: str = ""
+    category: str = "",
+    attachment_content: str = ""
 ) -> Dict[str, Any]:
     """
     Main entry point for suggested reply generation.
@@ -141,7 +145,8 @@ def generate_suggested_reply_with_evidence(
     clean_sender = str(sender) if sender and str(sender).lower() != "nan" else "Sir/Madam"
     clean_subject = str(email_subject) if email_subject and str(email_subject).lower() != "nan" else "Your Inquiry"
 
-    query = f"{clean_subject} {email_content}".strip()
+    # Best-in-class RAG: Add attachment context to the search query for higher parity
+    query = f"{clean_subject} {email_content} {attachment_content}".strip()
     
     # Retrieval
     retrieved = []
@@ -167,7 +172,7 @@ Grievance Support Desk"""
         # Generation
         reply = ""
         status = "ok"
-        reply = generate_reply(clean_subject, clean_sender, email_content, retrieved)
+        reply = generate_reply(clean_subject, clean_sender, email_content, retrieved, attachment_content)
         
         # Smarter Fallback: lenient, case-insensitive check
         # Accept any common professional closing — don't throw away valid replies
@@ -204,11 +209,23 @@ Grievance Support Desk"""
     print(f"[DEBUG] Final status: {status}")
     print("-" * 50)
 
+    # Best-in-class metadata
+    trust_score = top_score if status == "ok" else (0.4 if status == "fallback" else 0.0)
+    trust_label = "High" if trust_score > 0.7 else ("Medium" if trust_score > 0.55 else "Low")
+    
     # Task 7: NEVER break frontend
     return {
         "suggested_reply": reply,
         "evidence": evidence,
-        "status": status
+        "status": status,
+        "trust_score": trust_score,
+        "trust_label": trust_label,
+        "generation_mode": "RAG-Multimodal-v2",
+        "grounding_report": {
+            "clauses_used": clause_ids,
+            "attachment_processed": bool(attachment_content),
+            "retrieval_success": len(evidence) > 0
+        }
     }
 
 

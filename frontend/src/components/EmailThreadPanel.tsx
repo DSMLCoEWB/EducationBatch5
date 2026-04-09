@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Paperclip, User, Mail, Calendar, Loader2, Reply } from 'lucide-react';
+import { X, Paperclip, User, Mail, Calendar, Loader2, Reply, RefreshCcw, CheckCircle2 } from 'lucide-react';
 import { Email } from '@/types';
 import { getCategoryInfo } from '@/data/categories';
-import { API_BASE_URL, fetchEmailThread, sendReply } from '@/services/api';
+import { API_BASE_URL, fetchEmailThread, sendReply, reprocessAttachment } from '@/services/api';
 import { transformBackendEmails } from '@/utils/dataTransformer';
 import { ReplyModal } from './ReplyModal';
 import { toast } from 'sonner';
@@ -125,6 +125,27 @@ interface EmailCardProps {
 
 function EmailCard({ email, isParent, isCurrentEmail, onReply }: EmailCardProps) {
   const [showReplyModal, setShowReplyModal] = useState(false);
+  const [reprocessing, setReprocessing] = useState<string | null>(null);
+
+  const handleReprocess = async (filename: string) => {
+    try {
+      setReprocessing(filename);
+      const res = await reprocessAttachment(email.id, filename);
+      if (res.status === 'success') {
+        toast.success(`Successfully extracted text from ${filename.split('_').pop()}`);
+        // Optionally reload the thread here or update local state
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        toast.error("AI could not extract text from this file.");
+      }
+    } catch (err) {
+      toast.error("Failed to re-process attachment");
+      console.error(err);
+    } finally {
+      setReprocessing(null);
+    }
+  };
+
   return (
     <div className={`border rounded-xl p-5 mb-4 transition-all ${
       isCurrentEmail 
@@ -184,34 +205,83 @@ function EmailCard({ email, isParent, isCurrentEmail, onReply }: EmailCardProps)
 
       {/* Attachments */}
       {email.hasAttachment && (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 mb-3">
           <div className="text-xs font-medium text-muted-foreground">Attachments:</div>
-          {email.attachments && email.attachments.length > 0 ? (
-            email.attachments.map((filename, index) => {
-              const displayName = filename.includes('_') ? filename.split('_').slice(1).join('_') : filename;
-              return (
-                <a
-                  key={index}
-                  href={`${API_BASE_URL}/download/attachment/${encodeURIComponent(filename)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-3 py-2 bg-gov-blue-light hover:bg-primary/10 rounded-lg border border-primary/15 w-fit transition-colors"
-                >
-                  <Paperclip className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-xs text-primary font-medium">{displayName}</span>
-                </a>
-              );
-            })
-          ) : (
-            <a
-              href={`${API_BASE_URL}/download/email/${email.emlFile}`}
-              download={email.emlFile}
-              className="flex items-center gap-2 px-3 py-2 bg-gov-blue-light hover:bg-primary/10 rounded-lg border border-primary/15 w-fit transition-colors"
-            >
-              <Paperclip className="w-3.5 h-3.5 text-primary" />
-              <span className="text-xs text-primary font-medium">Download email with attachments</span>
-            </a>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {email.attachments && email.attachments.length > 0 ? (
+              email.attachments.map((filename, index) => {
+                const displayName = filename.includes('_') ? filename.split('_').slice(1).join('_') : filename;
+                return (
+                  <div key={index} className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-gov-blue-light hover:bg-primary/10 rounded-lg border border-primary/15 w-fit transition-all relative group">
+                      <a
+                        href={`${API_BASE_URL}/download/attachment/${encodeURIComponent(filename)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2"
+                      >
+                        <Paperclip className="w-3.5 h-3.5 text-primary" />
+                        <span className="text-xs text-primary font-medium">{displayName}</span>
+                      </a>
+                      
+                      <button 
+                        onClick={() => handleReprocess(filename)}
+                        disabled={reprocessing === filename}
+                        title="Force AI Re-Process"
+                        className="ml-2 p-1 hover:bg-primary/20 rounded-md transition-all text-primary/60 hover:text-primary"
+                      >
+                        {reprocessing === filename ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <RefreshCcw className="w-3 h-3" />
+                        )}
+                      </button>
+                    </div>
+                    
+                    {/* Status Badge */}
+                    <div className="flex items-center gap-1 ml-1">
+                      {email.attachmentContent?.includes(filename) ? (
+                        <>
+                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" />
+                          <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-tighter">AI-Indexed</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                          <span className="text-[9px] text-amber-600 font-bold uppercase tracking-tighter">Not Yet Read</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <a
+                href={`${API_BASE_URL}/download/email/${email.emlFile}`}
+                download={email.emlFile}
+                className="flex items-center gap-2 px-3 py-2 bg-gov-blue-light hover:bg-primary/10 rounded-lg border border-primary/15 w-fit transition-colors"
+              >
+                <Paperclip className="w-3.5 h-3.5 text-primary" />
+                <span className="text-xs text-primary font-medium">Download email with attachments</span>
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Extracted AI OCR Content [PERFECTION] */}
+      {email.attachmentContent && (
+        <div className="bg-amber-50/50 rounded-lg border border-amber-100 p-4 mb-3">
+          <div className="flex items-center gap-2 text-xs font-semibold text-amber-700 mb-2 uppercase tracking-wide">
+            <Loader2 className="w-3 h-3 animate-pulse" />
+            AI-Extracted Attachment Intelligence
+          </div>
+          <div className="text-xs text-amber-800 leading-relaxed max-h-[200px] overflow-y-auto custom-scrollbar italic">
+            "{email.attachmentContent}"
+          </div>
+          <div className="mt-2 text-[10px] text-amber-600/70 text-right">
+            Processed via Gemini 3.1 Flash OCR
+          </div>
         </div>
       )}
       {/* Footer Actions */}
