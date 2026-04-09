@@ -10,15 +10,33 @@ import {
   Send,
   Trash2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  FileSearch,
+  Building,
+  Banknote,
+  ShoppingCart,
+  Wallet,
+  Award,
+  Briefcase,
+  UserPlus,
+  ArrowLeftRight,
+  ClipboardCheck,
+  Users,
+  Layers
 } from 'lucide-react';
 import React, { useState } from 'react';
+
+import { Email } from '@/types';
 
 interface SidebarProps {
   activeView: string;
   onViewChange: (view: string) => void;
   onOpenPolicyManagement: () => void;
+<<<<<<< HEAD
   onCompose: () => void;
+=======
+  emails?: Email[];
+>>>>>>> 009c93f (from branch)
 }
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -30,12 +48,30 @@ const iconMap: Record<string, React.ReactNode> = {
   folder: <Folder className="w-[18px] h-[18px]" />,
   send: <Send className="w-[18px] h-[18px]" />,
   trash: <Trash2 className="w-[18px] h-[18px]" />,
+  'file-search': <FileSearch className="w-[18px] h-[18px]" />,
+  building: <Building className="w-[18px] h-[18px]" />,
+  banknote: <Banknote className="w-[18px] h-[18px]" />,
+  'shopping-cart': <ShoppingCart className="w-[18px] h-[18px]" />,
+  wallet: <Wallet className="w-[18px] h-[18px]" />,
+  award: <Award className="w-[18px] h-[18px]" />,
+  briefcase: <Briefcase className="w-[18px] h-[18px]" />,
+  'user-plus': <UserPlus className="w-[18px] h-[18px]" />,
+  'arrow-left-right': <ArrowLeftRight className="w-[18px] h-[18px]" />,
+  'clipboard-check': <ClipboardCheck className="w-[18px] h-[18px]" />,
+  users: <Users className="w-[18px] h-[18px]" />,
+  layers: <Layers className="w-[18px] h-[18px]" />
 };
 
+<<<<<<< HEAD
 export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCompose }: SidebarProps) {
+=======
+export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, emails = [] }: SidebarProps) {
+>>>>>>> 009c93f (from branch)
   const [collapsed, setCollapsed] = useState(false);
 
+
   const menuItems = [
+<<<<<<< HEAD
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'all', label: 'Inbox', icon: 'inbox' },
     { id: 'suspension', label: 'Suspension', icon: 'alert-circle' },
@@ -45,6 +81,29 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
     { id: 'Sent', label: 'Sent', icon: 'send' },
     { id: 'trash', label: 'Trash', icon: 'trash' }
   ];
+=======
+  { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { id: 'all', label: 'All Emails', icon: 'inbox' },
+  { id: 'Suspension / Disciplinary', label: 'Suspension / Disciplinary', icon: 'alert-circle' },
+  { id: 'Legal Issues', label: 'Legal Issues', icon: 'shield-alert' },
+  { id: 'RTI Matters', label: 'RTI Matters', icon: 'file-search' },
+  { id: 'CMO Issues', label: 'CMO Issues', icon: 'building' },
+  { id: 'Semester / Examination', label: 'Semester / Examination', icon: 'graduation-cap' },
+  { id: 'Scholarship & Fee Concession', label: 'Scholarship & Fee Concession', icon: 'banknote' },
+  { id: 'Purchase / Procurement Issues', label: 'Purchase / Procurement Issues', icon: 'shopping-cart' },
+  { id: 'Cash Issues', label: 'Cash Issues', icon: 'wallet' },
+  { id: 'Anti-Ragging Complaints', label: 'Anti-Ragging Complaints', icon: 'shield-alert' },
+  { id: 'Accreditation & Ranking', label: 'Accreditation & Ranking', icon: 'award' },
+  { id: 'Service Matters', label: 'Service Matters', icon: 'briefcase' },
+  { id: 'Appointment Issues', label: 'Appointment Issues', icon: 'user-plus' },
+  { id: 'Transfer Cases', label: 'Transfer Cases', icon: 'arrow-left-right' },
+  { id: 'Inspection Matters', label: 'Inspection Matters', icon: 'clipboard-check' },
+  { id: 'Seat Matrix Issues', label: 'Seat Matrix Issues', icon: 'users' },
+  { id: 'Miscellaneous', label: 'Miscellaneous', icon: 'layers' },
+  { id: 'Sent', label: 'Sent', icon: 'send' },
+  { id: 'trash', label: 'Trash', icon: 'trash' },
+];
+>>>>>>> 009c93f (from branch)
 
   return (
     <div className={`bg-card border-r border-border h-full sticky top-0 overflow-y-auto flex flex-col transition-all duration-200 ${collapsed ? 'w-16' : 'w-56'}`}>

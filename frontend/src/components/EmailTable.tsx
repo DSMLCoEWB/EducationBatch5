@@ -88,10 +88,10 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     filteredEmails = filteredEmails.filter(e => e.mailType === filters.mailType);
   }
   if (filters.showOnlySuspension) {
-    filteredEmails = filteredEmails.filter(e => e.category === 'suspension');
+     filteredEmails = filteredEmails.filter(e => e.category === 'Suspension / Disciplinary');
   }
   if (filters.showOnlyFIR) {
-    filteredEmails = filteredEmails.filter(e => e.category === 'fir');
+    filteredEmails = filteredEmails.filter(e => e.category === 'Legal Issues');
   }
 
   const sortedEmails = filteredEmails.sort((a, b) => {
@@ -202,7 +202,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1.5">Legal</label>
-                  <FilterChip label="FIR cases" active={filters.showOnlyFIR} onClick={() => setFilters(prev => ({ ...prev, showOnlyFIR: !prev.showOnlyFIR }))} />
+                  <FilterChip label="Legal Issues" active={filters.showOnlyFIR} onClick={() => setFilters(prev => ({ ...prev, showOnlyFIR: !prev.showOnlyFIR }))} />
                 </div>
               </>
             )}

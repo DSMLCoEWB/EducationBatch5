@@ -265,6 +265,7 @@ def mark_as_trashed(user_email: str, email_id: str, is_trashed: bool = True):
     """Mark an email as trashed in the local database for a specific user."""
     conn = sqlite3.connect(DB_PATH, timeout=30)
     cursor = conn.cursor()
+<<<<<<< HEAD
     if is_trashed:
         cursor.execute(
             "UPDATE emails SET is_trashed = 1, category = 'trash' WHERE id = ? AND user_email = ?", 
@@ -275,6 +276,12 @@ def mark_as_trashed(user_email: str, email_id: str, is_trashed: bool = True):
             "UPDATE emails SET is_trashed = 0, is_inbox = 1, category = 'miscellaneous' WHERE id = ? AND user_email = ?", 
             (email_id, user_email)
         )
+=======
+    cursor.execute(
+        "UPDATE emails SET is_trashed = ?, category = ? WHERE id = ? AND user_email = ?", 
+        (1 if is_trashed else 0, 'trash' if is_trashed else 'Miscellaneous', email_id, user_email)
+    )
+>>>>>>> 009c93f (from branch)
     conn.commit()
     conn.close()
 
@@ -286,11 +293,11 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
     
     # Map frontend IDs to actual DB category strings from classifier.py
     category_map = {
-        'suspension': 'Suspension / Disciplinary',
-        'fir': 'FIR / Arrest / Legal',
-        'semester': 'Semester / Examination',
-        'miscellaneous': 'Miscellaneous'
-    }
+    'suspension': 'Suspension / Disciplinary',
+    'fir': 'Legal Issues',
+    'semester': 'Semester / Examination',
+    'miscellaneous': 'Miscellaneous'
+}
     db_category = category_map.get(category, category)
     
     query = "SELECT * FROM emails WHERE user_email = ?"
@@ -302,10 +309,15 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
         query += " AND is_inbox = 1 AND is_trashed = 0"
     elif category == 'Sent':
         query += " AND is_sent = 1 AND is_trashed = 0"
-    elif category == 'miscellaneous':
-        # Broad fetch for Miscellaneous folder to include 'Service' matters and others
-        query += " AND category NOT IN (?, ?, ?) AND is_inbox = 1 AND is_trashed = 0"
-        params.extend(['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination'])
+    elif category == 'miscellaneous' or category == 'Miscellaneous':
+        query += " AND category NOT IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) AND is_inbox = 1 AND is_trashed = 0"
+        params.extend([
+        'Suspension / Disciplinary', 'Legal Issues', 'RTI Matters',
+        'CMO Issues', 'Semester / Examination', 'Scholarship & Fee Concession',
+        'Purchase / Procurement Issues', 'Cash Issues', 'Anti-Ragging Complaints',
+        'Accreditation & Ranking', 'Service Matters', 'Appointment Issues',
+        'Transfer Cases', 'Inspection Matters', 'Seat Matrix Issues'
+        ])
     else:
         # Filtering by a specific grievance category (e.g. 'Semester / Examination')
         query += " AND category = ? AND is_inbox = 1 AND is_trashed = 0"

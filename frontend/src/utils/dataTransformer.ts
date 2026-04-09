@@ -347,7 +347,7 @@ function extractSenderName(sender: string): string {
 export function transformBackendEmail(backendEmail: any): Email {
   // Support both snake_case (backend) and camelCase (frontend types)
   const categoryStr = backendEmail.category || '';
-  const category = categoryMap[categoryStr] || 'miscellaneous';
+  const category = categoryMap[categoryStr] || categoryStr || 'miscellaneous';
   
   const rawMailType = (backendEmail.mail_type || backendEmail.mailType || '').toLowerCase();
   const mailType: MailType = rawMailType.includes('fresh') ? 'fresh' : 'follow-up';

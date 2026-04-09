@@ -54,18 +54,44 @@ export function Dashboard({ emails }: DashboardProps) {
     withAttachments: emails.filter(e => e.hasAttachment).length
   };
 
-  const categoryData = [
-    { name: 'Suspension', count: emails.filter(e => e.category === 'suspension' || e.category === 'Suspension / Disciplinary').length, fill: 'hsl(25, 95%, 53%)' },
-    { name: 'FIR/Arrest', count: emails.filter(e => e.category === 'fir' || e.category === 'FIR / Arrest / Legal').length, fill: 'hsl(0, 72%, 51%)' },
-    { name: 'Semester', count: emails.filter(e => e.category === 'semester' || e.category === 'Semester / Examination').length, fill: 'hsl(215, 65%, 42%)' },
-    { name: 'Other', count: emails.filter(e => {
-      const others = ['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination', 'suspension', 'fir', 'semester'];
-      return !others.includes(e.category);
-    }).length, fill: 'hsl(215, 15%, 50%)' }
+  const categoryCounts = emails.reduce((acc, email) => {
+    const cat = email.category;
+    if (cat === 'Sent' || cat === 'trash') return acc;
+    acc[cat] = (acc[cat] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const sortedCategories = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1]);
+  
+  const colors = [
+    'hsl(25, 95%, 53%)',  // Orange
+    'hsl(0, 72%, 51%)',   // Red
+    'hsl(215, 65%, 42%)', // Blue
+    'hsl(152, 55%, 42%)', // Green
+    'hsl(280, 65%, 52%)', // Purple
+    'hsl(330, 75%, 52%)', // Pink
+    'hsl(45, 95%, 50%)',  // Yellow
+    'hsl(180, 55%, 42%)', // Teal
+    'hsl(15, 85%, 55%)',  // Coral
+    'hsl(240, 55%, 55%)'  // Indigo
   ];
 
+  const categoryData = sortedCategories.map(([name, count], index) => {
+    // Shorten long names for X-Axis display
+    let shortName = name;
+    if (name.includes('/')) shortName = name.split('/')[0].trim();
+    else if (name.includes('&')) shortName = name.split('&')[0].trim();
+    if (shortName.length > 12) shortName = shortName.substring(0, 12) + '...';
+    
+    return {
+      name: shortName,
+      count,
+      fill: colors[index % colors.length]
+    };
+  });
+
   const mailTypeData = [
-    { name: 'Fresh', value: stats.fresh, fill: 'hsl(152, 55%, 42%)' },
+    { name: 'Fresh', value: stats.fresh, fill: 'hsla(173, 43%, 41%, 1.00)' },
     { name: 'Follow-up', value: stats.followUp, fill: 'hsl(25, 95%, 53%)' }
   ];
 
@@ -131,8 +157,8 @@ export function Dashboard({ emails }: DashboardProps) {
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        <div className="bg-card rounded-xl border border-border p-5 shadow-card">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        <div className="bg-card rounded-xl border border-border p-5 shadow-card lg:col-span-2">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="w-4 h-4 text-primary" />
             <h3 className="text-sm font-semibold text-foreground">Emails by Category</h3>
@@ -161,8 +187,12 @@ export function Dashboard({ emails }: DashboardProps) {
                 cx="50%"
                 cy="50%"
                 labelLine={true}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                outerRadius={95}
+                label={({ name, percent, x, y, textAnchor }) => (
+                  <text x={x} y={y} fill="hsl(215, 15%, 50%)" textAnchor={textAnchor} dominantBaseline="central" fontSize={14}>
+                    {`${name}: ${(percent * 100).toFixed(0)}%`}
+                  </text>
+                )}
+                outerRadius={85}
                 dataKey="value"
               >
                 {mailTypeData.map((entry, index) => (

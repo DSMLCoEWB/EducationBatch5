@@ -1,134 +1,226 @@
 import re
 from collections import defaultdict
 
-# Expanded keyword lists with variations and synonyms
 CATEGORIES = {
     "Suspension / Disciplinary": [
-        # Core terms
         "suspension", "suspended", "suspend",
-        # Disciplinary terms
         "chargesheet", "charge sheet", "charge-sheet",
         "disciplinary", "discipline", "disciplinary action",
         "departmental proceeding", "departmental proceedings",
         "departmental inquiry", "departmental enquiry",
-        # Related terms
         "dismissal", "dismissed", "termination",
         "punishment", "penalty", "penal action",
         "misconduct", "violation", "breach",
         "show cause", "show-cause", "showcause",
         "inquiry", "enquiry", "investigation",
-        "disciplinary case", "disciplinary matter",
-        # Context-specific
-        "suspension case", "suspension cases",
         "suspended employee", "suspended staff",
         "suspended official", "suspended officer",
-        "suspension report", "suspension details",
-        "suspension information", "suspension status"
+        "suspension status", "suspension order"
     ],
-    "FIR / Arrest / Legal": [
-        # Legal terms
+
+    "Legal Issues": [
         "fir", "first information report",
         "arrest", "arrested", "arresting",
         "police", "police case", "police complaint",
         "court", "court case", "court order",
         "legal", "legal case", "legal matter",
         "litigation", "lawsuit", "suit",
-        # Criminal terms
         "criminal", "criminal case", "criminal complaint",
-        "complaint", "complaint filed",
         "warrant", "bail", "custody",
-        # Legal proceedings
         "judgment", "judgement", "verdict",
         "hearing", "trial", "proceedings",
         "advocate", "lawyer", "attorney",
-        "petition", "appeal", "writ"
+        "petition", "appeal", "writ",
+        "contempt", "injunction", "stay order"
     ],
+
+    "RTI Matters": [
+        "rti", "right to information",
+        "information request", "rti application",
+        "rti appeal", "rti reply",
+        "public information officer", "pio",
+        "first appellate authority", "faa",
+        "rti response", "rti filing",
+        "disclosure", "transparency",
+        "rti order", "rti case"
+    ],
+
+    "CMO Issues": [
+        "cmo", "chief minister office",
+        "chief minister's office", "cm office",
+        "cm complaint", "cm grievance",
+        "cm cell", "cmo reference",
+        "cmo complaint", "cmo matter",
+        "referred by cmo", "cmo letter"
+    ],
+
     "Semester / Examination": [
-        # Academic terms
         "semester", "semesters",
         "exam", "exams", "examination", "examinations",
         "marks", "mark", "grade", "grades",
         "result", "results",
-        # Examination-related
         "admit card", "admitcard", "admission card",
-        "backlog", "backlogs", "back paper", "backpaper",
+        "backlog", "backlogs", "back paper",
         "supplementary", "supplementary exam",
-        "re-examination", "reexamination", "re exam",
-        # Academic performance
+        "re-examination", "reexamination",
         "cgpa", "sgpa", "gpa",
         "pass", "fail", "failed",
-        "promotion", "promoted", "detention",
-        # Course-related
-        "course", "courses", "subject", "subjects",
+        "detention", "promoted",
         "credit", "credits", "attendance",
-        "assignment", "assignments", "project"
+        "marksheet", "mark sheet", "transcript"
     ],
-    "Non-Suspension Service": [
-        # Service-related
+
+    "Scholarship & Fee Concession": [
+        "scholarship", "scholarships",
+        "svmcm", "swami vivekananda",
+        "student credit card", "credit card loan",
+        "oasis", "oasis scholarship",
+        "merit cum means", "mcm",
+        "freeship", "free ship",
+        "fee waiver", "fee concession",
+        "fee exemption", "tuition waiver",
+        "stipend", "financial aid",
+        "minority scholarship", "sc scholarship", "st scholarship",
+        "obc scholarship", "post matric", "pre matric"
+    ],
+
+    "Purchase / Procurement Issues": [
+        "purchase", "procurement", "procure",
+        "tender", "tenders", "e-tender",
+        "quotation", "quotations", "rfq",
+        "supply", "supplier", "vendor",
+        "contract", "work order",
+        "gemportal", "gem portal", "government e-marketplace",
+        "rate contract", "rate contracts",
+        "bill", "bills", "invoice", "invoices",
+        "payment pending", "due payment",
+        "purchase order", "purchase committee"
+    ],
+
+    "Cash Issues": [
+        "cash", "cash misappropriation",
+        "embezzlement", "misuse of funds",
+        "financial irregularity", "financial fraud",
+        "fund diversion", "diversion of funds",
+        "accounts", "accountant",
+        "audit", "audit report", "audit objection",
+        "treasury", "treasury challan",
+        "grant", "grant utilization", "utilization certificate",
+        "budget", "expenditure", "overspending",
+        "misappropriation", "fraud", "corruption"
+    ],
+
+    "Anti-Ragging Complaints": [
+        "ragging", "anti-ragging", "anti ragging",
+        "rag", "ragged", "ragging complaint",
+        "ragging incident", "ragging case",
+        "ugc anti ragging", "aicte anti ragging",
+        "senior junior", "bullying", "harassment",
+        "hostel ragging", "campus ragging",
+        "ragging committee", "anti ragging committee"
+    ],
+
+    "Accreditation & Ranking": [
+        "naac", "nba", "nirf",
+        "accreditation", "accredited",
+        "ranking", "rankings",
+        "naac grade", "naac score", "naac visit",
+        "nba accreditation", "nba status",
+        "nirf ranking", "nirf submission",
+        "iqac", "internal quality assurance",
+        "peer team", "accreditation report",
+        "self study report", "ssr",
+        "institutional grading"
+    ],
+
+    "Service Matters": [
         "transfer", "transferred", "transferring",
-        "posting", "posted", "post",
-        "promotion", "promoted", "promoting",
-        # Service records
-        "service book", "servicebook",
-        "service record", "service records",
-        "pay fixation", "payfixation", "pay-fixation",
-        "salary", "increment", "increments",
-        # Administrative
+        "posting", "posted",
+        "promotion", "promoted",
+        "service book", "service record",
+        "pay fixation", "salary", "increment",
         "appointment", "appointed",
         "deputation", "deputed",
         "leave", "leave application", "leave sanction",
-        "retirement", "retired", "pension",
-        # Other service matters
+        "retirement", "pension", "pensionary",
+        "gratuity", "provident fund", "gpf", "epf",
         "seniority", "seniority list",
         "confirmation", "confirmed",
         "probation", "probationary",
-        "regularization", "regularized"
-    ]
+        "regularization", "regularized",
+        "pay scale", "pay revision", "arrear",
+        "service matter", "service dispute"
+    ],
+
+    "Appointment Issues": [
+        "appointment", "appointed", "appointment order",
+        "recruitment", "recruited",
+        "selection", "selection process",
+        "interview", "walk-in interview",
+        "advertisement", "vacancy", "vacancies",
+        "joining", "joining letter", "joining date",
+        "offer letter", "appointment letter",
+        "contractual", "ad hoc", "adhoc",
+        "part time", "guest lecturer", "guest faculty",
+        "direct recruitment", "dr", "merit list"
+    ],
+
+    "Transfer Cases": [
+        "transfer", "transfer order", "transfer case",
+        "mutual transfer", "transfer request",
+        "inter district transfer", "intra district transfer",
+        "transfer posting", "place of posting",
+        "transfer grievance", "transfer complaint",
+        "transfer list", "transfer policy",
+        "hardship transfer", "medical grounds transfer",
+        "transfer cancellation", "transfer stay"
+    ],
+
+    "Inspection Matters": [
+        "inspection", "inspected", "inspector",
+        "inspection report", "inspection team",
+        "inspection visit", "inspection findings",
+        "site inspection", "physical inspection",
+        "compliance", "compliance report",
+        "deficiency", "deficiencies",
+        "inspection committee", "inspection order",
+        "surprise inspection", "routine inspection"
+    ],
+
+    "Seat Matrix Issues": [
+        "seat matrix", "seat matrices",
+        "seats", "intake", "intake capacity",
+        "seat allocation", "seat allotment",
+        "seat increase", "seat reduction",
+        "additional seats", "excess seats",
+        "counselling seats", "wbjeeb", "jelet",
+        "lateral entry", "seat approval",
+        "aicte approval", "university affiliation",
+        "affiliated seats", "approved intake"
+    ],
 }
 
+
 def classify_grievance(text):
-    """
-    Classify grievance text into categories using improved keyword matching.
-    Uses word boundaries and scoring system for better accuracy.
-    """
     if not text or not isinstance(text, str):
         return "Miscellaneous"
-    
-    # Normalize text: lowercase and remove extra whitespace
-    text_lower = text.lower()
-    text_normalized = re.sub(r'\s+', ' ', text_lower).strip()
-    
-    # Score each category based on keyword matches
+
+    text_normalized = re.sub(r'\s+', ' ', text.lower()).strip()
     category_scores = defaultdict(float)
-    
+
     for category, keywords in CATEGORIES.items():
         score = 0
-        
         for keyword in keywords:
-            # Handle multi-word keywords
-            if ' ' in keyword:
-                # For multi-word phrases, use word boundaries at start and end
-                pattern = r'\b' + re.escape(keyword) + r'\b'
-                matches = len(re.findall(pattern, text_normalized, re.IGNORECASE))
-                score += matches * 2  # Multi-word matches are weighted higher
-            else:
-                # For single words, use word boundaries
-                pattern = r'\b' + re.escape(keyword) + r'\b'
-                matches = len(re.findall(pattern, text_normalized, re.IGNORECASE))
-                score += matches
-        
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            matches = len(re.findall(pattern, text_normalized, re.IGNORECASE))
+            score += matches * (2 if ' ' in keyword else 1)
         category_scores[category] = float(score)
-    
-    # Find the category with the highest score
+
     if category_scores:
         max_score = max(category_scores.values())
-        
-        # Only return a category if it has a meaningful score
         if max_score > 0:
-            # If there's a tie, prefer more specific categories
-            # Return the first category with max score
-            for category in CATEGORIES.keys():
+            for category in CATEGORIES:
                 if category_scores[category] == max_score:
                     return category
-    
+
     return "Miscellaneous"

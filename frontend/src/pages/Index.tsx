@@ -228,18 +228,19 @@ export default function App() {
   const categoryEmails = useMemo(() => {
     if (activeView === 'dashboard' || activeView === 'all') return filteredEmails;
     if (activeView === 'Sent' || activeView === 'trash') return filteredEmails;
-    const mappedCategories: Record<string, string> = {
-      'suspension': 'Suspension / Disciplinary',
-      'fir': 'FIR / Arrest / Legal',
-      'semester': 'Semester / Examination',
-      'miscellaneous': 'Miscellaneous'
-    };
-    const targetCategory = mappedCategories[activeView] || activeView;
-    if (activeView === 'miscellaneous') {
-      const otherMainFolders = ['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination'];
-      return filteredEmails.filter(email => !otherMainFolders.includes(email.category) && email.category !== 'Sent' && email.category !== 'trash');
-    }
-    return filteredEmails.filter(email => email.category === activeView || email.category === targetCategory);
+    
+    if (activeView === 'Miscellaneous' || activeView === 'miscellaneous') {
+  const knownCategories = [
+    'Suspension / Disciplinary', 'Legal Issues', 'RTI Matters', 'CMO Issues',
+    'Semester / Examination', 'Scholarship & Fee Concession', 'Purchase / Procurement Issues',
+    'Cash Issues', 'Anti-Ragging Complaints', 'Accreditation & Ranking', 'Service Matters',
+    'Appointment Issues', 'Transfer Cases', 'Inspection Matters', 'Seat Matrix Issues',
+    'Sent', 'trash'
+  ];
+  return filteredEmails.filter(email => !knownCategories.includes(email.category));
+}
+return filteredEmails.filter(email => email.category === activeView);
+
   }, [filteredEmails, activeView]);
 
   if (loading) {
@@ -311,12 +312,16 @@ export default function App() {
         refinementStats={refinementStats} onTestApiKeys={handleTestApiKeys}
       />
       <div className="flex flex-1 overflow-hidden">
+<<<<<<< HEAD
           <Sidebar 
             activeView={activeView} 
             onViewChange={setActiveView} 
             onOpenPolicyManagement={() => setShowPolicyManagement(true)}
             onCompose={() => setShowComposeModal(true)}
           />
+=======
+        <Sidebar activeView={activeView} onViewChange={setActiveView} onOpenPolicyManagement={() => setShowPolicyManagement(true)} emails={filteredEmails} />
+>>>>>>> 009c93f (from branch)
         {activeView === 'dashboard' ? (
           <Dashboard emails={filteredEmails} />
         ) : (
