@@ -61,7 +61,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     // Process groups
     Object.entries(threadGroups).forEach(([tid, group]) => {
       // Sort group by date descending to find the latest
-      const sortedGroup = [...group].sort((a, b) => 
+      const sortedGroup = [...group].sort((a, b) =>
         new Date(b.emailDate).getTime() - new Date(a.emailDate).getTime()
       );
       const latest = sortedGroup[0];
@@ -148,7 +148,10 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
         <div>
           <h2 className="text-xl font-bold text-foreground">{categoryInfo.label}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {sortedEmails.length} email{sortedEmails.length !== 1 ? 's' : ''}
+            {sortedEmails.length} {sortedEmails.length === 1 ? 'Conversation' : 'Conversations'}
+            <span className="opacity-60 ml-1.5">
+              ({emails.length} total messages)
+            </span>
           </p>
         </div>
         <button
@@ -276,11 +279,10 @@ function FilterChip({ label, active, onClick }: { label: string; active: boolean
   return (
     <button
       onClick={onClick}
-      className={`text-xs px-2.5 py-1.5 rounded-md border transition-all w-full text-left ${
-        active
+      className={`text-xs px-2.5 py-1.5 rounded-md border transition-all w-full text-left ${active
           ? 'bg-primary/10 border-primary/30 text-primary font-medium'
           : 'bg-background border-border text-muted-foreground hover:bg-accent'
-      }`}
+        }`}
     >
       {label}
     </button>
@@ -333,12 +335,11 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           <div className="text-xs text-muted-foreground truncate max-w-[150px]">{email.senderEmail}</div>
         </td>
         <td className="px-4 py-3">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
-            priority <= 1 ? 'bg-gov-red-light text-gov-red' :
-            priority <= 3 ? 'bg-gov-orange-light text-gov-orange' :
-            priority <= 5 ? 'bg-gov-amber-light text-gov-amber' :
-            'bg-muted text-muted-foreground'
-          }`}>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${priority <= 1 ? 'bg-gov-red-light text-gov-red' :
+              priority <= 3 ? 'bg-gov-orange-light text-gov-orange' :
+                priority <= 5 ? 'bg-gov-amber-light text-gov-amber' :
+                  'bg-muted text-muted-foreground'
+            }`}>
             {priority <= 1 ? 'Critical' : priority <= 3 ? 'High' : priority <= 5 ? 'Medium' : 'Low'}
           </span>
         </td>
@@ -372,9 +373,8 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           </span>
         </td>
         <td className="px-4 py-3">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
-            email.mailType === 'fresh' ? 'bg-gov-green-light text-gov-green' : 'bg-gov-orange-light text-gov-orange'
-          }`}>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${email.mailType === 'fresh' ? 'bg-gov-green-light text-gov-green' : 'bg-gov-orange-light text-gov-orange'
+            }`}>
             {email.mailType === 'fresh' ? 'Fresh' : 'Follow-up'}
           </span>
         </td>
@@ -390,11 +390,10 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
         </td>
         <td className="px-4 py-3">
           {daysPending !== null && (
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
-              daysPending <= 2 ? 'bg-gov-amber-light text-gov-amber' :
-              daysPending <= 5 ? 'bg-gov-orange-light text-gov-orange' :
-              'bg-gov-red-light text-gov-red'
-            }`}>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${daysPending <= 2 ? 'bg-gov-amber-light text-gov-amber' :
+                daysPending <= 5 ? 'bg-gov-orange-light text-gov-orange' :
+                  'bg-gov-red-light text-gov-red'
+              }`}>
               {daysPending === 0 ? 'Today' : daysPending === 1 ? '1d' : `${daysPending}d`}
             </span>
           )}

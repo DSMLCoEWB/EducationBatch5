@@ -212,9 +212,10 @@ export async function generateReply(
   emailContent: string,
   emailSubject: string = "",
   sender: string = "",
-  category: string = ""
+  category: string = "",
+  attachmentContent: string = ""
 ): Promise<string> {
-  const result = await generateReplyDetailed(emailContent, emailSubject, sender, category);
+  const result = await generateReplyDetailed(emailContent, emailSubject, sender, category, attachmentContent);
   return result.suggested_reply;
 }
 
@@ -222,7 +223,8 @@ export async function generateReplyDetailed(
   emailContent: string,
   emailSubject: string = "",
   sender: string = "",
-  category: string = ""
+  category: string = "",
+  attachmentContent: string = ""
 ): Promise<GenerateReplyResult> {
   const response = await apiFetch(`${API_GENERATE_URL}/generate-reply`, {
     method: "POST",
@@ -234,6 +236,7 @@ export async function generateReplyDetailed(
       email_subject: emailSubject,
       sender,
       category,
+      attachment_content: attachmentContent
     }),
   });
 
@@ -429,6 +432,31 @@ export async function testApiKeys(): Promise<ApiKeyTestResult> {
   if (!response.ok) {
     throw new Error('Failed to test API keys');
   }
+  return response.json();
+}
+
+export async function updateSyncInterval(seconds: number): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/settings/sync-interval?interval=${seconds}`, {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error("Failed to update sync interval");
+}
+
+export interface SyncStatus {
+  syncing: boolean;
+}
+
+export async function fetchSyncStatus(): Promise<SyncStatus> {
+  const response = await apiFetch(`${API_BASE_URL}/sync-status`);
+  if (!response.ok) throw new Error("Failed to fetch sync status");
+  return response.json();
+}
+
+export async function reprocessAttachment(emailId: string, filename: string): Promise<{ status: string; extracted_text: string }> {
+  const response = await apiFetch(`${API_BASE_URL}/emails/${emailId}/attachments/reprocess?filename=${encodeURIComponent(filename)}`, {
+    method: 'POST'
+  });
+  if (!response.ok) throw new Error("Failed to reprocess attachment");
   return response.json();
 }
 

@@ -12,7 +12,9 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Create the emails table with is_inbox and is_sent flags
+    # Enable WAL mode for high concurrency
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS emails (
             id TEXT PRIMARY KEY,
@@ -34,6 +36,7 @@ def init_db():
             is_inbox BOOLEAN DEFAULT 0,
             is_sent BOOLEAN DEFAULT 0,
             is_priority_refined BOOLEAN DEFAULT 0,
+            attachment_content TEXT,
             user_email TEXT,
             last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -83,6 +86,15 @@ def init_db():
     
     # Index for faster filtering on is_inbox/is_sent
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_category ON emails (user_email, is_inbox, is_sent, is_trashed)")
+    # Index for fast conversation thread lookups
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_thread ON emails (user_email, thread_id)")
+
+    # [MIGRATION]: Add attachment_content if it doesn't exist
+    try:
+        cursor.execute("SELECT attachment_content FROM emails LIMIT 1")
+    except sqlite3.OperationalError:
+        print("💾 Database Migration: Adding attachment_content column...")
+        cursor.execute("ALTER TABLE emails ADD COLUMN attachment_content TEXT")
     
     conn.commit()
     conn.close()
@@ -111,8 +123,8 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
             INSERT INTO emails (
                 id, gmail_id, thread_id, sender, sender_email, subject, content,
                 category, mail_type, priority, date, has_attachment, attachments,
-                is_demo, replied, is_trashed, is_inbox, is_sent, is_priority_refined, user_email, last_synced
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                is_demo, replied, is_trashed, is_inbox, is_sent, is_priority_refined, attachment_content, user_email, last_synced
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 gmail_id=COALESCE(excluded.gmail_id, gmail_id),
                 thread_id=COALESCE(excluded.thread_id, thread_id),
@@ -134,6 +146,7 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
                 is_inbox=MAX(is_inbox, excluded.is_inbox),
                 is_sent=MAX(is_sent, excluded.is_sent),
                 is_priority_refined=MAX(is_priority_refined, excluded.is_priority_refined),
+                attachment_content=COALESCE(excluded.attachment_content, attachment_content),
                 last_synced=CURRENT_TIMESTAMP
         """, (
             email['email_id'],
@@ -155,6 +168,7 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
             new_is_inbox,
             new_is_sent,
             new_is_refined,
+            email.get('attachment_content'),
             user_email
         ))
     
@@ -322,6 +336,25 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
         result.append(email)
         
     return result
+
+def update_email_attachment_content(user_email: str, email_id: str, text: str):
+    """Specifically update/append attachment OCR text for an email."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    cursor = conn.cursor()
+    # Check if content already contains this extraction to avoid duplicates
+    cursor.execute("SELECT attachment_content FROM emails WHERE id = ? AND user_email = ?", (email_id, user_email))
+    row = cursor.fetchone()
+    current_content = row[0] if row and row[0] else ""
+    
+    # Simple append for now; could be made smarter to replace existing tag blocks
+    if text and text not in current_content:
+        new_content = current_content + "\n" + text
+        cursor.execute(
+            "UPDATE emails SET attachment_content = ?, last_synced = CURRENT_TIMESTAMP WHERE id = ? AND user_email = ?",
+            (new_content, email_id, user_email)
+        )
+    conn.commit()
+    conn.close()
 
 def get_existing_gmail_ids(user_email: str) -> set:
     """Return a set of all Gmail IDs already present in the database for this user."""
