@@ -41,12 +41,18 @@ Thumbs.db
 *.log
 logs/
 backend/data/
+backend/backend_data/
 backend/attachments/
 backend/files/
 *.sqlite3
 *.db
 *.enc
+*.bak
+*.tmp
 token.pickle
+ip_cache/
+.git_backup/
+faiss.index
 
 # Keep template files in git
 !.env.example
