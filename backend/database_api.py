@@ -338,22 +338,38 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
         
     return result
 
-def update_email_attachment_content(user_email: str, email_id: str, text: str):
-    """Specifically update/append attachment OCR text for an email."""
+def update_email_attachment_content(user_email: str, email_id: str, text: str, filename: str = None):
+    """Specifically update or replace attachment OCR text for an email."""
     conn = sqlite3.connect(DB_PATH, timeout=30)
     cursor = conn.cursor()
-    # Check if content already contains this extraction to avoid duplicates
+    # Check current content
     cursor.execute("SELECT attachment_content FROM emails WHERE id = ? AND user_email = ?", (email_id, user_email))
     row = cursor.fetchone()
     current_content = row[0] if row and row[0] else ""
     
-    # Simple append for now; could be made smarter to replace existing tag blocks
-    if text and text not in current_content:
-        new_content = current_content + "\n" + text
-        cursor.execute(
-            "UPDATE emails SET attachment_content = ?, last_synced = CURRENT_TIMESTAMP WHERE id = ? AND user_email = ?",
-            (new_content, email_id, user_email)
-        )
+    new_content = current_content
+    
+    if filename:
+        import re
+        # Format: --- [Extracted from Attachment: filename] ---
+        header_text = f"--- [Extracted from Attachment: {filename}] ---"
+        # Pattern matches one instance of a block for this attachment
+        pattern = rf"\n*?{re.escape(header_text)}.*?(?=\n--- \[Extracted from Attachment:|$)"
+        
+        # Aggressively remove EVERY existing block for this filename to fix legacy duplicates
+        clean_content = re.sub(pattern, "", current_content, flags=re.DOTALL).strip()
+        
+        # Append the single fresh extraction
+        new_content = (clean_content + "\n" + text.strip()).strip()
+    else:
+        # Simple deduplicated append
+        if text.strip() and text.strip() not in current_content:
+            new_content = (current_content + "\n" + text.strip()).strip()
+            
+    cursor.execute(
+        "UPDATE emails SET attachment_content = ?, last_synced = CURRENT_TIMESTAMP WHERE id = ? AND user_email = ?",
+        (new_content, email_id, user_email)
+    )
     conn.commit()
     conn.close()
 
