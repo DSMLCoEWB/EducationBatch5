@@ -16,27 +16,27 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
   const [thread, setThread] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadFullThread() {
-      if (!email.threadId) {
-        setThread([email]);
-        setLoading(false);
-        return;
-      }
-      
-      try {
-        setLoading(true);
-        const backendThread = await fetchEmailThread(email.threadId);
-        const transformed = transformBackendEmails(backendThread);
-        setThread(transformed);
-      } catch (err) {
-        console.error("Failed to load thread:", err);
-        setThread([email]);
-      } finally {
-        setLoading(false);
-      }
+  const loadFullThread = async () => {
+    if (!email.threadId) {
+      setThread([email]);
+      setLoading(false);
+      return;
     }
     
+    try {
+      setLoading(true);
+      const backendThread = await fetchEmailThread(email.threadId);
+      const transformed = transformBackendEmails(backendThread);
+      setThread(transformed);
+    } catch (err) {
+      console.error("Failed to load thread:", err);
+      setThread([email]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadFullThread();
   }, [email]);
 
@@ -106,6 +106,7 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
                 isParent={index === 0}
                 isCurrentEmail={threadEmail.id === email.id}
                 onReply={handleReplyInThread}
+                onRefreshThread={loadFullThread}
               />
             ))
           )}
@@ -120,10 +121,11 @@ interface EmailCardProps {
   isParent: boolean;
   isCurrentEmail: boolean;
   onReply: (email: Email, replyText: string) => Promise<void>;
+  onRefreshThread: () => void;
   key?: React.Key;
 }
 
-function EmailCard({ email, isParent, isCurrentEmail, onReply }: EmailCardProps) {
+function EmailCard({ email, isParent, isCurrentEmail, onReply, onRefreshThread }: EmailCardProps) {
   const [showReplyModal, setShowReplyModal] = useState(false);
   const [reprocessing, setReprocessing] = useState<string | null>(null);
 
@@ -133,8 +135,8 @@ function EmailCard({ email, isParent, isCurrentEmail, onReply }: EmailCardProps)
       const res = await reprocessAttachment(email.id, filename);
       if (res.status === 'success') {
         toast.success(`Successfully extracted text from ${filename.split('_').pop()}`);
-        // Optionally reload the thread here or update local state
-        setTimeout(() => window.location.reload(), 1500);
+        // SURGICAL REFRESH: Refresh the thread content without reloading the whole page
+        onRefreshThread();
       } else {
         toast.error("AI could not extract text from this file.");
       }

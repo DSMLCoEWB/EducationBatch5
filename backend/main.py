@@ -1755,7 +1755,7 @@ def reprocess_attachment(request: Request, email_id: str, filename: str = Query(
         extracted_text = extract_text_from_attachment_ai(file_path)
         
         if extracted_text:
-            update_email_attachment_content(user_email, email_id, extracted_text)
+            update_email_attachment_content(user_email, email_id, extracted_text, filename=filename)
             # Clear cache so the frontend sees the new content immediately
             key = _user_key(user_email)
             with _get_user_lock(user_email):
