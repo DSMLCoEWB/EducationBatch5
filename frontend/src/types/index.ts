@@ -2,6 +2,7 @@ export type EmailCategory =
   | 'suspension' | 'Suspension / Disciplinary'
   | 'fir' | 'FIR / Arrest / Legal'
   | 'semester' | 'Semester / Examination'
+  | 'scholarship' | 'Scholarship'
   | 'miscellaneous' | 'Miscellaneous' | 'Non-Suspension Service'
   | 'demo'
   | 'Sent'

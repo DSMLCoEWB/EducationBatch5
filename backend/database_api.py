@@ -289,6 +289,7 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
         'suspension': 'Suspension / Disciplinary',
         'fir': 'FIR / Arrest / Legal',
         'semester': 'Semester / Examination',
+        'scholarship': 'Scholarship',
         'miscellaneous': 'Miscellaneous'
     }
     db_category = category_map.get(category, category)
@@ -304,8 +305,8 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
         query += " AND is_sent = 1 AND is_trashed = 0"
     elif category == 'miscellaneous':
         # Broad fetch for Miscellaneous folder to include 'Service' matters and others
-        query += " AND category NOT IN (?, ?, ?) AND is_inbox = 1 AND is_trashed = 0"
-        params.extend(['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination'])
+        query += " AND category NOT IN (?, ?, ?, ?) AND is_inbox = 1 AND is_trashed = 0"
+        params.extend(['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination', 'Scholarship'])
     else:
         # Filtering by a specific grievance category (e.g. 'Semester / Examination')
         query += " AND category = ? AND is_inbox = 1 AND is_trashed = 0"

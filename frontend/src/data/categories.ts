@@ -37,6 +37,13 @@ export const categories: CategoryInfo[] = [
     icon: 'graduation-cap'
   },
   {
+    id: 'scholarship',
+    label: 'Scholarship',
+    color: 'text-amber-600',
+    bgColor: 'bg-amber-50',
+    icon: 'graduation-cap'
+  },
+  {
     id: 'miscellaneous',
     label: 'Miscellaneous',
     color: 'text-muted-foreground',

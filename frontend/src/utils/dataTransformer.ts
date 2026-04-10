@@ -10,6 +10,7 @@ const categoryMap: Record<string, EmailCategory> = {
   'Suspension / Disciplinary': 'suspension',
   'FIR / Arrest / Legal': 'fir',
   'Semester / Examination': 'semester',
+  'Scholarship': 'scholarship',
   'Miscellaneous': 'miscellaneous',
   'Non-Suspension Service': 'miscellaneous',
   // Fallback simple matches

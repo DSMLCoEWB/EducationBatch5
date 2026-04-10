@@ -83,19 +83,45 @@ CATEGORIES = {
         "confirmation", "confirmed",
         "probation", "probationary",
         "regularization", "regularized"
+    ],
+    "Scholarship": [
+        # Scheme Names (High-Weight Multi-word)
+        "swami vivekananda merit cum means", "svmcm", "svmcms",
+        "bikash bhavan", "scholarship scheme", "kanyashree(k3)", "k3 applicant",
+        # Eligibility & Specialized Terms
+        "60% marks in aggregate", "53% marks in aggregate", "merit-cum-means criteria",
+        "lateral entry", "non-net jrf", "net-lecturership",
+        # Administrative Documents
+        "income certificate", "income affidavit", "income ceiling", "family income",
+        "beneficiary transfer", "ifs code", "a/c no", "marksheet submission",
+        "1st renewal", "2nd renewal", "promotional examination",
+        # Authorities & Directorates
+        "directorate of public instruction", "dpi", "dse", "dte", "dme", "wbsct"
     ]
 }
 
-def classify_grievance(text):
+def classify_grievance(text, subject: str = "", attachment_content: str = "") -> str:
     """
     Classify grievance text into categories using improved keyword matching.
     Uses word boundaries and scoring system for better accuracy.
+    Considers: subject (high weight), body content, and attachment content.
     """
-    if not text or not isinstance(text, str):
+    if not text and not subject and not attachment_content:
         return "Miscellaneous"
-    
+
+    # Strip HTML tags from content
+    clean_text = re.sub(r'<[^>]+>', ' ', str(text or ''))
+
+    # Build composite classification context:
+    # Repeat subject 3x to give it significantly higher scoring weight
+    repeated_subject = f"{subject} {subject} {subject}"
+    composite_text = f"{repeated_subject}\n{clean_text}\n{attachment_content or ''}".strip()
+
+    if not composite_text:
+        return "Miscellaneous"
+
     # Normalize text: lowercase and remove extra whitespace
-    text_lower = text.lower()
+    text_lower = composite_text.lower()
     text_normalized = re.sub(r'\s+', ' ', text_lower).strip()
     
     # Score each category based on keyword matches
