@@ -4,50 +4,41 @@
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 215 25% 15%;
-
+    --background: 216 100% 98.5%; /* #F3F7FF - Soft Blue Tint */
+    --foreground: 221 51% 22%;    /* #1C2F57 - Deep Text Navy */
     --card: 0 0% 100%;
-    --card-foreground: 215 25% 15%;
-
+    --card-foreground: 221 51% 22%;
     --popover: 0 0% 100%;
-    --popover-foreground: 215 25% 15%;
-
-    --primary: 215 65% 42%;
+    --popover-foreground: 221 51% 22%;
+    --primary: 215 100% 27.5%;    /* #003A8C - Brand Blue */
     --primary-foreground: 0 0% 100%;
-
-    --secondary: 210 25% 95%;
-    --secondary-foreground: 215 25% 15%;
-
-    --muted: 210 20% 96%;
-    --muted-foreground: 215 15% 50%;
-
-    --accent: 210 30% 93%;
-    --accent-foreground: 215 25% 15%;
-
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 214 20% 90%;
-    --input: 214 20% 90%;
-    --ring: 215 65% 42%;
-
-    --radius: 0.5rem;
+    --secondary: 214 95% 93.5%;   /* #E9F4FF - Interactive Soft Blue */
+    --secondary-foreground: 215 100% 27.5%;
+    --muted: 214 30% 95%;         /* Soft Neutralish Blue */
+    --muted-foreground: 215 25% 45%;
+    --accent: 214 95% 93.5%;
+    --accent-foreground: 215 100% 27.5%;
+    --destructive: 0 84.2% 55%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 95% 87%;        /* #BFDBFE - Blue Border */
+    --input: 214 95% 87%;
+    --ring: 215 100% 27.5%;
+    --radius: 0.75rem;
 
     /* Government-specific tokens */
-    --gov-blue: 215 65% 42%;
-    --gov-blue-light: 215 60% 95%;
-    --gov-navy: 215 50% 18%;
+    --gov-blue: 215 100% 27.5%;
+    --gov-blue-light: 214 95% 93.5%;
+    --gov-navy: 221 51% 22%;
     --gov-green: 152 55% 42%;
-    --gov-green-light: 152 45% 93%;
-    --gov-amber: 38 92% 50%;
-    --gov-amber-light: 40 80% 94%;
+    --gov-green-light: 152 55% 95%;
+    --gov-amber: 40 100% 30%;      /* Deep Amber Text #9A6700 approx */
+    --gov-amber-light: 38 100% 95%; /* Light Amber Bg #FFF6E5 approx */
     --gov-red: 0 72% 51%;
-    --gov-red-light: 0 60% 95%;
+    --gov-red-light: 0 72% 96%;
     --gov-orange: 25 95% 53%;
-    --gov-orange-light: 28 80% 94%;
-    --gov-purple: 270 55% 55%;
-    --gov-purple-light: 270 45% 95%;
+    --gov-orange-light: 25 95% 95%;
+    --gov-purple: 270 55% 52%;
+    --gov-purple-light: 270 55% 96%;
     --gov-gray: 215 15% 50%;
 
     /* Shadows */
@@ -63,36 +54,60 @@
     --sidebar-accent-foreground: 215 65% 42%;
     --sidebar-border: 214 20% 92%;
     --sidebar-ring: 215 65% 42%;
+
+    --transition-speed: 300ms;
+    color-scheme: light;
   }
 
   .dark {
-    --background: 215 25% 9%;
-    --foreground: 210 20% 95%;
-    --card: 215 25% 12%;
-    --card-foreground: 210 20% 95%;
-    --popover: 215 25% 12%;
-    --popover-foreground: 210 20% 95%;
-    --primary: 215 60% 55%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 215 20% 18%;
-    --secondary-foreground: 210 20% 95%;
-    --muted: 215 20% 18%;
-    --muted-foreground: 215 15% 60%;
-    --accent: 215 20% 18%;
-    --accent-foreground: 210 20% 95%;
-    --destructive: 0 62% 30%;
-    --destructive-foreground: 210 20% 95%;
-    --border: 215 20% 20%;
-    --input: 215 20% 20%;
-    --ring: 215 60% 55%;
-    --sidebar-background: 215 25% 10%;
-    --sidebar-foreground: 210 20% 90%;
-    --sidebar-primary: 215 60% 55%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 215 20% 15%;
-    --sidebar-accent-foreground: 210 20% 90%;
-    --sidebar-border: 215 20% 18%;
-    --sidebar-ring: 215 60% 55%;
+    color-scheme: dark;
+    --background: 222 47% 7%;
+    --foreground: 213 31% 91%;
+    --card: 222 47% 10%;
+    --card-foreground: 213 31% 91%;
+    --popover: 222 47% 10%;
+    --popover-foreground: 213 31% 91%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 222.2 47.4% 11.2%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 223 47% 12%;
+    --muted-foreground: 215.4 16.3% 66.9%;
+    --accent: 216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+    --ring: 212.7 26.8% 83.9%;
+
+    --gov-blue: 215 65% 55%;
+    --gov-blue-light: 215 60% 12%;
+    --gov-navy: 215 50% 95%;
+    --gov-green: 152 55% 52%;
+    --gov-green-light: 152 45% 10%;
+    --gov-amber: 38 92% 60%;
+    --gov-amber-light: 40 80% 10%;
+    --gov-red: 0 72% 61%;
+    --gov-red-light: 0 60% 12%;
+    --gov-orange: 25 95% 63%;
+    --gov-orange-light: 28 80% 10%;
+    --gov-purple: 270 55% 65%;
+    --gov-purple-light: 270 45% 12%;
+    --gov-gray: 215 15% 70%;
+
+    --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.45), 0 1px 2px -1px rgba(0, 0, 0, 0.3);
+    --shadow-elevated: 0 12px 30px -5px rgba(0, 0, 0, 0.6), 0 4px 10px -2px rgba(0, 0, 0, 0.4);
+    --shadow-modal: 0 35px 80px -15px rgba(0, 0, 0, 0.7);
+
+    --sidebar-background: 222 47% 8%;
+    --sidebar-foreground: 213 31% 91%;
+    --sidebar-primary: 210 40% 98%;
+    --sidebar-primary-foreground: 222.2 47.4% 11.2%;
+    --sidebar-accent: 216 34% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 216 34% 15%;
+    --sidebar-ring: 212.7 26.8% 83.9%;
   }
 }
 
@@ -145,20 +160,40 @@
   animation: scale-in 0.2s ease-out;
 }
 
-/* Custom scrollbar */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
+/* Global Scrollbar Styles */
+@layer base {
+  :root {
+    scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
+    scrollbar-width: thin;
+  }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
+  .dark {
+    scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
+  }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
-  border-radius: 3px;
-}
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.3);
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.2);
+    border-radius: 20px;
+    background-clip: padding-box;
+    transition: background 0.2s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+  }
+
+  /* Ensure main overflow areas use the custom style */
+  * {
+    scrollbar-color: inherit;
+    scrollbar-width: inherit;
+  }
 }
