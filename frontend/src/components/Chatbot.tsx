@@ -87,7 +87,7 @@ export function Chatbot({ }: ChatbotProps) {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 group flex items-center gap-2 sm:gap-3 bg-primary text-primary-foreground pl-3 sm:pl-4 pr-4 sm:pr-5 py-2.5 sm:py-3 rounded-full shadow-2xl hover:shadow-primary/30 transition-all z-40 hover:scale-105 active:scale-95 animate-in fade-in zoom-in duration-300"
+          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 group flex items-center gap-2 sm:gap-3 gradient-primary text-primary-foreground pl-3 sm:pl-4 pr-4 sm:pr-5 py-2.5 sm:py-3 rounded-full shadow-glow transition-all z-40 hover:opacity-90 hover:scale-105 active:scale-95 animate-in fade-in zoom-in duration-300"
         >
           <div className="relative">
             <Sparkles className="w-5 h-5 animate-pulse" />
