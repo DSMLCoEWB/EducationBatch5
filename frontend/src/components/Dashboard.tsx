@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Mail, MailOpen, Reply, Paperclip, Clock, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, PieChart, Pie, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { Email } from '@/types';
@@ -5,6 +6,15 @@ import { Email } from '@/types';
 interface DashboardProps { emails: Email[]; }
 
 export function Dashboard({ emails }: DashboardProps) {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const unrepliedEmails = emails.filter(e => !e.replied);
   
   const calculateAveragePendingDuration = () => {
@@ -116,11 +126,23 @@ export function Dashboard({ emails }: DashboardProps) {
             <h3 className="text-sm font-semibold text-foreground">Emails by Category</h3>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={categoryData}>
+            <BarChart data={categoryData} margin={{ bottom: isMobile ? 40 : 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={{ stroke: 'hsl(var(--border))' }} tickLine={false} />
+              <XAxis 
+                dataKey="name" 
+                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} 
+                axisLine={{ stroke: 'hsl(var(--border))' }} 
+                tickLine={false}
+                interval={0}
+                angle={isMobile ? -35 : 0}
+                textAnchor={isMobile ? "end" : "middle"}
+              />
               <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px', color: 'hsl(var(--foreground))' }} cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} />
+              <Tooltip 
+                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px' }} 
+                itemStyle={{ color: 'hsl(var(--foreground))' }}
+                cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} 
+              />
               <Bar dataKey="count" radius={[8, 8, 0, 0]}>
                 {categoryData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
               </Bar>
@@ -132,12 +154,25 @@ export function Dashboard({ emails }: DashboardProps) {
           <h3 className="text-sm font-semibold text-foreground mb-4">Mail Type Distribution</h3>
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
-              <Pie data={mailTypeData} cx="50%" cy="50%" labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                outerRadius={95} dataKey="value" stroke="hsl(var(--card))" strokeWidth={3}>
+              <Pie 
+                data={mailTypeData} 
+                cx="50%" 
+                cy="50%" 
+                labelLine={false}
+                label={({ name, percent }) => isMobile ? `${(percent * 100).toFixed(0)}%` : `${name}: ${(percent * 100).toFixed(0)}%`}
+                outerRadius={isMobile ? 80 : 95} 
+                dataKey="value" 
+                stroke="hsl(var(--card))" 
+                strokeWidth={3}
+              >
                 {mailTypeData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
               </Pie>
-              <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px', color: 'hsl(var(--foreground))' }} />
+              <Tooltip 
+                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px' }} 
+                itemStyle={{ color: 'hsl(var(--foreground))' }}
+                cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} 
+              />
+              <Legend verticalAlign="bottom" height={36} iconType="circle" />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -147,11 +182,21 @@ export function Dashboard({ emails }: DashboardProps) {
       <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow">
         <h3 className="text-sm font-semibold text-foreground mb-4">Daily Volume (7 Days)</h3>
         <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={dailyVolumeData}>
+          <LineChart data={dailyVolumeData} margin={{ bottom: isMobile ? 30 : 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-            <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={{ stroke: 'hsl(var(--border))' }} tickLine={false} />
+            <XAxis 
+              dataKey="date" 
+              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} 
+              axisLine={{ stroke: 'hsl(var(--border))' }} 
+              tickLine={false}
+              angle={isMobile ? -35 : 0}
+              textAnchor={isMobile ? "end" : "middle"}
+            />
             <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px', color: 'hsl(var(--foreground))' }} />
+            <Tooltip 
+              contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px' }}
+              itemStyle={{ color: 'hsl(var(--foreground))' }}
+            />
             <Legend verticalAlign="top" height={36} iconType="circle" />
             <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={3}
               dot={{ fill: 'hsl(var(--primary))', r: 4, strokeWidth: 2, stroke: 'hsl(var(--card))' }}

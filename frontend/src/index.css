@@ -158,6 +158,12 @@
   }
 }
 
+/* Global Select Options Visibility Fix */
+select option {
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
 /* Animations */
 @keyframes slide-in-right {
   from { transform: translateX(100%); opacity: 0; }

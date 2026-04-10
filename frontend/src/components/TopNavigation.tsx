@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { Menu, Search, Calendar, RefreshCw, Sparkles, LogOut, Wifi, WifiOff, Sun, Moon, ChevronDown, X } from 'lucide-react';
 import { RefinementStats } from '@/services/api';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface TopNavigationProps {
   searchQuery: string;
@@ -78,24 +85,28 @@ export function TopNavigation({
             <input
               type="text" placeholder="Search..." value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-primary-foreground/10 border border-primary-foreground/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-foreground/20 focus:bg-primary-foreground/15 transition-all placeholder:text-primary-foreground/35 text-primary-foreground"
+              className="w-full pl-9 pr-4 py-2 text-sm bg-primary-foreground/10 border border-primary-foreground/15 rounded-full focus:outline-none focus:ring-2 focus:ring-primary-foreground/20 focus:bg-primary-foreground/15 transition-all placeholder:text-primary-foreground/35 text-primary-foreground"
             />
           </div>
         </div>
 
         {/* Desktop Controls - hidden on mobile */}
         <div className="hidden lg:flex items-center gap-2 flex-shrink-0">
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary-foreground/50 pointer-events-none" />
-            <select value={dateRange} onChange={(e) => onDateRangeChange(e.target.value)} aria-label="Date range"
-              className="pl-8 pr-6 py-2 text-sm bg-primary-foreground/10 border border-primary-foreground/15 rounded-lg focus:outline-none text-primary-foreground appearance-none cursor-pointer">
-              <option value="all">All time</option>
-              <option value="7">7 days</option>
-              <option value="30">30 days</option>
-              <option value="90">90 days</option>
-              <option value="365">1 year</option>
-            </select>
-          </div>
+          <Select value={dateRange} onValueChange={onDateRangeChange}>
+            <SelectTrigger className="w-[120px] h-9 bg-white/10 border-white/20 rounded-full text-white text-sm hover:bg-white/20 transition-all focus:ring-0 focus:ring-offset-0">
+              <div className="flex items-center">
+                <Calendar className="w-3.5 h-3.5 mr-2 opacity-50" />
+                <SelectValue placeholder="Date range" />
+              </div>
+            </SelectTrigger>
+            <SelectContent className="rounded-2xl border-white/10 shadow-2xl overflow-hidden glass-card">
+              <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="7">7 days</SelectItem>
+              <SelectItem value="30">30 days</SelectItem>
+              <SelectItem value="90">90 days</SelectItem>
+              <SelectItem value="365">1 year</SelectItem>
+            </SelectContent>
+          </Select>
 
           <label className="inline-flex items-center gap-1.5 text-xs text-primary-foreground/60 cursor-pointer select-none">
             <input type="checkbox" checked={autoRefreshEnabled} onChange={(e) => onAutoRefreshEnabledChange(e.target.checked)}
@@ -103,17 +114,24 @@ export function TopNavigation({
             Auto
           </label>
 
-          <select value={refreshIntervalSeconds} onChange={(e) => onRefreshIntervalSecondsChange(Number(e.target.value))}
-            disabled={!autoRefreshEnabled} aria-label="Refresh interval"
-            className="px-2 py-2 text-xs bg-primary-foreground/10 border border-primary-foreground/15 rounded-lg focus:outline-none disabled:opacity-40 text-primary-foreground">
-            <option value={5}>5s</option>
-            <option value={15}>15s</option>
-            <option value={30}>30s</option>
-            <option value={60}>60s</option>
-          </select>
+          <Select 
+            value={String(refreshIntervalSeconds)} 
+            onValueChange={(val) => onRefreshIntervalSecondsChange(Number(val))}
+            disabled={!autoRefreshEnabled}
+          >
+            <SelectTrigger className="w-[75px] h-9 bg-white/10 border-white/20 rounded-full text-white text-xs hover:bg-white/20 transition-all focus:ring-0 focus:ring-offset-0 disabled:opacity-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="rounded-2xl border-white/10 shadow-2xl glass-card">
+              <SelectItem value="5">5s</SelectItem>
+              <SelectItem value="15">15s</SelectItem>
+              <SelectItem value="30">30s</SelectItem>
+              <SelectItem value="60">60s</SelectItem>
+            </SelectContent>
+          </Select>
 
           <button onClick={onRefreshNow}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full border border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 transition-colors"
             title="Refresh now">
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
@@ -121,12 +139,12 @@ export function TopNavigation({
           <span className="text-[11px] text-primary-foreground/50 whitespace-nowrap">{syncedLabel}</span>
 
           <button onClick={onToggleDarkMode}
-            className="p-2 rounded-lg border border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 transition-colors"
+            className="p-2 rounded-full border border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 transition-colors"
             title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
             {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
 
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 border border-primary-foreground/15 rounded-lg bg-primary-foreground/10">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 border border-primary-foreground/15 rounded-full bg-primary-foreground/10">
             {gmailConnected ? <Wifi className="w-3.5 h-3.5 text-gov-green" /> : <WifiOff className="w-3.5 h-3.5 text-gov-amber" />}
             <span className="text-xs text-primary-foreground whitespace-nowrap max-w-[120px] truncate">
               {gmailConnected ? (gmailIdentity || 'Connected') : 'Disconnected'}
@@ -136,20 +154,20 @@ export function TopNavigation({
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             ) : (
-              <button onClick={onConnectGmail} className="text-xs px-2 py-0.5 rounded gradient-primary text-primary-foreground hover:opacity-90 font-medium">Connect</button>
+              <button onClick={onConnectGmail} className="text-xs px-2 py-0.5 rounded-full gradient-primary text-primary-foreground hover:opacity-90 font-medium">Connect</button>
             )}
           </div>
         </div>
 
         {/* Mobile: quick actions */}
         <div className="flex lg:hidden items-center gap-1 flex-shrink-0">
-          <button onClick={onRefreshNow} className="p-2 rounded-lg text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors" title="Refresh">
+          <button onClick={onRefreshNow} className="p-2 rounded-full text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors" title="Refresh">
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
-          <button onClick={() => setShowMobileControls(!showMobileControls)} className="p-2 rounded-lg text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors">
+          <button onClick={() => setShowMobileControls(!showMobileControls)} className="p-2 rounded-full text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors">
             {showMobileControls ? <X className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
-          <button onClick={onToggleDarkMode} className="p-2 rounded-lg text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors">
+          <button onClick={onToggleDarkMode} className="p-2 rounded-full text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors">
             {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
         </div>
@@ -160,17 +178,21 @@ export function TopNavigation({
         <div className="lg:hidden px-3 pb-3 space-y-2 animate-fade-in border-t border-primary-foreground/10 pt-2">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Date filter */}
-            <div className="relative">
-              <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-primary-foreground/50 pointer-events-none" />
-              <select value={dateRange} onChange={(e) => onDateRangeChange(e.target.value)} aria-label="Date range"
-                className="pl-8 pr-6 py-2 text-sm bg-primary-foreground/10 border border-primary-foreground/15 rounded-lg focus:outline-none text-primary-foreground appearance-none cursor-pointer">
-                <option value="all">All time</option>
-                <option value="7">7 days</option>
-                <option value="30">30 days</option>
-                <option value="90">90 days</option>
-                <option value="365">1 year</option>
-              </select>
-            </div>
+            <Select value={dateRange} onValueChange={onDateRangeChange}>
+              <SelectTrigger className="w-[120px] h-9 bg-white/10 border-white/20 rounded-full text-white text-sm focus:ring-0">
+                <div className="flex items-center">
+                  <Calendar className="w-3.5 h-3.5 mr-2 opacity-50" />
+                  <SelectValue placeholder="Date range" />
+                </div>
+              </SelectTrigger>
+              <SelectContent className="rounded-2xl border-white/10 glass-card">
+                <SelectItem value="all">All time</SelectItem>
+                <SelectItem value="7">7 days</SelectItem>
+                <SelectItem value="30">30 days</SelectItem>
+                <SelectItem value="90">90 days</SelectItem>
+                <SelectItem value="365">1 year</SelectItem>
+              </SelectContent>
+            </Select>
 
             {/* Auto-refresh */}
             <label className="inline-flex items-center gap-1.5 text-xs text-primary-foreground/60 cursor-pointer select-none">
@@ -178,21 +200,29 @@ export function TopNavigation({
                 className="h-3.5 w-3.5 rounded border-primary-foreground/30 text-primary focus:ring-primary/30" />
               Auto
             </label>
-            <select value={refreshIntervalSeconds} onChange={(e) => onRefreshIntervalSecondsChange(Number(e.target.value))}
-              disabled={!autoRefreshEnabled} aria-label="Refresh interval"
-              className="px-2 py-2 text-xs bg-primary-foreground/10 border border-primary-foreground/15 rounded-lg focus:outline-none disabled:opacity-40 text-primary-foreground">
-              <option value={5}>5s</option>
-              <option value={15}>15s</option>
-              <option value={30}>30s</option>
-              <option value={60}>60s</option>
-            </select>
+            
+            <Select 
+              value={String(refreshIntervalSeconds)} 
+              onValueChange={(val) => onRefreshIntervalSecondsChange(Number(val))}
+              disabled={!autoRefreshEnabled}
+            >
+              <SelectTrigger className="w-[70px] h-9 bg-white/10 border-white/20 rounded-full text-white text-xs focus:ring-0 disabled:opacity-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-2xl border-white/10 glass-card">
+                <SelectItem value="5">5s</SelectItem>
+                <SelectItem value="15">15s</SelectItem>
+                <SelectItem value="30">30s</SelectItem>
+                <SelectItem value="60">60s</SelectItem>
+              </SelectContent>
+            </Select>
 
             <span className="text-[11px] text-primary-foreground/50 whitespace-nowrap">{syncedLabel}</span>
           </div>
 
           {/* Gmail status */}
           <div className="flex items-center gap-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 border border-primary-foreground/15 rounded-lg bg-primary-foreground/10 flex-1">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 border border-primary-foreground/15 rounded-full bg-primary-foreground/10 flex-1">
               {gmailConnected ? <Wifi className="w-3.5 h-3.5 text-gov-green" /> : <WifiOff className="w-3.5 h-3.5 text-gov-amber" />}
               <span className="text-xs text-primary-foreground whitespace-nowrap truncate">
                 {gmailConnected ? (gmailIdentity || 'Connected') : 'Disconnected'}
@@ -202,12 +232,12 @@ export function TopNavigation({
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
               ) : (
-                <button onClick={onConnectGmail} className="text-xs px-2 py-0.5 rounded gradient-primary text-primary-foreground hover:opacity-90 font-medium ml-auto">Connect</button>
+                <button onClick={onConnectGmail} className="text-xs px-2 py-0.5 rounded-full gradient-primary text-primary-foreground hover:opacity-90 font-medium ml-auto">Connect</button>
               )}
             </div>
 
             {/* AI badge on mobile */}
-            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-primary-foreground/10 border border-primary-foreground/15 rounded-lg">
+            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-primary-foreground/10 border border-primary-foreground/15 rounded-full">
               <Sparkles className="w-3 h-3 text-primary-foreground/80" />
               <span className="text-[10px] font-semibold text-primary-foreground/80">AI {refinementStats.refined}/{refinementStats.total}</span>
             </div>
