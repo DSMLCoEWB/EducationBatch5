@@ -213,7 +213,7 @@ def reconcile_email_flags(user_email: str, folder_type: str, active_gmail_ids: S
     # --- 2. NEGATIVE RECONCILIATION (Ensure what is NOT in Gmail is NOT in System) ---
     neg_query = f"UPDATE emails SET {flag_column} = 0"
     if folder_type == 'trash':
-        neg_query += ", category = 'miscellaneous'"
+        neg_query += ", category = 'Miscellaneous'"
     neg_query += f" WHERE {base_where} AND {flag_column} = 1"
     
     if active_gmail_ids:
@@ -272,7 +272,7 @@ def mark_as_trashed(user_email: str, email_id: str, is_trashed: bool = True):
         )
     else:
         cursor.execute(
-            "UPDATE emails SET is_trashed = 0, is_inbox = 1, category = 'miscellaneous' WHERE id = ? AND user_email = ?", 
+            "UPDATE emails SET is_trashed = 0, is_inbox = 1, category = 'Miscellaneous' WHERE id = ? AND user_email = ?", 
             (email_id, user_email)
         )
     conn.commit()
@@ -431,3 +431,39 @@ def get_chat_history(user_email: str, session_id: str, limit: int = 10) -> List[
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+def reclassify_all_stored_emails(classify_func):
+    """
+    Utility to re-run categorization for all emails in the database.
+    Used for repairing/upgrading existing data after a classifier logic update.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # 1. Fetch all records
+    cursor.execute("SELECT id, subject, content, attachment_content FROM emails")
+    rows = cursor.fetchall()
+    
+    if not rows:
+        conn.close()
+        return 0
+        
+    print(f"📦 [Repair] Starting reclassification of {len(rows)} database records...")
+    
+    # 2. Re-classify and update
+    updates = []
+    for row in rows:
+        new_category = classify_func(
+            row['content'], 
+            subject=row['subject'], 
+            attachment_content=row['attachment_content']
+        )
+        updates.append((new_category, row['id']))
+        
+    # 3. Batch Update
+    cursor.executemany("UPDATE emails SET category = ? WHERE id = ?", updates)
+    
+    conn.commit()
+    conn.close()
+    print(f"✅ [Repair] Successfully reclassified {len(updates)} emails.")
+    return len(updates)

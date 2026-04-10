@@ -4,7 +4,7 @@ from itertools import count
 import os
 import sqlite3
 import pandas as pd
-from database_api import init_db, save_emails_batch, get_emails_from_db, mark_as_trashed, delete_all_for_user, get_existing_gmail_ids, update_email_attachment_content, DB_PATH
+from database_api import init_db, save_emails_batch, get_emails_from_db, mark_as_trashed, delete_all_for_user, get_existing_gmail_ids, update_email_attachment_content, DB_PATH, reclassify_all_stored_emails
 import re
 import json
 import ast
@@ -854,7 +854,7 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
         institute_guess = msg.get("sender_email", "").split("@")[-1] if msg.get("sender_email") else "Unknown Institute"
 
         final_category = msg.get("category") or category
-        if final_category == "miscellaneous" and msg.get("is_sent_by_me"):
+        if final_category == "Miscellaneous" and msg.get("is_sent_by_me"):
             final_category = "Sent"
 
         # Only mark as 'replied' if it's a genuine response to a different sender, 
@@ -2580,5 +2580,12 @@ async def risc_webhook(request: Request):
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
     init_db()  # Initialize SQLite
+    
+    # NEW: Automatically repair/reclassify existing emails on startup using the latest weighted logic
+    try:
+        reclassify_all_stored_emails(classify_grievance)
+    except Exception as e:
+        logger.error(f"⚠️ Startup reclassification failed: {e}")
+        
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
