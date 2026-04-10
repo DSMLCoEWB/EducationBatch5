@@ -58,8 +58,9 @@ export function Dashboard({ emails }: DashboardProps) {
     { name: 'Suspension', count: emails.filter(e => e.category === 'suspension' || e.category === 'Suspension / Disciplinary').length, fill: 'hsl(25, 95%, 53%)' },
     { name: 'FIR/Arrest', count: emails.filter(e => e.category === 'fir' || e.category === 'FIR / Arrest / Legal').length, fill: 'hsl(0, 72%, 51%)' },
     { name: 'Semester', count: emails.filter(e => e.category === 'semester' || e.category === 'Semester / Examination').length, fill: 'hsl(215, 65%, 42%)' },
+    { name: 'Scholarship', count: emails.filter(e => e.category === 'scholarship' || e.category === 'Scholarship').length, fill: 'hsl(38, 92%, 50%)' },
     { name: 'Other', count: emails.filter(e => {
-      const others = ['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination', 'suspension', 'fir', 'semester'];
+      const others = ['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination', 'Scholarship', 'suspension', 'fir', 'semester', 'scholarship'];
       return !others.includes(e.category);
     }).length, fill: 'hsl(215, 15%, 50%)' }
   ];

@@ -41,6 +41,7 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
     { id: 'suspension', label: 'Suspension', icon: 'alert-circle' },
     { id: 'fir', label: 'FIR / Arrest', icon: 'shield-alert' },
     { id: 'semester', label: 'Semester', icon: 'graduation-cap' },
+    { id: 'scholarship', label: 'Scholarship', icon: 'graduation-cap' },
     { id: 'miscellaneous', label: 'Miscellaneous', icon: 'folder' },
     { id: 'Sent', label: 'Sent', icon: 'send' },
     { id: 'trash', label: 'Trash', icon: 'trash' }

@@ -294,7 +294,11 @@ def _build_files_dataframe() -> pd.DataFrame:
             print("✓ Already processed")
             continue
 
-        category = classify_grievance(parsed_email["content"])
+        category = classify_grievance(
+            parsed_email["content"],
+            subject=parsed_email.get("subject", ""),
+            attachment_content=parsed_email.get("attachment_content", "")
+        )
         mail_type, _, followup_count = detect_followup(parsed_email, df)
 
         base_priority = _heuristic_priority(parsed_email.get("content", ""), parsed_email.get("subject", ""))
@@ -832,7 +836,11 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
 
     for msg in new_messages:
 
-        category = classify_grievance(msg["content"])
+        category = classify_grievance(
+            msg["content"],
+            subject=msg.get("subject", ""),
+            attachment_content=msg.get("attachment_content", "")
+        )
         mail_type, parent_id, followup_count = detect_followup(msg, current_context_df)
 
         # Always score immediately with deterministic heuristic in request path.
@@ -1459,7 +1467,7 @@ cors_origins = [
     origin.strip()
     for origin in os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
+        "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3005,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3002",
     ).split(",")
     if origin.strip()
 ]

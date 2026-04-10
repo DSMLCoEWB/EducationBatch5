@@ -232,11 +232,12 @@ export default function App() {
       'suspension': 'Suspension / Disciplinary',
       'fir': 'FIR / Arrest / Legal',
       'semester': 'Semester / Examination',
+      'scholarship': 'Scholarship',
       'miscellaneous': 'Miscellaneous'
     };
     const targetCategory = mappedCategories[activeView] || activeView;
     if (activeView === 'miscellaneous') {
-      const otherMainFolders = ['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination'];
+      const otherMainFolders = ['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination', 'Scholarship'];
       return filteredEmails.filter(email => !otherMainFolders.includes(email.category) && email.category !== 'Sent' && email.category !== 'trash');
     }
     return filteredEmails.filter(email => email.category === activeView || email.category === targetCategory);
