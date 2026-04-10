@@ -25,10 +25,13 @@ type SortField = 'emailDate' | 'followUpCount' | 'sender';
 type SortDirection = 'asc' | 'desc';
 
 interface Filters {
+  priorities: string[];    // ['Critical', 'High', 'Medium', 'Low']
+  mailTypes: ('fresh' | 'follow-up')[];
+  categories: string[];
+  institutes: string[];
+  repliedStatus: ('replied' | 'pending')[];
   hasAttachment: boolean | null;
-  mailType: 'fresh' | 'follow-up' | null;
-  showOnlySuspension: boolean;
-  showOnlyFIR: boolean;
+  isUrgent: boolean;       // Pending > 3 days
 }
 
 export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, onDeleteEmail, onRestoreEmail }: EmailTableProps) {
@@ -36,11 +39,33 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
+    priorities: [],
+    mailTypes: [],
+    categories: [],
+    institutes: [],
+    repliedStatus: [],
     hasAttachment: null,
-    mailType: null,
-    showOnlySuspension: false,
-    showOnlyFIR: false
+    isUrgent: false
   });
+
+  // --- DERIVE DYNAMIC OPTIONS ---
+  const dynamicOptions = useMemo(() => {
+    const institutes = new Set<string>();
+    const categories = new Set<string>();
+    
+    emails.forEach(e => {
+      if (e.instituteName) institutes.add(e.instituteName);
+      if (e.category && e.category !== 'Sent' && e.category !== 'trash') {
+        // Use clean labels if available, otherwise just use the raw category string
+        categories.add(e.category);
+      }
+    });
+
+    return {
+      institutes: Array.from(institutes).sort(),
+      categories: Array.from(categories).sort()
+    };
+  }, [emails]);
 
   // --- THREAD GROUPING LOGIC ---
   const threadedEmails = useMemo(() => {
@@ -60,7 +85,6 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
 
     // Process groups
     Object.entries(threadGroups).forEach(([tid, group]) => {
-      // Sort group by date descending to find the latest
       const sortedGroup = [...group].sort((a, b) =>
         new Date(b.emailDate).getTime() - new Date(a.emailDate).getTime()
       );
@@ -71,7 +95,6 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
       });
     });
 
-    // Process no-thread emails
     noThreadEmails.forEach(email => {
       results.push({ ...email, threadCount: 1 });
     });
@@ -79,44 +102,70 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     return results;
   }, [emails]);
 
-  let filteredEmails = [...threadedEmails];
+  // --- FILTERING LOGIC ---
+  const filteredEmails = useMemo(() => {
+    return threadedEmails.filter(e => {
+      // Priority Filter
+      if (filters.priorities.length > 0) {
+        const p = Number.isFinite(Number(e.priority)) ? Number(e.priority) : 6;
+        const label = p <= 1 ? 'Critical' : p <= 3 ? 'High' : p <= 5 ? 'Medium' : 'Low';
+        if (!filters.priorities.includes(label)) return false;
+      }
 
-  if (filters.hasAttachment !== null) {
-    filteredEmails = filteredEmails.filter(e => e.hasAttachment === filters.hasAttachment);
-  }
-  if (filters.mailType !== null) {
-    filteredEmails = filteredEmails.filter(e => e.mailType === filters.mailType);
-  }
-  if (filters.showOnlySuspension) {
-    filteredEmails = filteredEmails.filter(e => e.category === 'suspension');
-  }
-  if (filters.showOnlyFIR) {
-    filteredEmails = filteredEmails.filter(e => e.category === 'fir');
-  }
+      // Mail Type Filter
+      if (filters.mailTypes.length > 0 && !filters.mailTypes.includes(e.mailType)) return false;
 
-  const sortedEmails = filteredEmails.sort((a, b) => {
-    const pa = Number.isFinite(Number(a.priority)) ? Number(a.priority) : 6;
-    const pb = Number.isFinite(Number(b.priority)) ? Number(b.priority) : 6;
-    if (pa !== pb) return pa - pb;
+      // Attachment Filter
+      if (filters.hasAttachment !== null && e.hasAttachment !== filters.hasAttachment) return false;
 
-    let aValue: any, bValue: any;
-    switch (sortField) {
-      case 'emailDate':
-        aValue = new Date(a.emailDate).getTime();
-        bValue = new Date(b.emailDate).getTime();
-        break;
-      case 'followUpCount':
-        aValue = a.followUpCount;
-        bValue = b.followUpCount;
-        break;
-      case 'sender':
-        aValue = a.sender.toLowerCase();
-        bValue = b.sender.toLowerCase();
-        break;
-      default: return 0;
-    }
-    return sortDirection === 'asc' ? (aValue > bValue ? 1 : -1) : (aValue < bValue ? 1 : -1);
-  });
+      // Category Filter (Table-level refinement)
+      if (filters.categories.length > 0 && !filters.categories.includes(e.category)) return false;
+
+      // Institute Filter
+      if (filters.institutes.length > 0 && !filters.institutes.includes(e.instituteName)) return false;
+
+      // Reply Status Filter
+      if (filters.repliedStatus.length > 0) {
+        const isReplied = e.replied ? 'replied' : 'pending';
+        if (!filters.repliedStatus.includes(isReplied)) return false;
+      }
+
+      // Urgency Filter (> 3 days pending)
+      if (filters.isUrgent && !e.replied) {
+        const now = new Date();
+        const diffDays = Math.ceil(Math.abs(now.getTime() - new Date(e.emailDate).getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays <= 3) return false;
+      }
+
+      return true;
+    });
+  }, [threadedEmails, filters]);
+
+  const sortedEmails = useMemo(() => {
+    return [...filteredEmails].sort((a, b) => {
+      const pa = Number.isFinite(Number(a.priority)) ? Number(a.priority) : 6;
+      const pb = Number.isFinite(Number(b.priority)) ? Number(b.priority) : 6;
+      if (pa !== pb) return pa - pb;
+
+      let aValue: any, bValue: any;
+      switch (sortField) {
+        case 'emailDate':
+          aValue = new Date(a.emailDate).getTime();
+          bValue = new Date(b.emailDate).getTime();
+          break;
+        case 'followUpCount':
+          aValue = a.followUpCount;
+          bValue = b.followUpCount;
+          break;
+        case 'sender':
+          aValue = a.sender.toLowerCase();
+          bValue = b.sender.toLowerCase();
+          break;
+        default: return 0;
+      }
+      return sortDirection === 'asc' ? (aValue > bValue ? 1 : -1) : (aValue < bValue ? 1 : -1);
+    });
+  }, [filteredEmails, sortField, sortDirection]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -127,41 +176,59 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     }
   };
 
-  const toggleFilter = (filterKey: keyof Filters, value: any) => {
-    setFilters(prev => ({
-      ...prev,
-      [filterKey]: prev[filterKey] === value ? null : value
-    }));
+  const toggleMultiFilter = (key: keyof Filters, value: any) => {
+    setFilters(prev => {
+      const current = prev[key] as any[];
+      const updated = current.includes(value)
+        ? current.filter(v => v !== value)
+        : [...current, value];
+      return { ...prev, [key]: updated };
+    });
   };
 
   const clearFilters = () => {
-    setFilters({ hasAttachment: null, mailType: null, showOnlySuspension: false, showOnlyFIR: false });
+    setFilters({
+      priorities: [],
+      mailTypes: [],
+      categories: [],
+      institutes: [],
+      repliedStatus: [],
+      hasAttachment: null,
+      isUrgent: false
+    });
   };
 
-  const activeFilterCount = Object.values(filters).filter(v => v !== null && v !== false).length;
+  const activeFilterCount = Object.entries(filters).reduce((acc, [key, val]) => {
+    if (Array.isArray(val)) return acc + val.length;
+    if (val !== null && val !== false) return acc + 1;
+    return acc;
+  }, 0);
+
   const categoryInfo = getCategoryInfo(categoryId);
 
   return (
-    <div className="flex-1 p-6 bg-background overflow-y-auto custom-scrollbar">
+    <div className="flex-1 p-3 sm:p-6 gradient-surface overflow-y-auto custom-scrollbar">
       {/* Header */}
-      <div className="mb-5 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-foreground">{categoryInfo.label}</h2>
+      <div className="mb-4 sm:mb-5 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-lg sm:text-xl font-bold text-foreground truncate">{categoryInfo.label}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             {sortedEmails.length} {sortedEmails.length === 1 ? 'Conversation' : 'Conversations'}
-            <span className="opacity-60 ml-1.5">
-              ({emails.length} total messages)
-            </span>
+            {activeFilterCount > 0 && <span className="text-primary font-medium ml-1.5">• Filtered</span>}
           </p>
         </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-lg hover:bg-accent transition-colors text-sm"
+          className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition-all text-sm font-medium ${
+            showFilters || activeFilterCount > 0 
+              ? 'bg-primary/5 border-primary/30 text-primary shadow-sm' 
+              : 'bg-card border-border text-foreground hover:bg-accent'
+          }`}
         >
           <Filter className="w-3.5 h-3.5" />
           <span>Filters</span>
           {activeFilterCount > 0 && (
-            <span className="bg-primary text-primary-foreground text-xs px-1.5 py-0.5 rounded-full font-medium">
+            <span className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full">
               {activeFilterCount}
             </span>
           )}
@@ -170,42 +237,107 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
 
       {/* Filter Panel */}
       {showFilters && (
-        <div className="bg-card rounded-xl border border-border p-4 mb-5 shadow-card animate-scale-in">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-foreground">Filters</h3>
+        <div className="bg-card rounded-xl border border-border p-5 mb-5 shadow-elevated animate-scale-in">
+          <div className="flex items-center justify-between mb-4 pb-2 border-b border-border/50">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-foreground">Filter Results</h3>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold bg-muted px-1.5 py-0.5 rounded">
+                Refine by any criteria
+              </span>
+            </div>
             {activeFilterCount > 0 && (
-              <button onClick={clearFilters} className="text-xs text-primary hover:underline flex items-center gap-1">
-                <X className="w-3 h-3" /> Clear all
+              <button onClick={clearFilters} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1.5 font-semibold">
+                <X className="w-3.5 h-3.5" /> Reset all filters
               </button>
             )}
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Attachments</label>
-              <div className="space-y-1.5">
-                <FilterChip label="With attachments" active={filters.hasAttachment === true} onClick={() => toggleFilter('hasAttachment', true)} />
-                <FilterChip label="No attachments" active={filters.hasAttachment === false} onClick={() => toggleFilter('hasAttachment', false)} />
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Column 1: Priority & Status */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Priority Level</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {['Critical', 'High', 'Medium', 'Low'].map(p => (
+                    <FilterChip 
+                      key={p} label={p} 
+                      active={filters.priorities.includes(p)} 
+                      onClick={() => toggleMultiFilter('priorities', p)} 
+                    />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Response Status</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <FilterChip label="Pending" active={filters.repliedStatus.includes('pending')} onClick={() => toggleMultiFilter('repliedStatus', 'pending')} />
+                  <FilterChip label="Replied" active={filters.repliedStatus.includes('replied')} onClick={() => toggleMultiFilter('repliedStatus', 'replied')} />
+                </div>
               </div>
             </div>
+
+            {/* Column 2: Institute (Searchable behavior) */}
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Mail Type</label>
-              <div className="space-y-1.5">
-                <FilterChip label="Fresh" active={filters.mailType === 'fresh'} onClick={() => toggleFilter('mailType', 'fresh')} />
-                <FilterChip label="Follow-up" active={filters.mailType === 'follow-up'} onClick={() => toggleFilter('mailType', 'follow-up')} />
+              <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Institute / College</label>
+              <div className="max-h-32 overflow-y-auto pr-1 space-y-1.5 custom-scrollbar">
+                {dynamicOptions.institutes.length > 0 ? (
+                  dynamicOptions.institutes.map(inst => (
+                    <FilterChip 
+                      key={inst} label={inst} 
+                      active={filters.institutes.includes(inst)} 
+                      onClick={() => toggleMultiFilter('institutes', inst)} 
+                      truncate 
+                    />
+                  ))
+                ) : (
+                  <p className="text-[10px] text-muted-foreground italic">No institutes found</p>
+                )}
               </div>
             </div>
-            {categoryId === 'all' && (
-              <>
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Disciplinary</label>
-                  <FilterChip label="Suspension cases" active={filters.showOnlySuspension} onClick={() => setFilters(prev => ({ ...prev, showOnlySuspension: !prev.showOnlySuspension }))} />
+
+            {/* Column 3: Category & Type */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Category</label>
+                <div className="max-h-32 overflow-y-auto pr-1 space-y-1.5 custom-scrollbar">
+                  {dynamicOptions.categories.map(cat => (
+                    <FilterChip 
+                      key={cat} label={cat} 
+                      active={filters.categories.includes(cat)} 
+                      onClick={() => toggleMultiFilter('categories', cat)} 
+                      truncate
+                    />
+                  ))}
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Legal</label>
-                  <FilterChip label="FIR cases" active={filters.showOnlyFIR} onClick={() => setFilters(prev => ({ ...prev, showOnlyFIR: !prev.showOnlyFIR }))} />
+              </div>
+            </div>
+
+            {/* Column 4: Features & SLA */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Technical</label>
+                <div className="space-y-1.5">
+                  <FilterChip label="Has Attachment" active={filters.hasAttachment === true} onClick={() => setFilters(prev => ({ ...prev, hasAttachment: prev.hasAttachment === true ? null : true }))} />
+                  <FilterChip label="Fresh Messages" active={filters.mailTypes.includes('fresh')} onClick={() => toggleMultiFilter('mailTypes', 'fresh')} />
                 </div>
-              </>
-            )}
+              </div>
+              <div className="pt-2">
+                <button 
+                  onClick={() => setFilters(prev => ({ ...prev, isUrgent: !prev.isUrgent }))}
+                  className={`w-full flex items-center justify-between p-2.5 rounded-lg border transition-all ${
+                    filters.isUrgent 
+                      ? 'bg-gov-red-light border-gov-red/30 text-gov-red shadow-sm' 
+                      : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${filters.isUrgent ? 'bg-gov-red animate-pulse' : 'bg-muted-foreground/30'}`} />
+                    <span className="text-xs font-bold">Overdue ({">"}3 days)</span>
+                  </div>
+                  <RotateCcw className={`w-3 h-3 transition-transform ${filters.isUrgent ? 'rotate-90' : ''}`} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -275,16 +407,17 @@ function SortableHeader({ label, field, current, direction, onSort, className = 
   );
 }
 
-function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function FilterChip({ label, active, onClick, truncate = false }: { label: string; active: boolean; onClick: () => void, truncate?: boolean }) {
   return (
     <button
       onClick={onClick}
-      className={`text-xs px-2.5 py-1.5 rounded-md border transition-all w-full text-left ${active
-          ? 'bg-primary/10 border-primary/30 text-primary font-medium'
-          : 'bg-background border-border text-muted-foreground hover:bg-accent'
+      className={`text-xs px-2.5 py-1.5 rounded-md border transition-all w-full text-left flex items-center justify-between group ${active
+          ? 'bg-primary/10 border-primary/30 text-primary font-semibold shadow-sm'
+          : 'bg-background border-border text-muted-foreground hover:bg-muted group-hover:border-muted-foreground/30'
         }`}
     >
-      {label}
+      <span className={truncate ? 'truncate max-w-[140px]' : ''}>{label}</span>
+      {active && <X className="w-3 h-3 ml-2 opacity-60 group-hover:opacity-100" />}
     </button>
   );
 }

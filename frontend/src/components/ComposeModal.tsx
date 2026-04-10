@@ -40,16 +40,16 @@ export function ComposeModal({ onClose, onSent }: ComposeModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-foreground/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-card w-full max-w-2xl rounded-2xl shadow-modal overflow-hidden animate-scale-in border border-border">
+    <div className="fixed inset-0 bg-foreground/40 backdrop-blur-sm z-[100] flex items-center justify-center p-2 sm:p-4 animate-fade-in">
+      <div className="bg-card w-full max-w-2xl rounded-2xl shadow-modal overflow-hidden animate-scale-in border border-border/60 max-h-[95vh] sm:max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="bg-muted/50 border-b border-border px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-foreground">Compose New Message</h2>
+        <div className="gradient-header border-b border-border/30 px-6 py-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-primary-foreground">Compose New Message</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-accent rounded-lg transition-colors"
+            className="p-2 hover:bg-primary-foreground/10 rounded-lg transition-colors"
           >
-            <X className="w-5 h-5 text-muted-foreground" />
+            <X className="w-5 h-5 text-primary-foreground/70" />
           </button>
         </div>
 
@@ -119,7 +119,7 @@ export function ComposeModal({ onClose, onSent }: ComposeModalProps) {
             <button
               type="submit"
               disabled={isSending}
-              className="px-8 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-glow disabled:opacity-50"
+              className="px-8 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-bold flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all shadow-glow disabled:opacity-50"
             >
               {isSending ? (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

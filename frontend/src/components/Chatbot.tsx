@@ -87,7 +87,7 @@ export function Chatbot({ }: ChatbotProps) {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 group flex items-center gap-3 bg-primary text-primary-foreground pl-4 pr-5 py-3 rounded-full shadow-2xl hover:shadow-primary/30 transition-all z-40 hover:scale-105 active:scale-95 animate-in fade-in zoom-in duration-300"
+          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 group flex items-center gap-2 sm:gap-3 bg-primary text-primary-foreground pl-3 sm:pl-4 pr-4 sm:pr-5 py-2.5 sm:py-3 rounded-full shadow-2xl hover:shadow-primary/30 transition-all z-40 hover:scale-105 active:scale-95 animate-in fade-in zoom-in duration-300"
         >
           <div className="relative">
             <Sparkles className="w-5 h-5 animate-pulse" />
@@ -100,8 +100,8 @@ export function Chatbot({ }: ChatbotProps) {
       {/* Modern Glassmorphic Chat Panel */}
       {isOpen && (
         <div 
-          className={`fixed bottom-6 right-6 ${
-            isExpanded ? 'w-[800px] h-[80vh]' : 'w-[420px] h-[600px]'
+          className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 ${
+            isExpanded ? 'w-[calc(100vw-2rem)] sm:w-[800px] h-[80vh]' : 'w-[calc(100vw-2rem)] sm:w-[420px] h-[70vh] sm:h-[600px]'
           } bg-card/80 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-50 flex flex-col border border-white/20 transition-all duration-500 ease-out animate-in slide-in-from-bottom-10`}
         >
           {/* Header */}

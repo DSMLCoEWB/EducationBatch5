@@ -82,10 +82,10 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-card rounded-xl shadow-modal w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col border border-border animate-scale-in">
+    <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 animate-fade-in">
+      <div className="bg-card rounded-xl shadow-modal w-full max-w-2xl max-h-[95vh] sm:max-h-[85vh] overflow-hidden flex flex-col border border-border animate-scale-in">
         {/* Header */}
-        <div className="bg-primary text-primary-foreground px-6 py-4 flex items-center justify-between">
+        <div className="gradient-header text-primary-foreground px-6 py-4 flex items-center justify-between">
           <div className="min-w-0">
             <h3 className="font-semibold text-base">Reply to Email</h3>
             <p className="text-sm text-primary-foreground/70 truncate mt-0.5">{email.subject}</p>
