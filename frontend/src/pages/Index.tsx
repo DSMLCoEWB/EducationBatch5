@@ -17,13 +17,11 @@ import {
   fetchGmailAuthStatus,
   getGoogleAuthStartUrl,
   processEmails,
-  testApiKeys,
   trashEmail,
   restoreEmail,
   fetchRefinementStats,
   updateSyncInterval,
   fetchSyncStatus,
-  ApiKeyStatus,
   RefinementStats,
   SyncStatus
 } from '@/services/api';
@@ -40,14 +38,13 @@ export default function App() {
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(30);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [gmailIdentity, setGmailIdentity] = useState<string | null>(null);
   const [gmailAuthMode, setGmailAuthMode] = useState<string>('none');
   const [error, setError] = useState<string | null>(null);
   const [showPolicyManagement, setShowPolicyManagement] = useState(false);
   const [showComposeModal, setShowComposeModal] = useState(false);
-  const [mainKeyStatus, setMainKeyStatus] = useState<ApiKeyStatus>({ status: 'missing', message: 'Not tested' });
-  const [priorityKeyStatus, setPriorityKeyStatus] = useState<ApiKeyStatus>({ status: 'missing', message: 'Not tested' });
   const [refinementStats, setRefinementStats] = useState<RefinementStats>({ refined: 0, total: 0 });
   const isPollingRef = useRef(false);
 
@@ -121,19 +118,7 @@ export default function App() {
     loadData();
   }, [loadEmails, refreshGmailAuthStatus, refreshRefinementStats]);
 
-  const handleTestApiKeys = useCallback(async () => {
-    setMainKeyStatus({ status: 'testing', message: 'Testing...' });
-    setPriorityKeyStatus({ status: 'testing', message: 'Testing...' });
-    try {
-      const results = await testApiKeys();
-      setMainKeyStatus(results.main);
-      setPriorityKeyStatus(results.priority);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Test failed';
-      setMainKeyStatus({ status: 'error', message: msg });
-      setPriorityKeyStatus({ status: 'error', message: msg });
-    }
-  }, []);
+  // Removed handleTestApiKeys
 
   useEffect(() => {
     const timer = window.setInterval(() => { void refreshGmailAuthStatus(); }, 10000);
@@ -288,7 +273,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
       <TopNavigation
         searchQuery={searchQuery} onSearchChange={setSearchQuery}
         dateRange={dateRange} onDateRangeChange={setDateRange}
@@ -308,28 +293,28 @@ export default function App() {
           setEmails([]); setError(null);
           void disconnectGoogleAuth().then(() => void refreshGmailAuthStatus());
         }}
-        mainKeyStatus={mainKeyStatus} priorityKeyStatus={priorityKeyStatus}
-        refinementStats={refinementStats} onTestApiKeys={handleTestApiKeys}
+        refinementStats={refinementStats}
+        onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
       />
       <div className="flex flex-1 overflow-hidden">
-          <Sidebar 
-            activeView={activeView} 
-            onViewChange={setActiveView} 
-            onOpenPolicyManagement={() => setShowPolicyManagement(true)}
-            onCompose={() => setShowComposeModal(true)}
-          />
-        {activeView === 'dashboard' ? (
-          <Dashboard emails={filteredEmails} />
-        ) : (
-          <EmailTable emails={categoryEmails} categoryId={activeView} onEmailClick={setSelectedEmail}
-            onUpdateEmail={handleUpdateEmail} onDeleteEmail={handleDeleteEmail} onRestoreEmail={handleRestoreEmail} />
-        )}
+        <Sidebar 
+          activeView={activeView} 
+          onViewChange={setActiveView} 
+          onOpenPolicyManagement={() => setShowPolicyManagement(true)}
+          onCompose={() => setShowComposeModal(true)}
+          isCollapsed={isSidebarCollapsed}
+        />
+        <main className="flex-1 overflow-y-auto bg-background">
+          {activeView === 'dashboard' ? (
+            <Dashboard emails={filteredEmails} />
+          ) : (
+            <EmailTable emails={categoryEmails} categoryId={activeView} onEmailClick={setSelectedEmail}
+              onUpdateEmail={handleUpdateEmail} onDeleteEmail={handleDeleteEmail} onRestoreEmail={handleRestoreEmail} />
+          )}
+        </main>
       </div>
       {selectedEmail && (
-        <EmailThreadPanel 
-          email={selectedEmail} 
-          onClose={() => setSelectedEmail(null)} 
-        />
+        <EmailThreadPanel email={selectedEmail} onClose={() => setSelectedEmail(null)} />
       )}
       <Chatbot emails={filteredEmails} />
       {showPolicyManagement && <PolicyManagementModal onClose={() => setShowPolicyManagement(false)} />}

@@ -9,16 +9,16 @@ import {
   FileText,
   Send,
   Trash2,
-  ChevronLeft,
-  ChevronRight
+  Banknote
 } from 'lucide-react';
-import React, { useState } from 'react';
+import React from 'react';
 
 interface SidebarProps {
   activeView: string;
   onViewChange: (view: string) => void;
   onOpenPolicyManagement: () => void;
   onCompose: () => void;
+  isCollapsed: boolean;
 }
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -30,10 +30,10 @@ const iconMap: Record<string, React.ReactNode> = {
   folder: <Folder className="w-[18px] h-[18px]" />,
   send: <Send className="w-[18px] h-[18px]" />,
   trash: <Trash2 className="w-[18px] h-[18px]" />,
+  banknote: <Banknote className="w-[18px] h-[18px]" />,
 };
 
-export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCompose }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState(false);
+export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCompose, isCollapsed }: SidebarProps) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -41,35 +41,26 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
     { id: 'suspension', label: 'Suspension', icon: 'alert-circle' },
     { id: 'fir', label: 'FIR / Arrest', icon: 'shield-alert' },
     { id: 'semester', label: 'Semester', icon: 'graduation-cap' },
-    { id: 'scholarship', label: 'Scholarship', icon: 'graduation-cap' },
+    { id: 'scholarship', label: 'Scholarship', icon: 'banknote' },
     { id: 'miscellaneous', label: 'Miscellaneous', icon: 'folder' },
     { id: 'Sent', label: 'Sent', icon: 'send' },
     { id: 'trash', label: 'Trash', icon: 'trash' }
   ];
 
   return (
-    <div className={`bg-card border-r border-border h-full sticky top-0 overflow-y-auto flex flex-col transition-all duration-200 ${collapsed ? 'w-16' : 'w-56'}`}>
-      {/* Collapse toggle */}
-      <div className="flex justify-end p-2">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-        </button>
-      </div>
+    <div className={`bg-card border-r border-border h-full sticky top-0 overflow-y-auto flex flex-col transition-all duration-200 ${isCollapsed ? 'w-16' : 'w-56'}`}>
+      <div className="h-4" /> {/* Spacer instead of toggle */}
 
       {/* Compose Button */}
       <div className="px-3 mb-4">
         <button
           onClick={onCompose}
           className={`w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-white shadow-sm border border-border hover:shadow-md transition-all duration-200 text-foreground font-semibold group ${
-            collapsed ? 'px-0' : 'px-4'
+            isCollapsed ? 'px-0' : 'px-4'
           }`}
         >
           <Plus className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" />
-          {!collapsed && <span>Compose</span>}
+          {!isCollapsed && <span>Compose</span>}
         </button>
       </div>
 
@@ -78,7 +69,7 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
           <button
             key={item.id}
             onClick={() => onViewChange(item.id)}
-            title={collapsed ? item.label : undefined}
+            title={isCollapsed ? item.label : undefined}
             className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all duration-150 text-sm ${
               activeView === item.id
                 ? 'bg-primary/10 text-primary font-medium'
@@ -86,7 +77,7 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
             }`}
           >
             <span className="flex-shrink-0">{iconMap[item.icon]}</span>
-            {!collapsed && <span className="truncate">{item.label}</span>}
+            {!isCollapsed && <span className="truncate">{item.label}</span>}
           </button>
         ))}
       </nav>
@@ -94,11 +85,11 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
       <div className="p-2 border-t border-border">
         <button
           onClick={onOpenPolicyManagement}
-          title={collapsed ? 'Policy Documents' : undefined}
+          title={isCollapsed ? 'Policy Documents' : undefined}
           className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-colors text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <FileText className="w-[18px] h-[18px] flex-shrink-0" />
-          {!collapsed && <span className="font-medium truncate">Policy Documents</span>}
+          {!isCollapsed && <span className="font-medium truncate">Policy Documents</span>}
         </button>
       </div>
     </div>

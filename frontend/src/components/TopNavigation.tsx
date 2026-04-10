@@ -1,5 +1,5 @@
-import { Search, Calendar, RefreshCw, Activity, AlertTriangle, CheckCircle2, Loader2, Sparkles, LogOut, Wifi, WifiOff } from 'lucide-react';
-import { ApiKeyStatus, RefinementStats } from '@/services/api';
+import { Menu, Search, Calendar, RefreshCw, Sparkles, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { RefinementStats } from '@/services/api';
 
 interface TopNavigationProps {
   searchQuery: string;
@@ -19,10 +19,8 @@ interface TopNavigationProps {
   gmailAuthMode: string;
   onConnectGmail: () => void;
   onDisconnectGmail: () => void;
-  mainKeyStatus: ApiKeyStatus;
-  priorityKeyStatus: ApiKeyStatus;
   refinementStats: RefinementStats;
-  onTestApiKeys: () => void;
+  onToggleSidebar: () => void;
 }
 
 export function TopNavigation({ 
@@ -42,10 +40,8 @@ export function TopNavigation({
   gmailAuthMode,
   onConnectGmail,
   onDisconnectGmail,
-  mainKeyStatus,
-  priorityKeyStatus,
   refinementStats,
-  onTestApiKeys
+  onToggleSidebar
 }: TopNavigationProps) {
   const syncedLabel = lastSyncedAt
     ? `Synced ${lastSyncedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
@@ -56,8 +52,17 @@ export function TopNavigation({
     : 0;
 
   return (
-    <header className="bg-card border-b border-border px-5 py-3 sticky top-0 z-10">
-      <div className="flex items-center gap-4">
+    <header className="bg-card border-b border-border px-4 py-3 sticky top-0 z-10">
+      <div className="flex items-center gap-3">
+        {/* Hamburger Toggle */}
+        <button
+          onClick={onToggleSidebar}
+          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors mr-1"
+          aria-label="Toggle Sidebar"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
         {/* Title */}
         <div className="flex-shrink-0 mr-2">
           <h1 className="text-lg font-bold text-foreground leading-tight">
@@ -178,38 +183,9 @@ export function TopNavigation({
             )}
           </div>
 
-          {/* API Keys */}
-          <div className="flex items-center gap-1.5 px-2 py-1.5 border border-border rounded-lg bg-background">
-            <button
-              onClick={onTestApiKeys}
-              disabled={mainKeyStatus.status === 'testing'}
-              className="p-1 hover:bg-accent rounded transition-colors"
-              title="Test API Keys"
-            >
-              <Activity className={`w-3.5 h-3.5 ${mainKeyStatus.status === 'testing' ? 'animate-pulse text-primary' : 'text-muted-foreground'}`} />
-            </button>
-            <ApiKeyIndicator label="M" status={mainKeyStatus} />
-            <ApiKeyIndicator label="P" status={priorityKeyStatus} />
-          </div>
+          {/* Removed API Keys section */}
         </div>
       </div>
     </header>
-  );
-}
-
-function ApiKeyIndicator({ label, status }: { label: string; status: ApiKeyStatus }) {
-  return (
-    <div className="flex items-center gap-1" title={`${label}: ${status.message}`}>
-      {status.status === 'testing' ? (
-        <Loader2 className="w-3 h-3 animate-spin text-primary" />
-      ) : status.status === 'success' ? (
-        <CheckCircle2 className="w-3 h-3 text-gov-green" />
-      ) : status.status === 'error' ? (
-        <AlertTriangle className="w-3 h-3 text-gov-red" />
-      ) : (
-        <div className="w-3 h-3 rounded-full border border-border" />
-      )}
-      <span className="text-[10px] font-semibold text-muted-foreground uppercase">{label}</span>
-    </div>
   );
 }
