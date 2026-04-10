@@ -65,3 +65,16 @@ reply-generator-main/
 frontend2/
 src_backup/
 backend_data/
+
+# Sensitive Credentials
+backend/service-account-credentials.json
+
+# Local Logs & Transitory Data
+backend/out_debug.txt
+backend/test_rag_out.txt
+backend/demo_emails_from_chunks.json
+frontend/build_log.txt
+*.txt
+
+# Development Scratchpads
+backend/scratch/
