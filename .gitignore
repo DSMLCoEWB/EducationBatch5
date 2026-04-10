@@ -36,15 +36,25 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
-# Data & Logs
+# Data & Logs (IMPORTANT: Never commit sensitive user data)
 *.xlsx
 *.log
 logs/
+backend/data/
+backend/attachments/
+backend/files/
+*.sqlite3
+*.db
+*.enc
+token.pickle
 
 # Keep template files in git
 !.env.example
+!.env.shared
 !backend/.env.example
 !frontend/.env.example
 
 # Legacy archived folder
 reply-generator-main/
+frontend2/
+src_backup/
