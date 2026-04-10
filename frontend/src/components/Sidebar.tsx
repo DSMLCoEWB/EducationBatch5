@@ -101,7 +101,7 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
 
       {/* Mobile overlay sidebar */}
       {isMobileOpen && (
-        <div className="md:hidden fixed inset-0 z-40 flex animate-fade-in">
+        <div className="md:hidden fixed inset-x-0 bottom-0 top-[56px] sm:top-[64px] z-40 flex animate-fade-in">
           <div className="absolute inset-0 bg-foreground/30 backdrop-blur-sm" onClick={onCloseMobile} />
           <div className="relative z-10 animate-slide-in-left h-full">
             {sidebarContent}

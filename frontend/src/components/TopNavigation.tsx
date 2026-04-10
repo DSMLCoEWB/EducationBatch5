@@ -46,9 +46,9 @@ export function TopNavigation({
     : 0;
 
   return (
-    <header className="gradient-header border-b border-border/50 sticky top-0 z-10">
+    <header className="gradient-header border-b border-border/50 sticky top-0 z-50 min-h-14 sm:min-h-16 h-auto">
       {/* Main row */}
-      <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3">
+      <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 h-14 sm:h-16">
         {/* Hamburger */}
         <button onClick={onToggleSidebar} className="p-2 rounded-lg text-primary-foreground/70 hover:text-primary-foreground hover:bg-primary-foreground/10 transition-colors flex-shrink-0" aria-label="Toggle Sidebar">
           <Menu className="w-5 h-5" />
@@ -112,19 +112,19 @@ export function TopNavigation({
             <option value={60}>60s</option>
           </select>
 
-          <button onClick={onToggleDarkMode}
-            className="p-2 rounded-lg border border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 transition-colors"
-            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
-            {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-          </button>
-
           <button onClick={onRefreshNow}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 transition-colors text-sm"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 transition-colors"
             title="Refresh now">
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
 
           <span className="text-[11px] text-primary-foreground/50 whitespace-nowrap">{syncedLabel}</span>
+
+          <button onClick={onToggleDarkMode}
+            className="p-2 rounded-lg border border-primary-foreground/15 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20 transition-colors"
+            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
+            {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+          </button>
 
           <div className="inline-flex items-center gap-2 px-3 py-1.5 border border-primary-foreground/15 rounded-lg bg-primary-foreground/10">
             {gmailConnected ? <Wifi className="w-3.5 h-3.5 text-gov-green" /> : <WifiOff className="w-3.5 h-3.5 text-gov-amber" />}
@@ -146,11 +146,11 @@ export function TopNavigation({
           <button onClick={onRefreshNow} className="p-2 rounded-lg text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors" title="Refresh">
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
-          <button onClick={onToggleDarkMode} className="p-2 rounded-lg text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors">
-            {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
           <button onClick={() => setShowMobileControls(!showMobileControls)} className="p-2 rounded-lg text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors">
             {showMobileControls ? <X className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          <button onClick={onToggleDarkMode} className="p-2 rounded-lg text-primary-foreground/70 hover:bg-primary-foreground/10 transition-colors">
+            {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
         </div>
       </div>
