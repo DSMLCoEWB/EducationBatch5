@@ -69,25 +69,25 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
     <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-stretch justify-end animate-fade-in">
       <div className="bg-card w-full max-w-2xl shadow-modal flex flex-col animate-slide-in">
         {/* Header */}
-        <div className="bg-muted/50 border-b border-border px-6 py-4 flex items-center justify-between">
+        <div className="gradient-header border-b border-border/30 px-6 py-4 flex items-center justify-between">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${categoryInfo.bgColor} ${categoryInfo.color}`}>
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-primary-foreground/15 text-primary-foreground">
                 {categoryInfo.label}
               </span>
               {thread.length > 1 && (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-primary-foreground/60">
                   {thread.length} in thread
                 </span>
               )}
             </div>
-            <h2 className="text-lg font-bold text-foreground truncate">{email.subject}</h2>
+            <h2 className="text-lg font-bold text-primary-foreground truncate">{email.subject}</h2>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-accent rounded-lg transition-colors ml-3"
+            className="p-2 hover:bg-primary-foreground/10 rounded-lg transition-colors ml-3"
           >
-            <X className="w-5 h-5 text-muted-foreground" />
+            <X className="w-5 h-5 text-primary-foreground/70" />
           </button>
         </div>
 

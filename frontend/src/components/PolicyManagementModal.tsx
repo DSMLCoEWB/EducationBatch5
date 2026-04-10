@@ -128,12 +128,12 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
 
   return (
     <div 
-      className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-[9999] flex items-center justify-center p-2 sm:p-4 animate-fade-in"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-card rounded-xl shadow-modal w-full max-w-lg max-h-[85vh] flex flex-col border border-border animate-scale-in overflow-hidden">
+      <div className="bg-card rounded-xl shadow-modal w-full max-w-lg max-h-[95vh] sm:max-h-[85vh] flex flex-col border border-border animate-scale-in overflow-hidden">
         {/* Header */}
-        <div className="bg-primary text-primary-foreground px-6 py-4 flex items-center justify-between">
+        <div className="gradient-header text-primary-foreground px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Database className="w-4 h-4 text-primary-foreground/70" />
             <h3 className="font-semibold text-base">Policy Management</h3>

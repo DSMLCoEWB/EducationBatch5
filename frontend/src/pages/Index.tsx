@@ -39,6 +39,7 @@ export default function App() {
   const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(30);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [gmailIdentity, setGmailIdentity] = useState<string | null>(null);
   const [gmailAuthMode, setGmailAuthMode] = useState<string>('none');
@@ -310,7 +311,14 @@ export default function App() {
           void disconnectGoogleAuth().then(() => void refreshGmailAuthStatus());
         }}
         refinementStats={refinementStats}
-        onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        onToggleSidebar={() => {
+          // On mobile, toggle overlay; on desktop, toggle collapse
+          if (window.innerWidth < 768) {
+            setIsMobileSidebarOpen(!isMobileSidebarOpen);
+          } else {
+            setIsSidebarCollapsed(!isSidebarCollapsed);
+          }
+        }}
         isDarkMode={isDarkMode}
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       />
@@ -321,6 +329,8 @@ export default function App() {
           onOpenPolicyManagement={() => setShowPolicyManagement(true)}
           onCompose={() => setShowComposeModal(true)}
           isCollapsed={isSidebarCollapsed}
+          isMobileOpen={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
         <main className="flex-1 overflow-y-auto bg-background">
           {activeView === 'dashboard' ? (
