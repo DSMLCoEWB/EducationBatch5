@@ -1440,7 +1440,7 @@ async def lifespan(app: FastAPI):
     # 2. AUTO-SYNC: Check if we have a default/seeded user to start syncing for
     # In a full multi-user app, this would start on first user login.
     # Here we check for the GMAIL_ADDRESS in .env as the primary user.
-    if GMAIL_ADDRESS and GMAIL_ADDRESS != "your-project@gmail.com":
+    if GMAIL_ADDRESS and "your-project@gmail.com" not in GMAIL_ADDRESS:
         threading.Thread(
             target=_run_background_sync_loop, 
             args=(GMAIL_ADDRESS,), 
