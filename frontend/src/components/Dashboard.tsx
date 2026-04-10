@@ -140,10 +140,29 @@ export function Dashboard({ emails }: DashboardProps) {
           </div>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={categoryData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(214, 20%, 92%)" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(215, 15%, 50%)' }} />
-              <YAxis tick={{ fontSize: 11, fill: 'hsl(215, 15%, 50%)' }} />
-              <Tooltip contentStyle={{ backgroundColor: 'hsl(0, 0%, 100%)', border: '1px solid hsl(214, 20%, 90%)', borderRadius: '8px', fontSize: '12px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis 
+                dataKey="name" 
+                tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} 
+                axisLine={{ stroke: 'hsl(var(--border))' }}
+                tickLine={false}
+              />
+              <YAxis 
+                tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} 
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: 'hsl(var(--card))', 
+                  border: '1px solid hsl(var(--border))', 
+                  borderRadius: '8px', 
+                  fontSize: '12px',
+                  color: 'hsl(var(--foreground))'
+                }} 
+                itemStyle={{ color: 'hsl(var(--foreground))' }}
+                cursor={{ fill: 'hsl(var(--muted) / 0.5)' }}
+              />
               <Bar dataKey="count" radius={[6, 6, 0, 0]}>
                 {categoryData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.fill} />
@@ -161,16 +180,26 @@ export function Dashboard({ emails }: DashboardProps) {
                 data={mailTypeData}
                 cx="50%"
                 cy="50%"
-                labelLine={true}
+                labelLine={false}
                 label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
                 outerRadius={95}
                 dataKey="value"
+                stroke="hsl(var(--card))"
+                strokeWidth={2}
               >
                 {mailTypeData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.fill} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: 'hsl(var(--card))', 
+                  border: '1px solid hsl(var(--border))', 
+                  borderRadius: '8px', 
+                  fontSize: '12px',
+                  color: 'hsl(var(--foreground))'
+                }}
+              />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -181,18 +210,36 @@ export function Dashboard({ emails }: DashboardProps) {
         <h3 className="text-sm font-semibold text-foreground mb-4">Daily Volume (7 Days)</h3>
         <ResponsiveContainer width="100%" height={260}>
           <LineChart data={dailyVolumeData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(214, 20%, 92%)" />
-            <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(215, 15%, 50%)' }} />
-            <YAxis tick={{ fontSize: 11, fill: 'hsl(215, 15%, 50%)' }} />
-            <Tooltip contentStyle={{ backgroundColor: 'hsl(0, 0%, 100%)', border: '1px solid hsl(214, 20%, 90%)', borderRadius: '8px', fontSize: '12px' }} />
-            <Legend />
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+            <XAxis 
+              dataKey="date" 
+              tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} 
+              axisLine={{ stroke: 'hsl(var(--border))' }}
+              tickLine={false}
+            />
+            <YAxis 
+              tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} 
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip 
+              contentStyle={{ 
+                backgroundColor: 'hsl(var(--card))', 
+                border: '1px solid hsl(var(--border))', 
+                borderRadius: '8px', 
+                fontSize: '12px',
+                color: 'hsl(var(--foreground))'
+              }}
+              itemStyle={{ color: 'hsl(var(--foreground))' }}
+            />
+            <Legend verticalAlign="top" height={36} iconType="circle" />
             <Line 
               type="monotone" 
               dataKey="count" 
-              stroke="hsl(215, 65%, 42%)" 
-              strokeWidth={2.5}
-              dot={{ fill: 'hsl(215, 65%, 42%)', r: 4, strokeWidth: 2, stroke: 'hsl(0, 0%, 100%)' }}
-              activeDot={{ r: 6, fill: 'hsl(215, 65%, 35%)' }}
+              stroke="hsl(var(--primary))" 
+              strokeWidth={3}
+              dot={{ fill: 'hsl(var(--primary))', r: 4, strokeWidth: 2, stroke: 'hsl(var(--card))' }}
+              activeDot={{ r: 6, strokeWidth: 0 }}
               name="Emails"
             />
           </LineChart>

@@ -1,4 +1,4 @@
-import { Menu, Search, Calendar, RefreshCw, Sparkles, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { Menu, Search, Calendar, RefreshCw, Sparkles, LogOut, Wifi, WifiOff, Sun, Moon } from 'lucide-react';
 import { RefinementStats } from '@/services/api';
 
 interface TopNavigationProps {
@@ -21,6 +21,8 @@ interface TopNavigationProps {
   onDisconnectGmail: () => void;
   refinementStats: RefinementStats;
   onToggleSidebar: () => void;
+  isDarkMode: boolean;
+  onToggleDarkMode: () => void;
 }
 
 export function TopNavigation({ 
@@ -41,7 +43,9 @@ export function TopNavigation({
   onConnectGmail,
   onDisconnectGmail,
   refinementStats,
-  onToggleSidebar
+  onToggleSidebar,
+  isDarkMode,
+  onToggleDarkMode
 }: TopNavigationProps) {
   const syncedLabel = lastSyncedAt
     ? `Synced ${lastSyncedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
@@ -143,6 +147,15 @@ export function TopNavigation({
             <option value={30}>30s</option>
             <option value={60}>60s</option>
           </select>
+          
+          {/* Theme Toggle */}
+          <button
+            onClick={onToggleDarkMode}
+            className="p-2 rounded-lg border border-border bg-background text-foreground hover:bg-accent transition-colors"
+            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+          </button>
 
           {/* Refresh button */}
           <button

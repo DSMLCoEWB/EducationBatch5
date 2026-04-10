@@ -46,7 +46,23 @@ export default function App() {
   const [showPolicyManagement, setShowPolicyManagement] = useState(false);
   const [showComposeModal, setShowComposeModal] = useState(false);
   const [refinementStats, setRefinementStats] = useState<RefinementStats>({ refined: 0, total: 0 });
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved) return saved === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   const isPollingRef = useRef(false);
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (isDarkMode) {
+      root.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
 
   const loadEmails = useCallback(async (forceProcess: boolean = false, showOverlay: boolean = true): Promise<Email[]> => {
     if (isPollingRef.current) return [];
@@ -295,6 +311,8 @@ export default function App() {
         }}
         refinementStats={refinementStats}
         onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        isDarkMode={isDarkMode}
+        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar 

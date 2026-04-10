@@ -146,10 +146,14 @@ export function Chatbot({ }: ChatbotProps) {
                     <div className={`rounded-2xl px-4 py-3 shadow-sm ${
                       message.type === 'user'
                         ? 'bg-primary text-primary-foreground rounded-tr-none'
-                        : 'bg-background border border-border rounded-tl-none'
+                        : 'bg-background dark:bg-muted border border-border rounded-tl-none'
                     }`}>
                       <div 
-                        className={`text-sm leading-relaxed prose prose-sm max-w-none ${message.type === 'user' ? 'prose-invert' : 'prose-headings:text-primary'}`}
+                        className={`text-sm leading-relaxed prose prose-sm max-w-none ${
+                          message.type === 'user' 
+                            ? 'prose-invert text-primary-foreground' 
+                            : 'dark:prose-invert text-foreground'
+                        } prose-headings:text-primary`}
                         dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
                       />
                     </div>

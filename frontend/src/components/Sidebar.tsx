@@ -38,9 +38,9 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'all', label: 'Inbox', icon: 'inbox' },
-    { id: 'suspension', label: 'Suspension', icon: 'alert-circle' },
+    { id: 'suspension', label: 'Suspension / Disciplinary', icon: 'alert-circle' },
     { id: 'fir', label: 'FIR / Arrest', icon: 'shield-alert' },
-    { id: 'semester', label: 'Semester', icon: 'graduation-cap' },
+    { id: 'semester', label: 'Semester / Examination', icon: 'graduation-cap' },
     { id: 'scholarship', label: 'Scholarship', icon: 'banknote' },
     { id: 'miscellaneous', label: 'Miscellaneous', icon: 'folder' },
     { id: 'Sent', label: 'Sent', icon: 'send' },
@@ -55,7 +55,7 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
       <div className="px-3 mb-4">
         <button
           onClick={onCompose}
-          className={`w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-white shadow-sm border border-border hover:shadow-md transition-all duration-200 text-foreground font-semibold group ${
+          className={`w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-card shadow-sm border border-border hover:shadow-md transition-all duration-200 text-foreground font-semibold group ${
             isCollapsed ? 'px-0' : 'px-4'
           }`}
         >
