@@ -265,7 +265,7 @@ def mark_as_trashed(user_email: str, email_id: str, is_trashed: bool = True):
     """Mark an email as trashed in the local database for a specific user."""
     conn = sqlite3.connect(DB_PATH, timeout=30)
     cursor = conn.cursor()
-<<<<<<< HEAD
+
     if is_trashed:
         cursor.execute(
             "UPDATE emails SET is_trashed = 1, category = 'trash' WHERE id = ? AND user_email = ?", 
@@ -276,12 +276,7 @@ def mark_as_trashed(user_email: str, email_id: str, is_trashed: bool = True):
             "UPDATE emails SET is_trashed = 0, is_inbox = 1, category = 'miscellaneous' WHERE id = ? AND user_email = ?", 
             (email_id, user_email)
         )
-=======
-    cursor.execute(
-        "UPDATE emails SET is_trashed = ?, category = ? WHERE id = ? AND user_email = ?", 
-        (1 if is_trashed else 0, 'trash' if is_trashed else 'Miscellaneous', email_id, user_email)
-    )
->>>>>>> 009c93f (from branch)
+
     conn.commit()
     conn.close()
 

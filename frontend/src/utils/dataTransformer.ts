@@ -4,25 +4,16 @@ import { matchCollegeName, initializeCollegeDatabase } from './collegeNameMatche
 
 export { initializeCollegeDatabase }; // Re-export for easy access
 
-// Map backend category names to frontend category types
+// Map old legacy category names to new backend category types
 const categoryMap: Record<string, EmailCategory> = {
-  // Exact matches from backend
-  'Suspension / Disciplinary': 'suspension',
-  'FIR / Arrest / Legal': 'fir',
-  'Semester / Examination': 'semester',
-  'Miscellaneous': 'miscellaneous',
-  'Non-Suspension Service': 'miscellaneous',
-  // Fallback simple matches
-  'suspension': 'suspension',
-  'Suspension': 'suspension',
-  'fir': 'fir',
-  'FIR': 'fir',
-  'semester': 'semester',
-  'Semester': 'semester',
-  'miscellaneous': 'miscellaneous',
-  'other': 'miscellaneous',
-  'Other': 'miscellaneous',
-  'Sent': 'Sent',
+  'suspension': 'Suspension / Disciplinary',
+  'fir': 'Legal Issues',
+  'FIR / Arrest / Legal': 'Legal Issues',
+  'semester': 'Semester / Examination',
+  'miscellaneous': 'Miscellaneous',
+  'Non-Suspension Service': 'Service Matters',
+  'other': 'Miscellaneous',
+  'Other': 'Miscellaneous',
 };
 
 /**

@@ -312,16 +312,13 @@ return filteredEmails.filter(email => email.category === activeView);
         refinementStats={refinementStats} onTestApiKeys={handleTestApiKeys}
       />
       <div className="flex flex-1 overflow-hidden">
-<<<<<<< HEAD
-          <Sidebar 
-            activeView={activeView} 
-            onViewChange={setActiveView} 
-            onOpenPolicyManagement={() => setShowPolicyManagement(true)}
-            onCompose={() => setShowComposeModal(true)}
-          />
-=======
-        <Sidebar activeView={activeView} onViewChange={setActiveView} onOpenPolicyManagement={() => setShowPolicyManagement(true)} emails={filteredEmails} />
->>>>>>> 009c93f (from branch)
+        <Sidebar 
+          activeView={activeView} 
+          onViewChange={setActiveView} 
+          onOpenPolicyManagement={() => setShowPolicyManagement(true)}
+          onCompose={() => setShowComposeModal(true)}
+          emails={filteredEmails}
+        />
         {activeView === 'dashboard' ? (
           <Dashboard emails={filteredEmails} />
         ) : (

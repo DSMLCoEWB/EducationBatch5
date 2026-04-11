@@ -164,9 +164,16 @@ export function Dashboard({ emails }: DashboardProps) {
             <h3 className="text-sm font-semibold text-foreground">Emails by Category</h3>
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={categoryData}>
+            <BarChart data={categoryData} margin={{ bottom: 30 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(214, 20%, 92%)" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(215, 15%, 50%)' }} />
+              <XAxis 
+                dataKey="name" 
+                interval={0} 
+                angle={-45} 
+                textAnchor="end" 
+                height={60}
+                tick={{ fontSize: 10, fill: 'hsl(215, 15%, 50%)' }} 
+              />
               <YAxis tick={{ fontSize: 11, fill: 'hsl(215, 15%, 50%)' }} />
               <Tooltip contentStyle={{ backgroundColor: 'hsl(0, 0%, 100%)', border: '1px solid hsl(214, 20%, 90%)', borderRadius: '8px', fontSize: '12px' }} />
               <Bar dataKey="count" radius={[6, 6, 0, 0]}>
