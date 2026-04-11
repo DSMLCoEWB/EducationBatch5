@@ -12,7 +12,7 @@ ENV/
 *.env
 
 # Python
-_pycache_/
+__pycache__/
 *.pyc
 *.pyo
 *.egg-info/
@@ -41,12 +41,18 @@ Thumbs.db
 *.log
 logs/
 backend/data/
+backend/backend_data/
 backend/attachments/
 backend/files/
 *.sqlite3
 *.db
 *.enc
+*.bak
+*.tmp
 token.pickle
+ip_cache/
+.git_backup/
+faiss.index
 
 # Keep template files in git
 !.env.example
@@ -58,3 +64,17 @@ token.pickle
 reply-generator-main/
 frontend2/
 src_backup/
+backend_data/
+
+# Sensitive Credentials
+backend/service-account-credentials.json
+
+# Local Logs & Transitory Data
+backend/out_debug.txt
+backend/test_rag_out.txt
+backend/demo_emails_from_chunks.json
+frontend/build_log.txt
+*.txt
+
+# Development Scratchpads
+backend/scratch/
