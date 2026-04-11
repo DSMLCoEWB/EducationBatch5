@@ -13,8 +13,8 @@ INDEX_PATH = os.path.join(DATA_DIR, "faiss.index")
 CHUNKS_PATH = os.path.join(DATA_DIR, "policy_chunks.json")
 
 TOP_K = 5
-SIMILARITY_THRESHOLD = 0.50
-MIN_SCORE = 0.55
+SIMILARITY_THRESHOLD = 0.40
+MIN_SCORE = 0.40
 
 # ---------- EMBEDDING ----------
 _embedder = None
