@@ -59,6 +59,7 @@ faiss.index
 !.env.shared
 !backend/.env.example
 !frontend/.env.example
+!backend/requirements.txt
 
 # Legacy archived folder
 reply-generator-main/
