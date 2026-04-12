@@ -9,6 +9,7 @@ import { Chatbot } from '@/components/Chatbot';
 import { PolicyManagementModal } from '@/components/PolicyManagementModal';
 import { LoginPage } from '@/components/LoginPage';
 import { ComposeModal } from '@/components/ComposeModal';
+import { InitialSyncingView, EmptyInboxView } from '@/components/SyncStatusViews';
 import { Email } from '@/types';
 import {
   disconnectGoogleAuth,
@@ -168,13 +169,14 @@ export default function App() {
         const { syncing } = await fetchSyncStatus();
         if (syncing) {
           setIsRefreshing(true);
-        } else if (!isRefreshing) {
-          // Only stop the spinner if a manual refresh isn't also running
-          setIsRefreshing(false); 
+        } else {
+          // Only stop the refreshing state if the backend confirms sync is done
+          // and we aren't currently waiting for a manual loadEmails call to finish.
+          if (!isPollingRef.current) {
+            setIsRefreshing(false);
+          }
         }
-      } catch (err) {
-        // Silent fail for status polling to avoid console noise
-      }
+      } catch (err) { }
     };
 
     const statusTimer = window.setInterval(pollStatus, 2000);
@@ -332,12 +334,31 @@ export default function App() {
           isMobileOpen={isMobileSidebarOpen}
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
-        <main className="flex-1 overflow-y-auto bg-background">
-          {activeView === 'dashboard' ? (
-            <Dashboard emails={filteredEmails} />
+        <main className="flex-1 overflow-y-auto bg-background flex flex-col">
+          {emails.length === 0 ? (
+            // Priority 1: Backend or Frontend says we are syncing right now
+            isRefreshing ? (
+              <InitialSyncingView />
+            ) : lastSyncedAt ? (
+              // Priority 2: Sync definitively finished and total emails are still zero
+              <EmptyInboxView onRefreshNow={async () => { await loadEmails(true); await refreshRefinementStats(); }} />
+            ) : (
+              // Initial boot-up state (before first sync call returns)
+              <div className="flex-1 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="animate-spin rounded-full h-10 w-10 border-2 border-primary border-t-transparent" />
+                  <p className="text-xs text-muted-foreground font-medium animate-pulse">Establishing secure connection...</p>
+                </div>
+              </div>
+            )
           ) : (
-            <EmailTable emails={categoryEmails} categoryId={activeView} onEmailClick={setSelectedEmail}
-              onUpdateEmail={handleUpdateEmail} onDeleteEmail={handleDeleteEmail} onRestoreEmail={handleRestoreEmail} />
+            // State 3: We have emails, show requested view
+            activeView === 'dashboard' ? (
+              <Dashboard emails={filteredEmails} />
+            ) : (
+              <EmailTable emails={categoryEmails} categoryId={activeView} onEmailClick={setSelectedEmail}
+                onUpdateEmail={handleUpdateEmail} onDeleteEmail={handleDeleteEmail} onRestoreEmail={handleRestoreEmail} />
+            )
           )}
         </main>
       </div>

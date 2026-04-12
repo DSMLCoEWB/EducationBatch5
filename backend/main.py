@@ -20,6 +20,7 @@ import shutil
 import threading
 import time
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urljoin, urlparse
 from email.header import decode_header, make_header
 from email.message import EmailMessage
@@ -70,7 +71,7 @@ DEMO_POLICY_DIR.mkdir(parents=True, exist_ok=True)
 EMAIL_SOURCE_MODE = "dynamic"
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
 IS_PRODUCTION = APP_ENV in {"prod", "production"}
-GMAIL_ADDRESS = os.getenv("GMAIL_ADDRESS", "your-project@gmail.com").strip()
+# GMAIL_ADDRESS global variable removed - synchronization is now per-user session based
 DYNAMIC_FETCH_LIMIT = int(os.getenv("DYNAMIC_FETCH_LIMIT", "0"))
 DYNAMIC_AUTO_REFRESH_SECONDS = int(os.getenv("DYNAMIC_AUTO_REFRESH_SECONDS", "30"))
 DEMO_USE_LLM_PRIORITY = os.getenv("DEMO_USE_LLM_PRIORITY", "false").strip().lower() == "true"
@@ -102,6 +103,9 @@ _dynamic_cache_at_by_user: Dict[str, datetime] = {}
 _is_syncing_by_user: Dict[str, bool] = {} # user_email -> bool
 _user_locks: Dict[str, threading.Lock] = {}
 _user_locks_main_lock = threading.Lock()
+
+_ocr_worker_running_by_user: Dict[str, bool] = {}
+_ocr_last_run_by_user: Dict[str, datetime] = {}
 
 def _get_user_lock(user_email: str) -> threading.Lock:
     """Returns a thread-safe lock unique to each user_email."""
@@ -511,6 +515,12 @@ def _get_authenticated_user_email(request: Request) -> str:
     if is_user_revoked(email_addr):
         raise HTTPException(status_code=403, detail="Account revoked due to Google Security Event. Please contact administrator.")
         
+    # 4. Strict Credential Validation (Ghost Session Protection)
+    # Ensure that even if a session cookie exists, the user actually has credentials on disk.
+    if not _token_path_for_user(email_addr).exists():
+        logger.warning(f"🔒 [Security] Ghost session detected for {email_addr}. Tokens missing from disk. Invalidating session.")
+        raise HTTPException(status_code=401, detail="Session expired or Gmail disconnected. Please log in again.")
+
     return email_addr
 
 
@@ -583,30 +593,28 @@ def _fetch_dynamic_gmail_messages_oauth(
 
     message_ids = _gmail_api_list_message_ids(service, limit=limit, query=query, label_ids=label_ids)
     
-    # NEW: Filter out IDs that already exist in our database to avoid redundant fetching
     existing_ids = get_existing_gmail_ids(user_email)
-    
-    new_message_ids = []
-    for mid in message_ids:
-        if mid not in existing_ids:
-            new_message_ids.append(mid)
+    new_message_ids = [mid for mid in message_ids if mid not in existing_ids]
     
     if len(new_message_ids) < len(message_ids):
         logger.info(f"⏩ [Sync] Skipping {len(message_ids) - len(new_message_ids)} messages already in DB.")
         
     messages: list[dict[str, Any]] = []
 
-    # Process truly new messages
-    for msg_id in new_message_ids:
+    def _process_single_message(msg_id: str) -> dict[str, Any] | None:
         try:
-            payload = service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
+            # Re-get service inside worker thread to avoid potential non-thread-safe issues with discovery objects
+            thread_service = _get_gmail_api_service(user_email)
+            if not thread_service:
+                return None
+                
+            payload = thread_service.users().messages().get(userId="me", id=msg_id, format="raw").execute()
             raw_str = payload.get("raw", "")
             if not raw_str:
-                continue
+                return None
             msg_bytes = base64.urlsafe_b64decode(raw_str.encode("utf-8"))
             msg = email.message_from_bytes(msg_bytes)
             
-            # --- EMAIL PARSING ---
             subject = _decode_header_value(msg.get("Subject")) or "(No Subject)"
             sender_full = _decode_header_value(msg.get("From"))
             sender_name, sender_email = parseaddr(sender_full)
@@ -623,10 +631,8 @@ def _fetch_dynamic_gmail_messages_oauth(
             message_id = str(msg.get("Message-ID", "")).strip()
             parent_message_id = str(msg.get("In-Reply-To", "")).strip()
             
-            # --- ATTACHMENT PROCESSING ---
             attachment_names = []
-            attachment_content_extracted = ""
-            
+            # We skip OCR during the main fetch loop to speed up first login
             for part in msg.walk():
                 filename = part.get_filename()
                 if filename:
@@ -635,25 +641,19 @@ def _fetch_dynamic_gmail_messages_oauth(
                     if not payload_data:
                         continue
                     
-                    # Generate unique filename
-                    from hashlib import md5
-                    file_hash = md5(payload_data).hexdigest()[:8]
+                    file_hash = hashlib.md5(payload_data).hexdigest()[:8]
                     unique_name = f"{file_hash}_{safe_name.replace(' ', '_')}"
                     attachment_path = os.path.join(ATTACHMENTS_DIR, unique_name)
                     
-                    # Save locally
                     try:
-                        with open(attachment_path, "wb") as f:
-                            f.write(payload_data)
+                        if not os.path.exists(attachment_path):
+                            with open(attachment_path, "wb") as f:
+                                f.write(payload_data)
                         attachment_names.append(unique_name)
-                        
-                        # OCR / Extraction
-                        attachment_content_extracted += extract_attachment_text(attachment_path)
                     except Exception as e:
-                        logger.error(f"⚠️ Failed to process attachment {safe_name}: {e}")
+                        logger.error(f"⚠️ Failed to save attachment {safe_name}: {e}")
 
-            # Collect into the common format
-            messages.append({
+            return {
                 "email_id": _generate_email_id(message_id or content),
                 "parent_email_id": _generate_email_id(parent_message_id) if parent_message_id else "",
                 "thread_id": str(payload.get("threadId", "")).strip(),
@@ -662,15 +662,25 @@ def _fetch_dynamic_gmail_messages_oauth(
                 "subject": subject,
                 "date": email_date,
                 "content": content,
+                "has_attachment": len(attachment_names) > 0,
                 "attachments": attachment_names,
-                "attachment_content": attachment_content_extracted,
+                "attachment_content": "", # Leave empty for background worker
+                "is_ocr_processed": 0,    # Mark as pending
                 "raw_message_id": message_id,
                 "gmail_id": msg_id,
-            })
-            
+            }
         except Exception as e:
-            logger.error(f"Error fetching message {msg_id}: {e}")
-            continue
+            logger.error(f"Error fetching/parsing message {msg_id}: {e}")
+            return None
+
+    # Use ThreadPoolExecutor to fetch messages in parallel (Free Tier safety: 5 workers)
+    max_workers = 5
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_id = {executor.submit(_process_single_message, mid): mid for mid in new_message_ids}
+        for future in as_completed(future_to_id):
+            result = future.result()
+            if result:
+                messages.append(result)
 
     return messages, message_ids
 
@@ -1145,6 +1155,101 @@ def _schedule_priority_llm_enrichment(user_email: str) -> None:
     worker.start()
 
 
+def _run_attachment_ocr_enrichment(user_email: str) -> None:
+    """Background worker to process pending OCR for email attachments."""
+    key = _user_key(user_email)
+    
+    try:
+        from database_api import get_pending_ocr_emails, update_email_attachment_content
+        
+        # Process in small batches to stay within free tier limits
+        pending = get_pending_ocr_emails(user_email, limit=10)
+        if not pending:
+            return
+
+        logger.info(f"🔍 [OCR Worker] Starting background processing for {len(pending)} emails...")
+        
+        for email_item in pending:
+            email_id = email_item.get("email_id")
+            attachments = email_item.get("attachments", [])
+            
+            if not attachments:
+                # Mark as processed if no attachments (safety check)
+                save_emails_batch(user_email, [{**email_item, "is_ocr_processed": 1}])
+                continue
+
+            extracted_anything = False
+            total_extracted = ""
+            
+            for filename in attachments:
+                attachment_path = os.path.join(ATTACHMENTS_DIR, filename)
+                if os.path.exists(attachment_path):
+                    logger.info(f"📄 [OCR Worker] Extracting text from {filename}...")
+                    try:
+                        text = extract_attachment_text(attachment_path)
+                        if text:
+                            total_extracted += text
+                            extracted_anything = True
+                        
+                        # MANDATORY COOLDOWN for Free Tier safety (Gemini RPM limits)
+                        time.sleep(5)
+                    except Exception as e:
+                        logger.error(f"⚠️ [OCR Worker] Failed extraction for {filename}: {e}")
+
+            # Update DB with extracted content
+            if extracted_anything:
+                update_email_attachment_content(user_email, email_id, total_extracted)
+            
+            # Re-classify email based on new attachment content
+            from classifier import classify_grievance
+            new_cat = classify_grievance(
+                email_item.get("content", ""),
+                subject=email_item.get("subject", ""),
+                attachment_content=total_extracted
+            )
+            
+            # Mark this email as OCR processed
+            save_emails_batch(user_email, [{**email_item, "category": new_cat, "is_ocr_processed": 1}])
+            
+            # Briefly pause the in-memory cache to force a refresh on next UI request
+            with _get_user_lock(user_email):
+                _dynamic_cache_df_by_user.pop(key, None)
+
+        logger.info(f"✅ [OCR Worker] Finished background batch for {user_email}.")
+
+    except Exception as exc:
+        logger.error(f"OCR enrichment worker error: {exc}")
+    finally:
+        with _get_user_lock(user_email):
+            _ocr_worker_running_by_user[key] = False
+
+
+def _schedule_attachment_ocr_enrichment(user_email: str) -> None:
+    """Schedules the background OCR worker if not already running."""
+    key = _user_key(user_email)
+    
+    with _get_user_lock(user_email):
+        if _ocr_worker_running_by_user.get(key, False):
+            return
+            
+        now = datetime.now()
+        last_run = _ocr_last_run_by_user.get(key)
+        # 30-second cooldown between starting batches
+        if last_run and (now - last_run).total_seconds() < 30:
+            return
+            
+        _ocr_worker_running_by_user[key] = True
+        _ocr_last_run_by_user[key] = now
+
+    worker = threading.Thread(
+        target=_run_attachment_ocr_enrichment,
+        args=(user_email,),
+        daemon=True,
+        name=f"ocr-worker-{key[:8]}",
+    )
+    worker.start()
+
+
 def _send_demo_emails_to_gmail_inbox(user_email: str) -> Dict[str, Any]:
     demo_emails = _load_demo_emails()
     sent = 0
@@ -1271,15 +1376,21 @@ def _refresh_dynamic_cache(user_email: str, force_refresh: bool = False) -> pd.D
 
         if not force_refresh and cache_valid:
             _schedule_priority_llm_enrichment(user_email)
+            _schedule_attachment_ocr_enrichment(user_email)
             return cached_df.copy()
 
     # 2. Perform the actual refresh with robust state protection
     _is_syncing_by_user[user_email] = True
     try:
+        # Check credentials before logging start of sync (Privacy Fix)
+        if not _load_google_credentials(user_email):
+             return pd.DataFrame(columns=COLUMNS)
+
         logger.info(f"🔄 [Sync] Starting high-parity Gmail sync for {user_email}...")
         df = _build_dynamic_dataframe(user_email)
         _persist_dynamic_cache(user_email, df, cached_at=datetime.now())
         _schedule_priority_llm_enrichment(user_email)
+        _schedule_attachment_ocr_enrichment(user_email)
         return df
     finally:
         _is_syncing_by_user[user_email] = False
@@ -1437,16 +1548,9 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_background_startup_tasks, daemon=True).start()
     
-    # 2. AUTO-SYNC: Check if we have a default/seeded user to start syncing for
-    # In a full multi-user app, this would start on first user login.
-    # Here we check for the GMAIL_ADDRESS in .env as the primary user.
-    if GMAIL_ADDRESS and "your-project@gmail.com" not in GMAIL_ADDRESS:
-        threading.Thread(
-            target=_run_background_sync_loop, 
-            args=(GMAIL_ADDRESS,), 
-            daemon=True,
-            name=f"sync-{GMAIL_ADDRESS[:8]}"
-        ).start()
+    # 2. AUTO-SYNC: Sync loop no longer starts automatically for GMAIL_ADDRESS. 
+    # It will start when a user logs in via /auth/google/callback 
+    # or validated via /auth/google/status.
 
     yield
     # SHUTDOWN
@@ -1569,6 +1673,14 @@ def complete_google_auth(request: Request, code: str | None = None, state: str |
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Google OAuth token exchange failed: {exc}")
 
+    # Start periodic background sync for this specific user
+    threading.Thread(
+        target=_run_background_sync_loop,
+        args=(user_email,),
+        daemon=True,
+        name=f"sync-{user_email[:8]}"
+    ).start()
+
     if GOOGLE_OAUTH_SUCCESS_REDIRECT_URL:
         response = RedirectResponse(url=GOOGLE_OAUTH_SUCCESS_REDIRECT_URL)
         response.delete_cookie(_oauth_state_cookie_name(), path="/")
@@ -1607,6 +1719,14 @@ def google_auth_status(request: Request):
 
     connected_email = _get_connected_gmail_identity(session_email)
     if connected_email:
+        # Maintenance: Ensure background sync is running for this authenticated session
+        if not _background_sync_running_by_user.get(connected_email):
+            threading.Thread(
+                target=_run_background_sync_loop,
+                args=(connected_email,),
+                daemon=True,
+                name=f"sync-maintenance-{connected_email[:8]}"
+            ).start()
         return GoogleAuthStatusResponse(connected=True, email=connected_email, auth_mode="oauth")
 
     return GoogleAuthStatusResponse(connected=False, email=None, auth_mode="none")

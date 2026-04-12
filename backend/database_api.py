@@ -36,6 +36,7 @@ def init_db():
             is_inbox BOOLEAN DEFAULT 0,
             is_sent BOOLEAN DEFAULT 0,
             is_priority_refined BOOLEAN DEFAULT 0,
+            is_ocr_processed BOOLEAN DEFAULT 0,
             attachment_content TEXT,
             user_email TEXT,
             last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -70,6 +71,13 @@ def init_db():
         print("💾 Database Migration: Adding is_priority_refined column...")
         cursor.execute("ALTER TABLE emails ADD COLUMN is_priority_refined BOOLEAN DEFAULT 0")
     
+    # [MIGRATION]: Add is_ocr_processed if it doesn't exist
+    try:
+        cursor.execute("SELECT is_ocr_processed FROM emails LIMIT 1")
+    except sqlite3.OperationalError:
+        print("💾 Database Migration: Adding is_ocr_processed column...")
+        cursor.execute("ALTER TABLE emails ADD COLUMN is_ocr_processed BOOLEAN DEFAULT 0")
+    
     # [PATCH]: Ensure index for performance
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_emails_user_email ON emails(user_email)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_emails_gmail_id ON emails(gmail_id)")
@@ -96,6 +104,13 @@ def init_db():
         print("💾 Database Migration: Adding attachment_content column...")
         cursor.execute("ALTER TABLE emails ADD COLUMN attachment_content TEXT")
     
+    # [MIGRATION]: Add is_ocr_processed if it doesn't exist
+    try:
+        cursor.execute("SELECT is_ocr_processed FROM emails LIMIT 1")
+    except sqlite3.OperationalError:
+        print("💾 Database Migration: Adding is_ocr_processed column...")
+        cursor.execute("ALTER TABLE emails ADD COLUMN is_ocr_processed BOOLEAN DEFAULT 0")
+    
     conn.commit()
     conn.close()
 
@@ -106,7 +121,7 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
     
     for email in emails:
         # Check if already exists in our DB (Persistence check for trashed state)
-        cursor.execute("SELECT is_trashed, is_inbox, is_sent, is_priority_refined FROM emails WHERE id = ?", (email['email_id'],))
+        cursor.execute("SELECT is_trashed, is_inbox, is_sent, is_priority_refined, is_ocr_processed FROM emails WHERE id = ?", (email['email_id'],))
         existing = cursor.fetchone()
         
         is_trashed = 1 if email.get('category') == 'trash' or email.get('is_trashed') else (existing[0] if existing else 0)
@@ -114,7 +129,8 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
         # Merge flags: If we found this email in INBOX fetch previously and now in SENT fetch, both bits should be 1
         new_is_inbox = 1 if email.get('is_inbox') else (existing[1] if existing else 0)
         new_is_sent = 1 if email.get('is_sent') else (existing[2] if existing else 0)
-        new_is_refined = 1 if email.get('is_priority_refined') else (existing[3] if existing else 0) # <--- ADDED
+        new_is_refined = 1 if email.get('is_priority_refined') else (existing[3] if existing else 0)
+        new_is_ocr = 1 if email.get('is_ocr_processed') else (existing[4] if existing else 0)
         
         attachments_raw = email.get('attachments', '[]')
         attachments_json = json.dumps(attachments_raw, ensure_ascii=False) if isinstance(attachments_raw, list) else attachments_raw
@@ -123,8 +139,8 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
             INSERT INTO emails (
                 id, gmail_id, thread_id, sender, sender_email, subject, content,
                 category, mail_type, priority, date, has_attachment, attachments,
-                is_demo, replied, is_trashed, is_inbox, is_sent, is_priority_refined, attachment_content, user_email, last_synced
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                is_demo, replied, is_trashed, is_inbox, is_sent, is_priority_refined, is_ocr_processed, attachment_content, user_email, last_synced
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 gmail_id=COALESCE(excluded.gmail_id, gmail_id),
                 thread_id=COALESCE(excluded.thread_id, thread_id),
@@ -146,6 +162,7 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
                 is_inbox=MAX(is_inbox, excluded.is_inbox),
                 is_sent=MAX(is_sent, excluded.is_sent),
                 is_priority_refined=MAX(is_priority_refined, excluded.is_priority_refined),
+                is_ocr_processed=MAX(is_ocr_processed, excluded.is_ocr_processed),
                 attachment_content=COALESCE(excluded.attachment_content, attachment_content),
                 last_synced=CURRENT_TIMESTAMP
         """, (
@@ -168,6 +185,7 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
             new_is_inbox,
             new_is_sent,
             new_is_refined,
+            new_is_ocr,
             email.get('attachment_content'),
             user_email
         ))
@@ -483,3 +501,29 @@ def reclassify_all_stored_emails(classify_func):
     conn.close()
     print(f"✅ [Repair] Successfully reclassified {len(updates)} emails.")
     return len(updates)
+
+def get_pending_ocr_emails(user_email: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """Fetch emails that have attachments but haven't been OCR processed yet."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT * FROM emails 
+        WHERE user_email = ? 
+          AND has_attachment = 1 
+          AND is_ocr_processed = 0 
+          AND is_trashed = 0
+        LIMIT ?
+    """, (user_email, limit))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    result = []
+    for row in rows:
+        d = dict(row)
+        d['attachments'] = json.loads(d['attachments'] or '[]')
+        result.append(d)
+    return result
+    return result
