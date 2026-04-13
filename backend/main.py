@@ -882,7 +882,16 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
         if final_priority is None:
             final_priority = base_priority
 
-        institute_guess = msg.get("sender_email", "").split("@")[-1] if msg.get("sender_email") else "Unknown Institute"
+        # Improved Institute Detection: Identify public domains vs. genuine institutions
+        sender_email = msg.get("sender_email", "").strip().lower()
+        domain = sender_email.split("@")[-1] if "@" in sender_email else ""
+        PUBLIC_PROVIDERS = {'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'rediffmail.com', 'live.com', 'me.com'}
+        
+        if not domain or domain in PUBLIC_PROVIDERS:
+            institute_guess = "Individual / Public"
+        else:
+            # Clean name: extra the part between @ and the first . (e.g. nitw from nitw.ac.in)
+            institute_guess = domain.split('.')[0].upper()
 
         final_category = msg.get("category") or category
         if final_category == "Miscellaneous" and msg.get("is_sent_by_me"):

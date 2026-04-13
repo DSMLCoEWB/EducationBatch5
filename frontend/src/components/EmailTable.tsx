@@ -106,6 +106,9 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
       const isCurrentlyActioned = absoluteLatest.is_sent && !absoluteLatest.is_demo;
       const displayPriority = isCurrentlyActioned ? 6 : latestCitizen.priority;
 
+      // A follow-up is any message in the thread after the initial one
+      const threadFollowUps = Math.max(0, group.length - 1);
+      
       results.push({
         ...latestCitizen, // Anchor metadata to the grievance
         id: absoluteLatest.id, // Keep the latest ID for viewing/replying
@@ -113,6 +116,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
         emailDate: absoluteLatest.emailDate, // Sort by absolute last touch
         priority: displayPriority, 
         threadCount: group.length,
+        followUpCount: threadFollowUps,
         replied: absoluteLatest.replied
       });
     });
@@ -534,7 +538,11 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
             {priority <= 1 ? 'Critical' : priority <= 3 ? 'High' : priority <= 5 ? 'Medium' : 'Low'}
           </span>
         </td>
-        <td className="px-4 py-3 text-sm text-foreground max-w-[140px] truncate">{email.instituteName}</td>
+        <td className="px-4 py-3">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 text-[10px] font-mono font-bold tracking-wider border border-slate-200/50 dark:border-slate-700/50 uppercase">
+            {email.instituteName}
+          </span>
+        </td>
         <td className="px-4 py-3">
           <div className="flex items-center gap-1.5 max-w-[200px]">
             <span className="font-medium text-foreground text-sm truncate">{email.subject}</span>
@@ -553,9 +561,9 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
                 OCR Reading...
               </span>
             )}
-            {!email.is_priority_refined && (
+            {!email.is_priority_refined && categoryId !== 'Sent' && !email.is_sent && (
               <span className="flex-shrink-0 text-[10px] font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border">
-                Triage Pending
+                AI Analysis
               </span>
             )}
           </div>
@@ -580,10 +588,12 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           </span>
         </td>
         <td className="px-4 py-3 text-center">
-          {email.followUpCount > 0 && (
+          {email.followUpCount > 0 ? (
             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gov-orange-light text-gov-orange text-[11px] font-semibold">
               {email.followUpCount}
             </span>
+          ) : (
+            <span className="text-[11px] text-muted-foreground/50 font-medium">0</span>
           )}
         </td>
         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
