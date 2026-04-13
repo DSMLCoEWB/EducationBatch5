@@ -145,8 +145,8 @@ def generate_suggested_reply_with_evidence(
     clean_sender = str(sender) if sender and str(sender).lower() != "nan" else "Sir/Madam"
     clean_subject = str(email_subject) if email_subject and str(email_subject).lower() != "nan" else "Your Inquiry"
 
-    # Best-in-class RAG: Add attachment context to the search query for higher parity
-    query = f"{clean_subject} {email_content} {attachment_content}".strip()
+    # Best-in-class RAG: Add category and attachment context to the search query for higher parity
+    query = f"Category: {category} | {clean_subject} {email_content} {attachment_content}".strip()
     
     # Retrieval
     retrieved = []

@@ -45,9 +45,10 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
       const success = await sendReply(
         emailToReply.senderEmail || '',
         replyText,
+        emailToReply.id,
         emailToReply.subject,
         emailToReply.threadId,
-        emailToReply.id
+        '' // Optional Message-ID for In-Reply-To
       );
       if (success) {
         toast.success("Reply sent successfully");

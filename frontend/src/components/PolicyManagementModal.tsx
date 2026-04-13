@@ -36,19 +36,41 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
 
   const categories = [
     'All', 
-    'Scholarship', 
-    'Semester / Examination', 
-    'Suspension / Disciplinary', 
-    'FIR / Arrest', 
+    'Suspension / Disciplinary',
+    'Legal Issues',
+    'RTI Matters',
+    'CMO Issues',
+    'Semester / Examination',
+    'Scholarship & Fee Concession',
+    'Purchase / Procurement Issues',
+    'Cash Issues',
+    'Anti-Ragging Complaints',
+    'Accreditation & Ranking',
+    'Service Matters',
+    'Appointment Issues',
+    'Transfer Cases',
+    'Inspection Matters',
+    'Seat Matrix Issues',
     'Miscellaneous'
   ];
 
   const getPolicyCategory = (id: string): string => {
     const name = id.toLowerCase();
-    if (name.includes('scholarship') || name.includes('svmcm') || name.includes('k3') || name.includes('fellowship')) return 'Scholarship';
-    if (name.includes('exam') || name.includes('result') || name.includes('routine') || name.includes('schedule') || name.includes('semester')) return 'Semester / Examination';
-    if (name.includes('suspension') || name.includes('disciplinary') || name.includes('showcause') || name.includes('memo')) return 'Suspension / Disciplinary';
-    if (name.includes('fir') || name.includes('arrest') || name.includes('police') || name.includes('legal')) return 'FIR / Arrest';
+    if (name.includes('scholarship') || name.includes('svmcm') || name.includes('k3') || name.includes('fellowship') || name.includes('fee')) return 'Scholarship & Fee Concession';
+    if (name.includes('exam') || name.includes('result') || name.includes('routine') || name.includes('schedule') || name.includes('semester') || name.includes('mark')) return 'Semester / Examination';
+    if (name.includes('suspension') || name.includes('disciplinary') || name.includes('showcause') || name.includes('memo') || name.includes('chargesheet')) return 'Suspension / Disciplinary';
+    if (name.includes('fir') || name.includes('arrest') || name.includes('police') || name.includes('legal') || name.includes('court') || name.includes('warrant')) return 'Legal Issues';
+    if (name.includes('rti') || name.includes('information')) return 'RTI Matters';
+    if (name.includes('cmo') || name.includes('chief minister')) return 'CMO Issues';
+    if (name.includes('purchase') || name.includes('tender') || name.includes('quotation') || name.includes('procurement')) return 'Purchase / Procurement Issues';
+    if (name.includes('cash') || name.includes('audit') || name.includes('financial') || name.includes('bill') || name.includes('misappropriation')) return 'Cash Issues';
+    if (name.includes('ragging') || name.includes('anti-ragging') || name.includes('bullying')) return 'Anti-Ragging Complaints';
+    if (name.includes('naac') || name.includes('nba') || name.includes('nirf') || name.includes('accreditation') || name.includes('ranking')) return 'Accreditation & Ranking';
+    if (name.includes('service') || name.includes('service book') || name.includes('pension') || name.includes('retirement')) return 'Service Matters';
+    if (name.includes('appointment') || name.includes('recruitment') || name.includes('joining')) return 'Appointment Issues';
+    if (name.includes('transfer')) return 'Transfer Cases';
+    if (name.includes('inspection')) return 'Inspection Matters';
+    if (name.includes('seat matrix') || name.includes('intake') || name.includes('seat')) return 'Seat Matrix Issues';
     return 'Miscellaneous';
   };
 

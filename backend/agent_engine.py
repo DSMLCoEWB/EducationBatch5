@@ -47,7 +47,7 @@ def query_grievances_db(sql_query: str):
     - 'Trash': Use `is_trashed = 1`. DO NOT query this unless the user specifically asks for 'deleted' or 'trashed' items.
     - CRITICAL: Every query for grievances, counts, or lists MUST include `is_trashed = 0` to avoid inaccuracies.
     - 'Mail Type': Only has values 'Fresh' or 'Follow-up'.
-    - 'Category': e.g., 'Suspension', 'FIR', 'Semester', 'Admissions', 'Miscellaneous'.
+    - 'Category': Use exact matches for: 'Suspension / Disciplinary', 'Legal Issues', 'RTI Matters', 'CMO Issues', 'Semester / Examination', 'Scholarship & Fee Concession', 'Purchase / Procurement Issues', 'Cash Issues', 'Anti-Ragging Complaints', 'Accreditation & Ranking', 'Service Matters', 'Appointment Issues', 'Transfer Cases', 'Inspection Matters', 'Seat Matrix Issues', or 'Miscellaneous'.
     - 'User Email': Always filter by the current `user_email` provided in the tool call context if asked about 'my' emails.
     - ALWAYS use 'LIKE' for text searches (e.g., WHERE sender LIKE '%pune%').
     - Limit results to 10 for performance.

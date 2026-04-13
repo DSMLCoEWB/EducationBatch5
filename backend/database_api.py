@@ -302,12 +302,25 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    # Map frontend IDs to actual DB category strings from classifier.py
+    # Map legacy frontend IDs to actual DB category strings
     category_map = {
         'suspension': 'Suspension / Disciplinary',
-        'fir': 'FIR / Arrest / Legal',
+        'legal': 'Legal Issues',
+        'fir': 'Legal Issues',
+        'rti': 'RTI Matters',
+        'cmo': 'CMO Issues',
         'semester': 'Semester / Examination',
-        'scholarship': 'Scholarship',
+        'exam': 'Semester / Examination',
+        'scholarship': 'Scholarship & Fee Concession',
+        'purchase': 'Purchase / Procurement Issues',
+        'cash': 'Cash Issues',
+        'ragging': 'Anti-Ragging Complaints',
+        'accreditation': 'Accreditation & Ranking',
+        'service': 'Service Matters',
+        'appointment': 'Appointment Issues',
+        'transfer': 'Transfer Cases',
+        'inspection': 'Inspection Matters',
+        'seat-matrix': 'Seat Matrix Issues',
         'miscellaneous': 'Miscellaneous'
     }
     db_category = category_map.get(category, category)
@@ -322,9 +335,16 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
     elif category == 'Sent':
         query += " AND is_sent = 1 AND is_trashed = 0"
     elif category == 'miscellaneous':
-        # Broad fetch for Miscellaneous folder to include 'Service' matters and others
-        query += " AND category NOT IN (?, ?, ?, ?) AND is_inbox = 1 AND is_trashed = 0"
-        params.extend(['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination', 'Scholarship'])
+        # Broad fetch for Miscellaneous folder to exclude all main categories
+        main_categories = [
+            'Suspension / Disciplinary', 'Legal Issues', 'RTI Matters', 'CMO Issues',
+            'Semester / Examination', 'Scholarship & Fee Concession', 'Purchase / Procurement Issues',
+            'Cash Issues', 'Anti-Ragging Complaints', 'Accreditation & Ranking', 'Service Matters',
+            'Appointment Issues', 'Transfer Cases', 'Inspection Matters', 'Seat Matrix Issues'
+        ]
+        placeholders = ', '.join(['?'] * len(main_categories))
+        query += f" AND category NOT IN ({placeholders}) AND is_inbox = 1 AND is_trashed = 0"
+        params.extend(main_categories)
     else:
         # Filtering by a specific grievance category (e.g. 'Semester / Examination')
         query += " AND category = ? AND is_inbox = 1 AND is_trashed = 0"
@@ -525,5 +545,4 @@ def get_pending_ocr_emails(user_email: str, limit: int = 10) -> List[Dict[str, A
         d = dict(row)
         d['attachments'] = json.loads(d['attachments'] or '[]')
         result.append(d)
-    return result
     return result

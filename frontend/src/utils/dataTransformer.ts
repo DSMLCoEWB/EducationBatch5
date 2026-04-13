@@ -6,24 +6,38 @@ export { initializeCollegeDatabase }; // Re-export for easy access
 
 // Map backend category names to frontend category types
 const categoryMap: Record<string, EmailCategory> = {
-  // Exact matches from backend
-  'Suspension / Disciplinary': 'suspension',
-  'FIR / Arrest / Legal': 'fir',
-  'Semester / Examination': 'semester',
-  'Scholarship': 'scholarship',
-  'Miscellaneous': 'miscellaneous',
-  'Non-Suspension Service': 'miscellaneous',
-  // Fallback simple matches
-  'suspension': 'suspension',
-  'Suspension': 'suspension',
-  'fir': 'fir',
-  'FIR': 'fir',
-  'semester': 'semester',
-  'Semester': 'semester',
-  'miscellaneous': 'miscellaneous',
-  'other': 'miscellaneous',
-  'Other': 'miscellaneous',
+  // New Categories (Labels = IDs)
+  "Suspension / Disciplinary": "Suspension / Disciplinary",
+  "Legal Issues": "Legal Issues",
+  "RTI Matters": "RTI Matters",
+  "CMO Issues": "CMO Issues",
+  "Semester / Examination": "Semester / Examination",
+  "Scholarship & Fee Concession": "Scholarship & Fee Concession",
+  "Purchase / Procurement Issues": "Purchase / Procurement Issues",
+  "Cash Issues": "Cash Issues",
+  "Anti-Ragging Complaints": "Anti-Ragging Complaints",
+  "Accreditation & Ranking": "Accreditation & Ranking",
+  "Service Matters": "Service Matters",
+  "Appointment Issues": "Appointment Issues",
+  "Transfer Cases": "Transfer Cases",
+  "Inspection Matters": "Inspection Matters",
+  "Seat Matrix Issues": "Seat Matrix Issues",
+  "Miscellaneous": "Miscellaneous",
+
+  // Legacy/Fallback matches
+  'suspension': 'Suspension / Disciplinary',
+  'Suspension': 'Suspension / Disciplinary',
+  'fir': 'Legal Issues',
+  'FIR': 'Legal Issues',
+  'FIR / Arrest / Legal': 'Legal Issues',
+  'Semester': 'Semester / Examination',
+  'semester': 'Semester / Examination',
+  'Scholarship': 'Scholarship & Fee Concession',
+  'Non-Suspension Service': 'Service Matters',
+  'other': 'Miscellaneous',
+  'Other': 'Miscellaneous',
   'Sent': 'Sent',
+  'trash': 'trash',
 };
 
 /**

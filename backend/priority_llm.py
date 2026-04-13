@@ -66,22 +66,24 @@ You are an expert email triage assistant for a government education department.
 
 Analyze this email carefully considering:
 - The SENDER's authority level
-- The URGENCY and time-sensitivity of the issue
+- The URGENCY and time-sensitivity in the context of academic cycles
 - The LEGAL or administrative implications
-- The IMPACT on students or institutions
+- The INTEGRITY of examinations and STUDENT SAFETY
 
 Then assign ONE priority rank from below:
 
-0: Chief Secretary / highest authority communication (Critical)
-1: Court orders, RTI, legal notices (Immediate Action - Critical)
-2: Legal disputes, FIR cases, serious misconduct, suspension cases (High)
-3: CMO office, ministerial, MLA-level, or higher education office matters (High)
-4: Financial urgency: Fund release, salary disbursement, increment issues (Medium)
-5: Urgent student issues: Exams, results, admission deadlines (Medium)
-6: General grievances, routine queries, portal issues, or feedback (Low Priority)
+0: Chief Secretary / Cabinet / Highest Government Authority (Mandatory Command)
+1: Court orders, RTI Matters, Examination Paper Leakage/Breach, Major Student Accidents (Critical)
+2: Anti-Ragging Complaints, FIR cases, CMO Issues, Ministerial References (High Stakes)
+3: Service Matters (Salary/Pension Delays), Suspensions / Disciplinary, Financial Fraud (Integrity)
+4: Tenders / Procurement (Deadlines), Seat Matrix, Accreditation (NAAC/NBA)
+5: Ordinary Leave Requests, Admissions, Semester / Examination routine, Scholarship Queries (Routine)
+6: Miscellaneous, routine queries, website feedback, or general information (Standard)
 
 Rules:
-- If the email expresses frustration, repeated follow-ups, or mentions deadlines, increase urgency by 1 level (lower number).
+- If the email expresses frustration, repeated follow-ups, or mentions immediate deadlines, increase urgency by 1 level (lower number), capped at Level 2.
+- If the email involves a serious threat to student life or a massive integrity breach (like a leaked paper), it MUST be Level 1.
+- Ordinary staff requests (like casual/medical leave) should remain at Level 5.
 - If the sender holds a high official position, prioritize accordingly.
 - Return ONLY a single digit (0-6). No explanation.
 
@@ -119,16 +121,18 @@ You are an expert triage assistant for a government education department.
 Analyze the following batch of emails and assign a priority rank (0-6) to each.
 
 PRIORITY LEVELS (0-6):
-0: Chief Secretary / highest authority (Critical)
-1: Court orders, RTI, legal notices (Immediate Action - Critical)
-2: Legal disputes, FIR cases, misconduct, suspension (High)
-3: CMO office, ministerial, MLA, higher education office (High)
-4: Financial urgency: Salary, fund release, increments (Medium)
-5: Urgent student issues: Exams, results, admission deadlines (Medium)
-6: General grievances, routine queries, feedback (Low Priority)
+0: Chief Secretary / Cabinet / Highest Government Authority (Mandatory Command)
+1: Court orders, RTI Matters, Examination Paper Leakage/Breach, Student Safety Incidents (Critical)
+2: Anti-Ragging Complaints, FIR cases, CMO Issues, Ministerial References (High Risk)
+3: Service Matters (Salary/Pension Delays), Suspensions / Disciplinary, Financial Fraud (Integrity)
+4: Tenders / Procurement (Deadlines), Seat Matrix, Accreditation (NAAC/NBA)
+5: Ordinary Leave Requests, Admissions, Semester / Examination routine, Scholarship Queries (Routine)
+6: Miscellaneous, routine queries, website feedback, or general information (Standard)
 
 Rules:
-- If follow-up mentions or deadlines exist, increase urgency (lower number).
+- If follow-up mentions or immediate deadlines exist, increase urgency (lower number), capped at Level 2.
+- Breach of examination integrity or accidents MUST be Level 1.
+- Ordinary staff leave/medical requests are Level 5.
 - Return YOUR RESPONSE AS A VALID JSON OBJECT ONLY.
 - Format: {{ "EMAIL_ID": PRIORITY_NUMBER, ... }}
 

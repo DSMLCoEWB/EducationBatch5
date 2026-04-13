@@ -190,14 +190,31 @@ def _generate_email_id(content: str) -> str:
 
 def _heuristic_priority(text: str, subject: str) -> int:
     text_lower = f"{subject} {text}".lower()
-    if any(k in text_lower for k in ["chief secretary", "secretary higher education", "court order", "legal notice"]):
+    
+    # Level 0: Critical Government Command
+    if any(k in text_lower for k in ["chief secretary", "cabinet", "principal secretary", "special secretary"]):
+        return 0
+    
+    # Level 1: Statutory & Security Integrity (PAPER LEAKS & SAFETY)
+    if any(k in text_lower for k in ["court order", "legal notice", "rti", "right to information", "paper leak", "leakage", "leak", "question paper", "breach of exam", "accident", "emergency accident", "student safety"]):
         return 1
-    if any(k in text_lower for k in ["fir", "arrest", "police", "misconduct", "suspension", "disciplinary"]):
+        
+    # Level 2: High Stakes / Political
+    if any(k in text_lower for k in ["fir", "arrest", "police", "ragging", "anti-ragging", "cmo", "chief minister", "minister", "mla"]):
         return 2
-    if any(k in text_lower for k in ["salary", "fund release", "increment", "arrear"]):
+        
+    # Level 3: Personnel Integrity & Welfare (Salary/Pension)
+    if any(k in text_lower for k in ["salary", "pension", "arrear", "service book", "disbursement", "misconduct", "suspension", "disciplinary", "cash", "misappropriation", "audit", "fraud"]):
+        return 3
+        
+    # Level 4: Institutional Deadlines
+    if any(k in text_lower for k in ["naac", "nba", "ranking", "accreditation", "seat matrix", "intake", "purchase", "tender", "procurement", "work order"]):
         return 4
-    if any(k in text_lower for k in ["exam", "result", "admission", "deadline", "correction", "scholarship"]):
+        
+    # Level 5: Operational & Routine (INCLUDING MEDICAL LEAVE)
+    if any(k in text_lower for k in ["medical leave", "casual leave", "maternity leave", "child care leave", "leave application", "exam", "result", "semester", "admission", "appointment", "recruitment", "transfer", "scholarship", "freeship"]):
         return 5
+        
     return 6
 
 
@@ -2338,6 +2355,7 @@ class GenerateReplyResponse(BaseModel):
 class SendReplyRequest(BaseModel):
     to_email: str
     reply_text: str
+    email_id: str = None
     original_subject: str = ""
     thread_id: str = None
     in_reply_to: str = None
@@ -2468,11 +2486,16 @@ def send_reply_email(request: Request, payload: SendReplyRequest):
         with lock:
             cached_df = _dynamic_cache_df_by_user.get(key)
             if cached_df is not None:
-                # Group update: Mark the whole thread as replied if applicable
-                if payload.thread_id:
+                # ID-based update: Mark the specific grievance as replied
+                if payload.email_id:
+                    mask = (cached_df["email_id"] == payload.email_id)
+                elif payload.thread_id:
                     mask = (cached_df["thread_id"] == payload.thread_id)
                 else:
-                    mask = (cached_df["sender_email"] == recipient)
+                    # Very specific fallback: only the message-id matching in-reply-to if provided
+                    # Otherwise we fail gracefully to avoid marking unrelated emails
+                    mask = (cached_df["email_id"] == "None") # Default to no-op
+                
                 cached_df.loc[mask, "replied"] = True
                 _dynamic_cache_df_by_user[key] = cached_df
                 
@@ -2480,10 +2503,10 @@ def send_reply_email(request: Request, payload: SendReplyRequest):
                 try:
                     conn = sqlite3.connect(DB_PATH)
                     cursor = conn.cursor()
-                    if payload.thread_id:
+                    if payload.email_id:
+                        cursor.execute("UPDATE emails SET replied = 1 WHERE id = ? AND user_email = ?", (payload.email_id, user_email))
+                    elif payload.thread_id:
                         cursor.execute("UPDATE emails SET replied = 1 WHERE thread_id = ? AND user_email = ?", (payload.thread_id, user_email))
-                    else:
-                        cursor.execute("UPDATE emails SET replied = 1 WHERE sender_email = ? AND user_email = ?", (recipient, user_email))
                     conn.commit()
                     conn.close()
                 except Exception as e:
