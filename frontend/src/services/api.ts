@@ -269,6 +269,7 @@ export async function composeEmail(to: string, subject: string, body: string): P
 export async function sendReply(
   toEmail: string,
   replyText: string,
+  emailId: string,
   originalSubject: string = "",
   threadId: string = "",
   inReplyTo: string = ""
@@ -279,6 +280,7 @@ export async function sendReply(
     body: JSON.stringify({
       to_email: toEmail,
       reply_text: replyText,
+      email_id: emailId,
       original_subject: originalSubject,
       thread_id: threadId,
       in_reply_to: inReplyTo
@@ -300,7 +302,8 @@ export async function restoreEmail(emailId: string): Promise<void> {
 export async function sendReplyEmail(
   toEmail: string,
   originalSubject: string,
-  replyText: string
+  replyText: string,
+  emailId: string
 ): Promise<SendReplyResult> {
   const response = await apiFetch(`${API_BASE_URL}/send-reply`, {
     method: "POST",
@@ -311,6 +314,7 @@ export async function sendReplyEmail(
       to_email: toEmail,
       original_subject: originalSubject,
       reply_text: replyText,
+      email_id: emailId
     }),
   });
 

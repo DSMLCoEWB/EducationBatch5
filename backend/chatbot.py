@@ -51,9 +51,21 @@ def parse_question(question: str) -> dict:
 
     # -------- CATEGORY NORMALIZATION --------
     CATEGORY_MAP = {
-        "suspension": ["suspension", "disciplinary"],
-        "fir": ["fir", "arrest", "police"],
-        "semester": ["semester", "exam"]
+        "Suspension / Disciplinary": ["suspension", "disciplinary", "chargesheet"],
+        "Legal Issues": ["legal", "fir", "arrest", "court"],
+        "RTI Matters": ["rti", "information request"],
+        "CMO Issues": ["cmo", "chief minister"],
+        "Semester / Examination": ["semester", "exam", "marksheet"],
+        "Scholarship & Fee Concession": ["scholarship", "fee", "svmcm"],
+        "Purchase / Procurement Issues": ["purchase", "procurement", "tender"],
+        "Cash Issues": ["cash", "misappropriation", "audit"],
+        "Anti-Ragging Complaints": ["ragging", "bullying"],
+        "Accreditation & Ranking": ["naac", "nba", "ranking"],
+        "Service Matters": ["service matter", "pension", "salary"],
+        "Appointment Issues": ["appointment", "recruitment", "joining"],
+        "Transfer Cases": ["transfer"],
+        "Inspection Matters": ["inspection"],
+        "Seat Matrix Issues": ["seat matrix", "intake"]
     }
 
     for cat, keys in CATEGORY_MAP.items():

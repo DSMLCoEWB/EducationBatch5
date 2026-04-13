@@ -445,7 +445,7 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
     if (!email.senderEmail) {
       throw new Error('Recipient email is missing.');
     }
-    await sendReplyEmail(email.senderEmail, email.subject, replyText);
+    await sendReplyEmail(email.senderEmail, email.subject, replyText, email.id);
     onUpdateEmail(email.id, { replied: true, replyText });
   };
 

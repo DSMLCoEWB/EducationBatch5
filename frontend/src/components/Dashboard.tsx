@@ -3,9 +3,12 @@ import { Mail, MailOpen, Reply, Paperclip, Clock, TrendingUp } from 'lucide-reac
 import { BarChart, Bar, PieChart, Pie, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { Email } from '@/types';
 
-interface DashboardProps { emails: Email[]; }
+interface DashboardProps { 
+  emails: Email[]; 
+  onViewChange: (view: string) => void;
+}
 
-export function Dashboard({ emails }: DashboardProps) {
+export function Dashboard({ emails, onViewChange }: DashboardProps) {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -14,6 +17,8 @@ export function Dashboard({ emails }: DashboardProps) {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  if (!emails) return null;
 
   const unrepliedEmails = emails.filter(e => !e.replied);
   
@@ -40,16 +45,35 @@ export function Dashboard({ emails }: DashboardProps) {
     withAttachments: emails.filter(e => e.hasAttachment).length
   };
 
-  const categoryData = [
-    { name: 'Suspension', count: emails.filter(e => e.category === 'suspension' || e.category === 'Suspension / Disciplinary').length, fill: 'hsl(25, 95%, 53%)' },
-    { name: 'FIR/Arrest', count: emails.filter(e => e.category === 'fir' || e.category === 'FIR / Arrest / Legal').length, fill: 'hsl(0, 72%, 51%)' },
-    { name: 'Semester', count: emails.filter(e => e.category === 'semester' || e.category === 'Semester / Examination').length, fill: 'hsl(234, 89%, 54%)' },
-    { name: 'Scholarship', count: emails.filter(e => e.category === 'scholarship' || e.category === 'Scholarship').length, fill: 'hsl(40, 95%, 38%)' },
-    { name: 'Other', count: emails.filter(e => {
-      const others = ['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination', 'Scholarship', 'suspension', 'fir', 'semester', 'scholarship'];
-      return !others.includes(e.category);
-    }).length, fill: 'hsl(224, 15%, 50%)' }
+  const categories = [
+    { id: 'Suspension / Disciplinary' }, { id: 'Legal Issues' }, { id: 'RTI Matters' }, 
+    { id: 'CMO Issues' }, { id: 'Semester / Examination' }, { id: 'Scholarship & Fee Concession' }, 
+    { id: 'Purchase / Procurement Issues' }, { id: 'Cash Issues' }, { id: 'Anti-Ragging Complaints' }, 
+    { id: 'Accreditation & Ranking' }, { id: 'Service Matters' }, { id: 'Appointment Issues' }, 
+    { id: 'Transfer Cases' }, { id: 'Inspection Matters' }, { id: 'Seat Matrix Issues' }
   ];
+
+  const categoryData = [
+    { name: 'Suspension', id: 'Suspension / Disciplinary', count: emails.filter(e => e.category === 'Suspension / Disciplinary').length, fill: 'hsl(25, 95%, 53%)' },
+    { name: 'Legal', id: 'Legal Issues', count: emails.filter(e => e.category === 'Legal Issues').length, fill: 'hsl(0, 72%, 51%)' },
+    { name: 'RTI', id: 'RTI Matters', count: emails.filter(e => e.category === 'RTI Matters').length, fill: 'hsl(210, 100%, 50%)' },
+    { name: 'CMO', id: 'CMO Issues', count: emails.filter(e => e.category === 'CMO Issues').length, fill: 'hsl(260, 100%, 50%)' },
+    { name: 'Semester', id: 'Semester / Examination', count: emails.filter(e => e.category === 'Semester / Examination').length, fill: 'hsl(234, 89%, 54%)' },
+    { name: 'Scholarship', id: 'Scholarship & Fee Concession', count: emails.filter(e => e.category === 'Scholarship & Fee Concession').length, fill: 'hsl(40, 95%, 38%)' },
+    { name: 'Purchase', id: 'Purchase / Procurement Issues', count: emails.filter(e => e.category === 'Purchase / Procurement Issues').length, fill: 'hsl(160, 100%, 40%)' },
+    { name: 'Cash', id: 'Cash Issues', count: emails.filter(e => e.category === 'Cash Issues').length, fill: 'hsl(340, 80%, 50%)' },
+    { name: 'Ragging', id: 'Anti-Ragging Complaints', count: emails.filter(e => e.category === 'Anti-Ragging Complaints').length, fill: 'hsl(15, 90%, 50%)' },
+    { name: 'Accreditation', id: 'Accreditation & Ranking', count: emails.filter(e => e.category === 'Accreditation & Ranking').length, fill: 'hsl(280, 100%, 60%)' },
+    { name: 'Service', id: 'Service Matters', count: emails.filter(e => e.category === 'Service Matters').length, fill: 'hsl(180, 100%, 40%)' },
+    { name: 'Appointment', id: 'Appointment Issues', count: emails.filter(e => e.category === 'Appointment Issues').length, fill: 'hsl(130, 70%, 45%)' },
+    { name: 'Transfer', id: 'Transfer Cases', count: emails.filter(e => e.category === 'Transfer Cases').length, fill: 'hsl(200, 90%, 45%)' },
+    { name: 'Inspection', id: 'Inspection Matters', count: emails.filter(e => e.category === 'Inspection Matters').length, fill: 'hsl(250, 80%, 55%)' },
+    { name: 'Seat Matrix', id: 'Seat Matrix Issues', count: emails.filter(e => e.category === 'Seat Matrix Issues').length, fill: 'hsl(310, 80%, 50%)' },
+    { name: 'Misc', id: 'Miscellaneous', count: emails.filter(e => !categories.some(c => c.id === e.category) && e.category !== 'Sent' && e.category !== 'trash').length, fill: 'hsl(224, 15%, 50%)' }
+  ].filter(c => c.count > 0 || [
+    'Suspension', 'Legal', 'Semester', 'Scholarship', 'RTI', 'CMO', 'Service'
+  ].includes(c.name))
+  .sort((a, b) => b.count - a.count);
 
   const mailTypeData = [
     { name: 'Fresh', value: stats.fresh, fill: 'hsl(152, 60%, 40%)' },
@@ -118,69 +142,104 @@ export function Dashboard({ emails }: DashboardProps) {
         ))}
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="w-4 h-4 text-primary" />
-            <h3 className="text-sm font-semibold text-foreground">Emails by Category</h3>
+      {/* High-Impact Category Chart (Full Width) */}
+      <div className="bg-card rounded-xl border border-border p-6 mb-6 shadow-card hover:shadow-elevated transition-all">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <TrendingUp className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-foreground">Grievance Distribution by Category</h3>
+              <p className="text-xs text-muted-foreground">Comprehensive overview of all 15 classification types</p>
+            </div>
           </div>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={categoryData} margin={{ bottom: isMobile ? 40 : 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-              <XAxis 
-                dataKey="name" 
-                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} 
-                axisLine={{ stroke: 'hsl(var(--border))' }} 
-                tickLine={false}
-                interval={0}
-                angle={isMobile ? -35 : 0}
-                textAnchor={isMobile ? "end" : "middle"}
-              />
-              <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-              <Tooltip 
-                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px' }} 
-                itemStyle={{ color: 'hsl(var(--foreground))' }}
-                cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} 
-              />
-              <Bar dataKey="count" radius={[8, 8, 0, 0]}>
-                {categoryData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="hidden sm:flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            <div className="w-2 h-2 rounded-full bg-primary" /> Real-time Analytics
+          </div>
         </div>
+        
+        <ResponsiveContainer width="100%" height={500}>
+          <BarChart 
+            data={categoryData} 
+            layout="vertical"
+            margin={{ left: isMobile ? 10 : 50, right: 30, top: 0, bottom: 10 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={true} vertical={false} />
+            <XAxis type="number" hide />
+            <YAxis 
+              dataKey="name" 
+              type="category"
+              tick={{ fontSize: isMobile ? 9 : 11, fontWeight: 600, fill: 'hsl(var(--foreground))' }} 
+              width={isMobile ? 70 : 100}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip 
+              cursor={{ fill: 'hsl(var(--muted) / 0.3)' }}
+              content={({ active, payload }) => {
+                if (active && payload && payload.length) {
+                  return (
+                    <div className="bg-card border border-border shadow-modal p-3 rounded-xl animate-scale-in">
+                      <p className="text-xs font-bold text-foreground mb-1">{payload[0].payload.name}</p>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: payload[0].payload.fill }} />
+                        <span className="text-sm font-semibold">{payload[0].value} Grievances</span>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              }}
+            />
+            <Bar 
+              dataKey="count" 
+              radius={[0, 6, 6, 0]} 
+              barSize={24}
+              onClick={(data) => onViewChange(data.id)}
+              style={{ cursor: 'pointer' }}
+            >
+              {categoryData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.fill} fillOpacity={0.9} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
 
-        <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Mail Type Distribution</h3>
-          <ResponsiveContainer width="100%" height={280}>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Distribution & Volume row */}
+        <div className="bg-card rounded-xl border border-border p-5 shadow-card overflow-hidden lg:col-span-5">
+          <h3 className="text-sm font-semibold text-foreground mb-6">Inquiry Character Distribution</h3>
+          <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie 
                 data={mailTypeData} 
                 cx="50%" 
-                cy="50%" 
+                cy="45%" 
+                innerRadius={60} 
+                outerRadius={85} 
+                paddingAngle={5}
+                dataKey="value"
+                stroke="none"
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                 labelLine={false}
-                label={({ name, percent }) => isMobile ? `${(percent * 100).toFixed(0)}%` : `${name}: ${(percent * 100).toFixed(0)}%`}
-                outerRadius={isMobile ? 80 : 95} 
-                dataKey="value" 
-                stroke="hsl(var(--card))" 
-                strokeWidth={3}
               >
-                {mailTypeData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                {mailTypeData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                ))}
               </Pie>
               <Tooltip 
-                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px' }} 
-                itemStyle={{ color: 'hsl(var(--foreground))' }}
-                cursor={{ fill: 'hsl(var(--muted) / 0.5)' }} 
+                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '11px' }}
               />
-              <Legend verticalAlign="bottom" height={36} iconType="circle" />
+              <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: 600 }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
-      </div>
 
-      {/* Line Chart */}
-      <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow">
-        <h3 className="text-sm font-semibold text-foreground mb-4">Daily Volume (7 Days)</h3>
+        {/* Line Chart */}
+        <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow lg:col-span-7">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Daily Volume (7 Days)</h3>
         <ResponsiveContainer width="100%" height={260}>
           <LineChart data={dailyVolumeData} margin={{ bottom: isMobile ? 30 : 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -205,5 +264,6 @@ export function Dashboard({ emails }: DashboardProps) {
         </ResponsiveContainer>
       </div>
     </div>
+  </div>
   );
 }

@@ -232,19 +232,20 @@ export default function App() {
   const categoryEmails = useMemo(() => {
     if (activeView === 'dashboard' || activeView === 'all') return filteredEmails;
     if (activeView === 'Sent' || activeView === 'trash') return filteredEmails;
-    const mappedCategories: Record<string, string> = {
-      'suspension': 'Suspension / Disciplinary',
-      'fir': 'FIR / Arrest / Legal',
-      'semester': 'Semester / Examination',
-      'scholarship': 'Scholarship',
-      'miscellaneous': 'Miscellaneous'
-    };
-    const targetCategory = mappedCategories[activeView] || activeView;
-    if (activeView === 'miscellaneous') {
-      const otherMainFolders = ['Suspension / Disciplinary', 'FIR / Arrest / Legal', 'Semester / Examination', 'Scholarship'];
-      return filteredEmails.filter(email => !otherMainFolders.includes(email.category) && email.category !== 'Sent' && email.category !== 'trash');
+    
+    // For specific categories, filter directly by the category name
+    // Since IDs now match labels for categories, it's straightforward.
+    if (activeView === 'Miscellaneous') {
+      const mainCategories = [
+        'Suspension / Disciplinary', 'Legal Issues', 'RTI Matters', 'CMO Issues',
+        'Semester / Examination', 'Scholarship & Fee Concession', 'Purchase / Procurement Issues',
+        'Cash Issues', 'Anti-Ragging Complaints', 'Accreditation & Ranking', 'Service Matters',
+        'Appointment Issues', 'Transfer Cases', 'Inspection Matters', 'Seat Matrix Issues'
+      ];
+      return filteredEmails.filter(email => !mainCategories.includes(email.category) && email.category !== 'Sent' && email.category !== 'trash');
     }
-    return filteredEmails.filter(email => email.category === activeView || email.category === targetCategory);
+    
+    return filteredEmails.filter(email => email.category === activeView);
   }, [filteredEmails, activeView]);
 
   if (loading) {
@@ -354,7 +355,7 @@ export default function App() {
           ) : (
             // State 3: We have emails, show requested view
             activeView === 'dashboard' ? (
-              <Dashboard emails={filteredEmails} />
+              <Dashboard emails={filteredEmails} onViewChange={setActiveView} />
             ) : (
               <EmailTable emails={categoryEmails} categoryId={activeView} onEmailClick={setSelectedEmail}
                 onUpdateEmail={handleUpdateEmail} onDeleteEmail={handleDeleteEmail} onRestoreEmail={handleRestoreEmail} />
