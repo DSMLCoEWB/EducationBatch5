@@ -38,6 +38,8 @@ def init_db():
             is_priority_refined BOOLEAN DEFAULT 0,
             is_ocr_processed BOOLEAN DEFAULT 0,
             attachment_content TEXT,
+            followup_count INTEGER DEFAULT 0,
+            institute_name TEXT,
             user_email TEXT,
             last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -110,7 +112,7 @@ def init_db():
     try:
         cursor.execute("SELECT attachment_content FROM emails LIMIT 1")
     except sqlite3.OperationalError:
-        print("💾 Database Migration: Adding attachment_content column...")
+        print("[DB] Database Migration: Adding attachment_content column...")
         cursor.execute("ALTER TABLE emails ADD COLUMN attachment_content TEXT")
     
     # [MIGRATION]: Add is_ocr_processed if it doesn't exist
@@ -119,6 +121,20 @@ def init_db():
     except sqlite3.OperationalError:
         print("💾 Database Migration: Adding is_ocr_processed column...")
         cursor.execute("ALTER TABLE emails ADD COLUMN is_ocr_processed BOOLEAN DEFAULT 0")
+    
+    # [MIGRATION]: Add followup_count if it doesn't exist
+    try:
+        cursor.execute("SELECT followup_count FROM emails LIMIT 1")
+    except sqlite3.OperationalError:
+        print("[DB] Database Migration: Adding followup_count column...")
+        cursor.execute("ALTER TABLE emails ADD COLUMN followup_count INTEGER DEFAULT 0")
+    
+    # [MIGRATION]: Add institute_name if it doesn't exist
+    try:
+        cursor.execute("SELECT institute_name FROM emails LIMIT 1")
+    except sqlite3.OperationalError:
+        print("[DB] Database Migration: Adding institute_name column...")
+        cursor.execute("ALTER TABLE emails ADD COLUMN institute_name TEXT")
     
     conn.commit()
     conn.close()
@@ -148,8 +164,8 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
             INSERT INTO emails (
                 id, gmail_id, thread_id, sender, sender_email, subject, content,
                 category, mail_type, priority, date, has_attachment, attachments,
-                is_demo, replied, is_trashed, is_inbox, is_sent, is_priority_refined, is_ocr_processed, attachment_content, user_email, last_synced
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                is_demo, replied, is_trashed, is_inbox, is_sent, is_priority_refined, is_ocr_processed, attachment_content, followup_count, institute_name, user_email, last_synced
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
                 gmail_id=COALESCE(excluded.gmail_id, gmail_id),
                 thread_id=COALESCE(excluded.thread_id, thread_id),
@@ -173,6 +189,8 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
                 is_priority_refined=MAX(is_priority_refined, excluded.is_priority_refined),
                 is_ocr_processed=MAX(is_ocr_processed, excluded.is_ocr_processed),
                 attachment_content=COALESCE(excluded.attachment_content, attachment_content),
+                followup_count=COALESCE(excluded.followup_count, followup_count),
+                institute_name=COALESCE(excluded.institute_name, institute_name),
                 last_synced=CURRENT_TIMESTAMP
         """, (
             email['email_id'],
@@ -196,6 +214,8 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
             new_is_refined,
             new_is_ocr,
             email.get('attachment_content'),
+            email.get('followup_count', 0),
+            email.get('institute_name'),
             user_email
         ))
     

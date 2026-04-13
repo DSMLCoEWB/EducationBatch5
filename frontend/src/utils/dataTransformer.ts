@@ -181,11 +181,8 @@ function extractInstitutionName(sender: string, content: string, subject: string
       if (mainDomainMatch && !isInvalidCollegeName(mainDomainMatch)) {
         return cleanCollegeName(mainDomainMatch);
       }
-      // Fallback to readable domain name
-      const readable = mainDomain.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-      if (/\b(college|university|institute)\b/i.test(readable)) {
-        return cleanCollegeName(readable);
-      }
+      // Fallback to uppercase main domain
+      return mainDomain.toUpperCase();
     }
   }
   
@@ -212,8 +209,8 @@ function extractInstitutionName(sender: string, content: string, subject: string
     }
   }
   
-  // STEP 7: If nothing found, return empty
-  return '';
+  // STEP 7: If nothing found, return default
+  return 'Individual / Public';
 }
 
 // Fallback pattern extraction (original logic)
