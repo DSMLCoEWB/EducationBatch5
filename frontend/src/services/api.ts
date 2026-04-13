@@ -223,20 +223,22 @@ export async function generateReplyDetailed(
   emailContent: string,
   emailSubject: string = "",
   sender: string = "",
-  category: string = "",
-  attachmentContent: string = ""
+  category?: string,
+  attachmentContent?: string,
+  history?: any[],
+  emailId?: string
 ): Promise<GenerateReplyResult> {
-  const response = await apiFetch(`${API_GENERATE_URL}/generate-reply`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      email_content: emailContent,
-      email_subject: emailSubject,
-      sender,
+  const response = await apiFetch(`${API_BASE_URL}/generate-reply-detailed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      email_content: emailContent, 
+      email_subject: emailSubject, 
+      sender, 
       category,
-      attachment_content: attachmentContent
+      attachment_content: attachmentContent,
+      history,
+      email_id: emailId
     }),
   });
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Paperclip, User, Mail, Calendar, Loader2, Reply, RefreshCcw, CheckCircle2 } from 'lucide-react';
+import { X, Paperclip, User, Mail, Calendar, Loader2, Reply, RefreshCcw, CheckCircle2, ChevronDown, MessageSquare } from 'lucide-react';
 import { Email } from '@/types';
 import { getCategoryInfo } from '@/data/categories';
 import { API_BASE_URL, fetchEmailThread, sendReply, reprocessAttachment } from '@/services/api';
@@ -15,6 +15,9 @@ interface EmailThreadPanelProps {
 export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
   const [thread, setThread] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const [showReplyModal, setShowReplyModal] = useState(false);
 
   const loadFullThread = async () => {
     if (!email.threadId) {
@@ -39,6 +42,29 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
   useEffect(() => {
     loadFullThread();
   }, [email]);
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!loading && thread.length > 0) {
+      // Small delay to ensure DOM is rendered
+      setTimeout(() => scrollToBottom('auto'), 100);
+    }
+  }, [loading, thread.length]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    // Show button if we are more than 300px away from bottom
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 300;
+    setShowScrollButton(!isNearBottom);
+  };
 
   const handleReplyInThread = async (emailToReply: Email, replyText: string) => {
     try {
@@ -93,25 +119,64 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
         </div>
 
         {/* Thread Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+        <div 
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative"
+        >
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
               <p className="text-sm text-muted-foreground">Retrieving conversation history...</p>
             </div>
           ) : (
-            thread.map((threadEmail, index) => (
-              <EmailCard 
-                key={threadEmail.id} 
-                email={threadEmail} 
-                isParent={index === 0}
-                isCurrentEmail={threadEmail.id === email.id}
-                onReply={handleReplyInThread}
-                onRefreshThread={loadFullThread}
-              />
-            ))
+            <>
+              {thread.map((threadEmail, index) => (
+                <EmailCard 
+                  key={threadEmail.id} 
+                  email={threadEmail} 
+                  isParent={index === 0}
+                  isCurrentEmail={threadEmail.id === email.id}
+                  history={thread}
+                  onReply={handleReplyInThread}
+                  onRefreshThread={loadFullThread}
+                />
+              ))}
+
+              {/* Scroll to Bottom Button */}
+              {showScrollButton && (
+                <button
+                  onClick={() => scrollToBottom()}
+                  className="fixed bottom-24 right-10 p-3 bg-primary text-primary-foreground rounded-full shadow-elevated animate-bounce hover:bg-primary/90 z-20"
+                >
+                  <ChevronDown className="w-5 h-5" />
+                </button>
+              )}
+            </>
           )}
         </div>
+
+        {/* Fixed Footer Reply Action */}
+        {!loading && !(thread.length === 1 && thread[0].is_sent && !thread[0].subject?.includes('[AICOE-SEED]')) && (
+          <div className="border-t border-border p-4 bg-muted/30 flex items-center justify-center">
+            <button
+              onClick={() => setShowReplyModal(true)}
+              className="w-full max-w-md flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-xl shadow-card hover:shadow-elevated hover:bg-primary/90 transition-all font-bold text-sm"
+            >
+              <MessageSquare className="w-4 h-4" />
+              Reply to Grievance
+            </button>
+          </div>
+        )}
+
+        {showReplyModal && (
+          <ReplyModal
+            email={thread.length > 0 ? thread[thread.length - 1] : email}
+            history={thread}
+            onClose={() => setShowReplyModal(false)}
+            onSendReply={(text) => handleReplyInThread(thread.length > 0 ? thread[thread.length - 1] : email, text)}
+          />
+        )}
       </div>
     </div>
   );
@@ -119,6 +184,7 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
 
 interface EmailCardProps {
   email: Email;
+  history: Email[];
   isParent: boolean;
   isCurrentEmail: boolean;
   onReply: (email: Email, replyText: string) => Promise<void>;
@@ -126,7 +192,7 @@ interface EmailCardProps {
   key?: React.Key;
 }
 
-function EmailCard({ email, isParent, isCurrentEmail, onReply, onRefreshThread }: EmailCardProps) {
+function EmailCard({ email, history, isParent, isCurrentEmail, onReply, onRefreshThread }: EmailCardProps) {
   const [showReplyModal, setShowReplyModal] = useState(false);
   const [reprocessing, setReprocessing] = useState<string | null>(null);
 
@@ -301,6 +367,7 @@ function EmailCard({ email, isParent, isCurrentEmail, onReply, onRefreshThread }
       {showReplyModal && (
         <ReplyModal
           email={email}
+          history={history}
           onClose={() => setShowReplyModal(false)}
           onSendReply={(text) => onReply(email, text)}
         />

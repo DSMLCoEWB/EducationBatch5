@@ -45,6 +45,9 @@ export interface Email {
   threadId?: string;
   threadCount?: number;
   attachmentContent?: string;
+  is_sent?: boolean;
+  is_ocr_processed?: boolean;
+  is_priority_refined?: boolean;
 }
 
 export interface CategoryInfo {

@@ -19,6 +19,7 @@ interface EmailTableProps {
   onUpdateEmail: (emailId: string, updates: Partial<Email>) => void;
   onDeleteEmail: (emailId: string) => void;
   onRestoreEmail: (emailId: string) => void;
+  selectedEmail: Email | null;
 }
 
 type SortField = 'emailDate' | 'followUpCount' | 'sender';
@@ -32,9 +33,10 @@ interface Filters {
   repliedStatus: ('replied' | 'pending')[];
   hasAttachment: boolean | null;
   isUrgent: boolean;       // Pending > 3 days
+  searchQuery: string;
 }
 
-export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, onDeleteEmail, onRestoreEmail }: EmailTableProps) {
+export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, onDeleteEmail, onRestoreEmail, selectedEmail }: EmailTableProps) {
   const [sortField, setSortField] = useState<SortField>('emailDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [showFilters, setShowFilters] = useState(false);
@@ -45,7 +47,8 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     institutes: [],
     repliedStatus: [],
     hasAttachment: null,
-    isUrgent: false
+    isUrgent: false,
+    searchQuery: ''
   });
 
   // --- DERIVE DYNAMIC OPTIONS ---
@@ -67,7 +70,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     };
   }, [emails]);
 
-  // --- THREAD GROUPING LOGIC ---
+  // --- THREAD GROUPING & AGGREGATION LOGIC ---
   const threadedEmails = useMemo(() => {
     const threadGroups: Record<string, Email[]> = {};
     const noThreadEmails: Email[] = [];
@@ -83,15 +86,34 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
 
     const results: (Email & { threadCount: number })[] = [];
 
-    // Process groups
+    // Process groups to find the "Citizen Anchor"
     Object.entries(threadGroups).forEach(([tid, group]) => {
       const sortedGroup = [...group].sort((a, b) =>
         new Date(b.emailDate).getTime() - new Date(a.emailDate).getTime()
       );
-      const latest = sortedGroup[0];
+      
+      const absoluteLatest = sortedGroup[0];
+      
+      // Find the latest message from a CITIZEN (not sent by the department)
+      // This anchors our priority and category to the actual grievance state.
+      const latestCitizen = sortedGroup.find(e => !e.is_sent) || absoluteLatest;
+      
+      // ACTION-AWARE PRIORITY: 
+      // If the ABSOLUTE LATEST is a 'Sent' message (by us), the case is temporarily "Actioned".
+      // We drop the display priority to Low (6) so it clears from urgent views.
+      // If the Citizen follows up, absoluteLatest becomes a non-sent message again, 
+      // and priority restores from latestCitizen.
+      const isCurrentlyActioned = absoluteLatest.is_sent && !absoluteLatest.is_demo;
+      const displayPriority = isCurrentlyActioned ? 6 : latestCitizen.priority;
+
       results.push({
-        ...latest,
-        threadCount: group.length
+        ...latestCitizen, // Anchor metadata to the grievance
+        id: absoluteLatest.id, // Keep the latest ID for viewing/replying
+        snippet: absoluteLatest.snippet, // Show the latest update snippet
+        emailDate: absoluteLatest.emailDate, // Sort by absolute last touch
+        priority: displayPriority, 
+        threadCount: group.length,
+        replied: absoluteLatest.replied
       });
     });
 
@@ -102,9 +124,14 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     return results;
   }, [emails]);
 
-  // --- FILTERING LOGIC ---
-  const filteredEmails = useMemo(() => {
-    return threadedEmails.filter(e => {
+  // --- STABILITY GUARD: Prevent vanishing during background re-categorization ---
+  const stableEmails = useMemo(() => {
+    return threadedEmails;
+  }, [threadedEmails]);
+
+  // We calculate the raw filtered list based on current filters...
+  const unfilteredList = useMemo(() => {
+    return stableEmails.filter(e => {
       // Priority Filter
       if (filters.priorities.length > 0) {
         const p = Number.isFinite(Number(e.priority)) ? Number(e.priority) : 6;
@@ -119,10 +146,23 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
       if (filters.hasAttachment !== null && e.hasAttachment !== filters.hasAttachment) return false;
 
       // Category Filter (Table-level refinement)
-      if (filters.categories.length > 0 && !filters.categories.includes(e.category)) return false;
+      if (filters.categories.length > 0 && filters.categories[0] !== 'all') {
+        if (!filters.categories.includes(e.category)) return false;
+      }
 
       // Institute Filter
       if (filters.institutes.length > 0 && !filters.institutes.includes(e.instituteName)) return false;
+
+      // Search Filter
+      if (filters.searchQuery) {
+        const query = filters.searchQuery.toLowerCase();
+        const matches = 
+          (e.subject?.toLowerCase() || '').includes(query) ||
+          (e.sender?.toLowerCase() || '').includes(query) ||
+          (e.content?.toLowerCase() || '').includes(query) ||
+          (e.snippet?.toLowerCase() || '').includes(query);
+        if (!matches) return false;
+      }
 
       // Reply Status Filter
       if (filters.repliedStatus.length > 0) {
@@ -139,7 +179,24 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
 
       return true;
     });
-  }, [threadedEmails, filters]);
+  }, [stableEmails, filters]);
+
+  // ...but if the user has an email selected, we FORCE it to stay in the list (pinned)
+  // even if its metadata (category/priority) just changed and it should have vanished.
+  const filteredEmails = useMemo(() => {
+    if (!selectedEmail) return unfilteredList;
+
+    const isAlreadyPresent = unfilteredList.some(e => e.threadId === selectedEmail.threadId || e.id === selectedEmail.id);
+    if (isAlreadyPresent) return unfilteredList;
+
+    // It vanished from the filter! Let's find it in the MASTER list and re-inject it at the top.
+    const missingEmail = stableEmails.find(e => e.threadId === selectedEmail.threadId || e.id === selectedEmail.id);
+    if (missingEmail) {
+      return [missingEmail, ...unfilteredList];
+    }
+
+    return unfilteredList;
+  }, [unfilteredList, selectedEmail, stableEmails]);
 
   const sortedEmails = useMemo(() => {
     return [...filteredEmails].sort((a, b) => {
@@ -154,12 +211,12 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
           bValue = new Date(b.emailDate).getTime();
           break;
         case 'followUpCount':
-          aValue = a.followUpCount;
-          bValue = b.followUpCount;
+          aValue = a.followUpCount || 0;
+          bValue = b.followUpCount || 0;
           break;
         case 'sender':
-          aValue = a.sender.toLowerCase();
-          bValue = b.sender.toLowerCase();
+          aValue = (a.sender || '').toLowerCase();
+          bValue = (b.sender || '').toLowerCase();
           break;
         default: return 0;
       }
@@ -194,7 +251,8 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
       institutes: [],
       repliedStatus: [],
       hasAttachment: null,
-      isUrgent: false
+      isUrgent: false,
+      searchQuery: ''
     });
   };
 
@@ -488,6 +546,16 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
             {email.is_demo && (
               <span className="flex-shrink-0 text-[10px] font-semibold bg-gov-amber-light text-gov-amber px-1.5 py-0.5 rounded border border-gov-amber/20">
                 Demo
+              </span>
+            )}
+            {email.hasAttachment && !email.is_ocr_processed && (
+              <span className="flex-shrink-0 text-[10px] font-semibold bg-primary/10 text-primary px-1.5 py-0.5 rounded border border-primary/20 animate-pulse">
+                OCR Reading...
+              </span>
+            )}
+            {!email.is_priority_refined && (
+              <span className="flex-shrink-0 text-[10px] font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border">
+                Triage Pending
               </span>
             )}
           </div>

@@ -35,7 +35,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from chatbot import ask
 from agent_engine import get_chatbot_response
-from priority_llm import get_llm_priority, get_batch_priorities, apply_thread_escalation
+from priority_llm import get_llm_priority, get_batch_triage, apply_thread_escalation
 from pydantic import BaseModel
 from rag.reply_generator import generate_suggested_reply_with_evidence
 from rag.retriever import reload_retriever_data, get_embedder
@@ -849,6 +849,10 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
     from database_api import get_emails_from_db
     # We fetch everything currently in DB to ensure we don't lose anything
     existing_emails = get_emails_from_db(user_email, category='all')
+    # [ID MAPPING FIX]: Standardize 'id' from DB to 'email_id' for DF consistency
+    for e in existing_emails:
+        if 'email_id' not in e and 'id' in e:
+            e['email_id'] = e['id']
     existing_df = pd.DataFrame(existing_emails)
 
     if not new_messages:
@@ -912,6 +916,8 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
             "content": msg.get("content", ""),
             "attachments": msg.get("attachments", []),
             "attachment_content": msg.get("attachment_content", ""),
+            "has_attachment": msg.get("has_attachment", False),
+            "is_ocr_processed": 1 if not msg.get("has_attachment", False) else msg.get("is_ocr_processed", 0),
             "eml_file": msg.get("raw_message_id", ""),
             "gmail_id": msg.get("gmail_id", ""),
             "is_demo": False,
@@ -919,6 +925,7 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
             "is_inbox": is_inbox,
             "is_sent": msg.get("is_sent", False),
             "is_trashed": 1 if msg.get("category") == "trash" else 0,
+            "is_priority_refined": msg.get("is_priority_refined", 0),
         }
 
         new_rows.append(row)
@@ -1006,43 +1013,52 @@ def _run_priority_llm_enrichment(user_email: str) -> None:
         except Exception as db_err:
             print(f"⚠️ Warning: Could not pre-fetch refined IDs from DB: {db_err}")
         
-        # 2. Collect only unscored emails
+        # 2. Collect only unscored emails that are READY for triage
+        # SEQUENCE RULE: If it has an attachment, we MUST wait for OCR to finish (is_ocr_processed=1)
         to_score = []
         for _, row in snapshot_df.iterrows():
             email_id = str(row.get("email_id", "")).strip().lower()
-            # [STRICT SKIP]: Use the persistent is_priority_refined flag from DB
             is_already_refined = row.get("is_priority_refined", 0)
             if not email_id or is_already_refined == 1:
                 continue
             
-            # Legacy/Safety check for in-memory set (during a long running session)
+            # [OCR DEPENDENCY]: Don't send to LLM until the 'eyes' (OCR) have finished reading it
+            has_att = row.get("attachments", []) or row.get("has_attachment", False)
+            is_ocr_done = row.get("is_ocr_processed", 0)
+            if has_att and not is_ocr_done:
+                continue # Wait for OCR worker to finish this one
+            
             if email_id in scored_ids:
                 continue
             
-            # Defense against NaN for numeric calculation
             f_count = row.get("followup_count", 0)
             if pd.isna(f_count):
                 f_count = 0
             
+            # Combine body + attachment content for full context triage
+            content_block = str(row.get("content", ""))
+            att_content = str(row.get("attachment_content", ""))
+            if att_content:
+                content_block += f"\n\n[ATTACHMENT CONTENT]:\n{att_content}"
+
             to_score.append({
                 "id": email_id,
                 "sender": row.get("sender", "Unknown"),
                 "subject": row.get("subject", "No Subject"),
-                "content": row.get("content", ""),
+                "content": content_block,
                 "followup_count": int(f_count)
             })
 
         if not to_score:
             return
 
-        # 3. Process a larger batch to maximize the Gemini Free Tier's daily request limit (e.g., 20 requests per day)
         batch_size = 15
         batch = to_score[:batch_size]
         
-        print(f"Refining priority for a batch of {len(batch)} emails...")
+        print(f"Refining Triage (Priority + Category) for batch of {len(batch)} emails...")
         
-        # This call is rate-limited inside priority_llm.py (max 5 per 5 mins)
-        batch_results = get_batch_priorities(batch)
+        from priority_llm import get_batch_triage
+        batch_results = get_batch_triage(batch)
         print(f"DEBUG: LLM returned {len(batch_results)} results for batch of {len(batch)}.")
         if batch_results:
             print(f"DEBUG: Returned IDs: {list(batch_results.keys())}")
@@ -1055,9 +1071,16 @@ def _run_priority_llm_enrichment(user_email: str) -> None:
         for email in batch:
             eid = email["id"].lower()
             if eid in batch_results:
-                llm_p = batch_results[eid]
+                triage = batch_results[eid]
+                llm_p = triage["priority"]
+                llm_c = triage["category"]
+                
                 final_p = apply_thread_escalation(llm_p, email["followup_count"])
-                updates[eid] = int(final_p)
+                
+                updates[eid] = {
+                    "priority": int(final_p),
+                    "category": llm_c
+                }
                 newly_scored.add(eid)
                 
         if not updates:
@@ -1070,11 +1093,12 @@ def _run_priority_llm_enrichment(user_email: str) -> None:
             live_df = _dynamic_cache_df_by_user.get(key)
             if live_df is not None:
                 live_df = live_df.copy()
-                for eid, priority in updates.items():
+                for eid, data in updates.items():
                     mask = live_df["email_id"].astype(str).str.lower() == eid.lower()
                     if mask.any():
-                        live_df.loc[mask, "priority"] = int(priority)
-                        live_df.loc[mask, "is_priority_refined"] = 1 # Mark as refined permanently
+                        live_df.loc[mask, "priority"] = data["priority"]
+                        live_df.loc[mask, "category"] = data["category"]
+                        live_df.loc[mask, "is_priority_refined"] = 1 # Mark triage as complete
                 
                 _dynamic_cache_df_by_user[key] = live_df
                 _dynamic_cache_at_by_user[key] = datetime.now()
@@ -1187,12 +1211,14 @@ def _run_attachment_ocr_enrichment(user_email: str) -> None:
         logger.info(f"🔍 [OCR Worker] Starting background processing for {len(pending)} emails...")
         
         for email_item in pending:
-            email_id = email_item.get("email_id")
+            # [ID MAPPING FIX]: DB result has 'id', application logic expects 'email_id'
+            email_id = email_item.get("email_id") or email_item.get("id")
+            email_item["email_id"] = email_id 
             attachments = email_item.get("attachments", [])
             
             if not attachments:
                 # Mark as processed if no attachments (safety check)
-                save_emails_batch(user_email, [{**email_item, "is_ocr_processed": 1}])
+                save_emails_batch(user_email, [{**dict(email_item), "is_ocr_processed": 1}])
                 continue
 
             extracted_anything = False
@@ -1225,14 +1251,16 @@ def _run_attachment_ocr_enrichment(user_email: str) -> None:
                 attachment_content=total_extracted
             )
             
-            # Mark this email as OCR processed
-            save_emails_batch(user_email, [{**email_item, "category": new_cat, "is_ocr_processed": 1}])
+            # Mark this email as OCR processed and preserve the extracted content
+            save_emails_batch(user_email, [{**dict(email_item), "category": new_cat, "is_ocr_processed": 1, "attachment_content": total_extracted}])
             
             # Briefly pause the in-memory cache to force a refresh on next UI request
             with _get_user_lock(user_email):
                 _dynamic_cache_df_by_user.pop(key, None)
 
-        logger.info(f"✅ [OCR Worker] Finished background batch for {user_email}.")
+        logger.info(f"✅ [OCR Worker] Finished background batch for {user_email}. Triggering AI Triage...")
+        # Proactively trigger the AI Triage worker now that more content is available
+        _schedule_priority_llm_enrichment(user_email)
 
     except Exception as exc:
         logger.error(f"OCR enrichment worker error: {exc}")
@@ -1251,8 +1279,8 @@ def _schedule_attachment_ocr_enrichment(user_email: str) -> None:
             
         now = datetime.now()
         last_run = _ocr_last_run_by_user.get(key)
-        # 30-second cooldown between starting batches
-        if last_run and (now - last_run).total_seconds() < 30:
+        # 10-second cooldown between starting batches for background autonomy
+        if last_run and (now - last_run).total_seconds() < 10:
             return
             
         _ocr_worker_running_by_user[key] = True
@@ -1392,8 +1420,9 @@ def _refresh_dynamic_cache(user_email: str, force_refresh: bool = False) -> pd.D
         )
 
         if not force_refresh and cache_valid:
-            _schedule_priority_llm_enrichment(user_email)
+            # Wake up workers to handle any background backlog even if cache is still fresh
             _schedule_attachment_ocr_enrichment(user_email)
+            _schedule_priority_llm_enrichment(user_email)
             return cached_df.copy()
 
     # 2. Perform the actual refresh with robust state protection
@@ -1406,11 +1435,12 @@ def _refresh_dynamic_cache(user_email: str, force_refresh: bool = False) -> pd.D
         logger.info(f"🔄 [Sync] Starting high-parity Gmail sync for {user_email}...")
         df = _build_dynamic_dataframe(user_email)
         _persist_dynamic_cache(user_email, df, cached_at=datetime.now())
-        _schedule_priority_llm_enrichment(user_email)
-        _schedule_attachment_ocr_enrichment(user_email)
-        return df
     finally:
         _is_syncing_by_user[user_email] = False
+        # Always trigger intelligence suite after sync (even if no new messages found)
+        # as there might be a backlog of un-processed OCR or AI Triage in the DB.
+        _schedule_attachment_ocr_enrichment(user_email)
+        _schedule_priority_llm_enrichment(user_email)
         logger.info(f"✅ [Sync] Sync finished for {user_email}.")
 
 
@@ -2334,6 +2364,8 @@ class GenerateReplyRequest(BaseModel):
     sender: str = ""
     category: str = ""
     attachment_content: str = ""
+    history: list[Dict[str, Any]] = []
+    email_id: str = ""
 
 
 class GenerateReplyResponse(BaseModel):
@@ -2416,8 +2448,8 @@ def test_api_keys():
     return results
 
 
-@app.post("/generate-reply")
-def generate_reply(request: GenerateReplyRequest) -> GenerateReplyResponse:
+@app.post("/generate-reply-detailed")
+def generate_reply_detailed(request: GenerateReplyRequest) -> GenerateReplyResponse:
     """Generate AI-powered suggested reply using RAG system"""
     try:
         logger.info(
@@ -2429,7 +2461,9 @@ def generate_reply(request: GenerateReplyRequest) -> GenerateReplyResponse:
             email_subject=request.email_subject,
             sender=request.sender,
             category=request.category,
-            attachment_content=request.attachment_content
+            attachment_content=request.attachment_content,
+            history=request.history,
+            email_id=request.email_id
         )
         return GenerateReplyResponse(**reply_bundle)
     except Exception as e:

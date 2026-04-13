@@ -40,7 +40,7 @@ def test_priority_refinement():
 
     print(f"📡 Calling LLM with {len(mock_emails)} test emails...")
     start_time = datetime.now()
-    results = priority_llm.get_batch_priorities(mock_emails)
+    results = priority_llm.get_batch_triage(mock_emails)
     end_time = datetime.now()
     
     duration = (end_time - start_time).total_seconds()

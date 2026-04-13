@@ -380,7 +380,7 @@ export function transformBackendEmail(backendEmail: any): Email {
     content: content,
     snippet: createSnippet(content),
     priority: backendEmail.priority ?? 99,
-    hasAttachment: (backendEmail.attachments && backendEmail.attachments.length > 0) || content.toLowerCase().includes('attachment') || content.toLowerCase().includes('attached'),
+    hasAttachment: !!(backendEmail.has_attachment || backendEmail.hasAttachment || (backendEmail.attachments && backendEmail.attachments.length > 0)),
     attachments: backendEmail.attachments || [],
     emlFile: backendEmail.eml_file || backendEmail.emlFile || '',
     category,
@@ -392,6 +392,9 @@ export function transformBackendEmail(backendEmail: any): Email {
     is_demo: !!backendEmail.is_demo,
     threadId: backendEmail.thread_id || backendEmail.threadId,
     attachmentContent: backendEmail.attachment_content || backendEmail.attachmentContent,
+    is_sent: !!(backendEmail.is_sent || backendEmail.isSent),
+    is_ocr_processed: !!backendEmail.is_ocr_processed,
+    is_priority_refined: !!backendEmail.is_priority_refined,
   };
 }
 

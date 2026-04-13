@@ -143,9 +143,9 @@ def main():
             "content": content
         })
 
-    from priority_llm import get_batch_priorities
+    from priority_llm import get_batch_triage
     print("Calling Gemini for BATCH prioritisation (this should take ~15s)...")
-    batch_results = get_batch_priorities(batch_data)
+    batch_results = get_batch_triage(batch_data)
     print("Received " + str(len(batch_results)) + " scores from LLM.")
 
     df = pd.DataFrame()
