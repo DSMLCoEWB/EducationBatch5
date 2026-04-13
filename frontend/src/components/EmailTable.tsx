@@ -262,7 +262,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
 
   const activeFilterCount = Object.entries(filters).reduce((acc, [key, val]) => {
     if (Array.isArray(val)) return acc + val.length;
-    if (val !== null && val !== false) return acc + 1;
+    if (val !== null && val !== false && val !== '') return acc + 1;
     return acc;
   }, 0);
 

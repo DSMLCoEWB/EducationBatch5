@@ -124,9 +124,9 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   const dailyVolumeData = getLast7DaysData();
 
   const statCards = [
-    { title: 'Total Activity', value: stats.total, icon: <Mail className="w-5 h-5" />, variant: 'blue' as const },
-    { title: 'Open Grievances', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}` },
-    { title: 'Incoming Mail', value: stats.fresh, icon: <MailOpen className="w-5 h-5" />, variant: 'green' as const },
+    { title: 'Total Conversations', value: stats.total, icon: <Mail className="w-5 h-5" />, variant: 'blue' as const },
+    { title: 'Pending Replies', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}` },
+    { title: 'Fresh Emails', value: stats.fresh, icon: <MailOpen className="w-5 h-5" />, variant: 'green' as const },
     { title: 'Follow-ups', value: stats.followUp, icon: <Reply className="w-5 h-5" />, variant: 'orange' as const },
     { title: 'Attachments', value: stats.withAttachments, icon: <Paperclip className="w-5 h-5" />, variant: 'purple' as const },
   ];
