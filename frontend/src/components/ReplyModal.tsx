@@ -5,11 +5,12 @@ import { GenerateReplyResult, generateReplyDetailed } from '@/services/api';
 
 interface ReplyModalProps {
   email: Email;
+  history?: Email[];
   onClose: () => void;
   onSendReply: (replyText: string) => Promise<void>;
 }
 
-export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
+export function ReplyModal({ email, history, onClose, onSendReply }: ReplyModalProps) {
   const [replyText, setReplyText] = useState('');
   const [usingSuggested, setUsingSuggested] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -44,7 +45,9 @@ export function ReplyModal({ email, onClose, onSendReply }: ReplyModalProps) {
         email.subject, 
         email.sender, 
         email.category,
-        email.attachmentContent
+        email.attachmentContent,
+        history,
+        email.id
       );
       setReplyText(aiResult.suggested_reply);
       setRagEvidence(aiResult);

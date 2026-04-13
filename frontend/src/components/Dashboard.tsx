@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Mail, MailOpen, Reply, Paperclip, Clock, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, PieChart, Pie, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { Email } from '@/types';
@@ -20,29 +20,52 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
 
   if (!emails) return null;
 
-  const unrepliedEmails = emails.filter(e => !e.replied);
-  
+  // --- GRIEVANCE-CENTRIC AGGREGATION ---
+  const grievances = useMemo(() => {
+    const threadGroups: Record<string, Email[]> = {};
+    const standalone: Email[] = [];
+    
+    emails.forEach(e => {
+      if (e.threadId) {
+        if (!threadGroups[e.threadId]) threadGroups[e.threadId] = [];
+        threadGroups[e.threadId].push(e);
+      } else {
+        standalone.push(e);
+      }
+    });
+
+    const threadGrievances = Object.values(threadGroups).map(group => {
+      const sorted = [...group].sort((a, b) => new Date(b.emailDate).getTime() - new Date(a.emailDate).getTime());
+      const absoluteLatest = sorted[0];
+      const latestCitizen = sorted.find(e => !e.is_sent) || absoluteLatest;
+      return { ...latestCitizen, replied: absoluteLatest.replied };
+    });
+
+    return [...threadGrievances, ...standalone];
+  }, [emails]);
+
   const calculateAveragePendingDuration = () => {
-    if (unrepliedEmails.length === 0) return '0 days';
+    const unrepliedGrievances = grievances.filter(g => !g.replied);
+    if (unrepliedGrievances.length === 0) return '0 days';
     const now = new Date();
-    const totalDays = unrepliedEmails.reduce((sum, email) => {
-      const emailDate = new Date(email.emailDate);
+    const totalDays = unrepliedGrievances.reduce((sum, g) => {
+      const emailDate = new Date(g.emailDate);
       const diffTime = Math.abs(now.getTime() - emailDate.getTime());
       return sum + Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     }, 0);
-    const avgDays = Math.round(totalDays / unrepliedEmails.length);
+    const avgDays = Math.round(totalDays / unrepliedGrievances.length);
     if (avgDays === 0) return '< 1 day';
     if (avgDays === 1) return '1 day';
     return `${avgDays} days`;
   };
-  
+
   const stats = {
-    total: emails.length,
-    unreplied: unrepliedEmails.length,
+    total: grievances.length,
+    unreplied: grievances.filter(g => !g.replied).length,
     avgPendingDuration: calculateAveragePendingDuration(),
-    fresh: emails.filter(e => e.mailType === 'fresh').length,
-    followUp: emails.filter(e => e.mailType === 'follow-up').length,
-    withAttachments: emails.filter(e => e.hasAttachment).length
+    fresh: grievances.filter(g => g.mailType === 'fresh').length,
+    followUp: grievances.filter(g => g.mailType === 'follow-up').length,
+    withAttachments: grievances.filter(g => g.hasAttachment).length
   };
 
   const categories = [
@@ -54,22 +77,22 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   ];
 
   const categoryData = [
-    { name: 'Suspension', id: 'Suspension / Disciplinary', count: emails.filter(e => e.category === 'Suspension / Disciplinary').length, fill: 'hsl(25, 95%, 53%)' },
-    { name: 'Legal', id: 'Legal Issues', count: emails.filter(e => e.category === 'Legal Issues').length, fill: 'hsl(0, 72%, 51%)' },
-    { name: 'RTI', id: 'RTI Matters', count: emails.filter(e => e.category === 'RTI Matters').length, fill: 'hsl(210, 100%, 50%)' },
-    { name: 'CMO', id: 'CMO Issues', count: emails.filter(e => e.category === 'CMO Issues').length, fill: 'hsl(260, 100%, 50%)' },
-    { name: 'Semester', id: 'Semester / Examination', count: emails.filter(e => e.category === 'Semester / Examination').length, fill: 'hsl(234, 89%, 54%)' },
-    { name: 'Scholarship', id: 'Scholarship & Fee Concession', count: emails.filter(e => e.category === 'Scholarship & Fee Concession').length, fill: 'hsl(40, 95%, 38%)' },
-    { name: 'Purchase', id: 'Purchase / Procurement Issues', count: emails.filter(e => e.category === 'Purchase / Procurement Issues').length, fill: 'hsl(160, 100%, 40%)' },
-    { name: 'Cash', id: 'Cash Issues', count: emails.filter(e => e.category === 'Cash Issues').length, fill: 'hsl(340, 80%, 50%)' },
-    { name: 'Ragging', id: 'Anti-Ragging Complaints', count: emails.filter(e => e.category === 'Anti-Ragging Complaints').length, fill: 'hsl(15, 90%, 50%)' },
-    { name: 'Accreditation', id: 'Accreditation & Ranking', count: emails.filter(e => e.category === 'Accreditation & Ranking').length, fill: 'hsl(280, 100%, 60%)' },
-    { name: 'Service', id: 'Service Matters', count: emails.filter(e => e.category === 'Service Matters').length, fill: 'hsl(180, 100%, 40%)' },
-    { name: 'Appointment', id: 'Appointment Issues', count: emails.filter(e => e.category === 'Appointment Issues').length, fill: 'hsl(130, 70%, 45%)' },
-    { name: 'Transfer', id: 'Transfer Cases', count: emails.filter(e => e.category === 'Transfer Cases').length, fill: 'hsl(200, 90%, 45%)' },
-    { name: 'Inspection', id: 'Inspection Matters', count: emails.filter(e => e.category === 'Inspection Matters').length, fill: 'hsl(250, 80%, 55%)' },
-    { name: 'Seat Matrix', id: 'Seat Matrix Issues', count: emails.filter(e => e.category === 'Seat Matrix Issues').length, fill: 'hsl(310, 80%, 50%)' },
-    { name: 'Misc', id: 'Miscellaneous', count: emails.filter(e => !categories.some(c => c.id === e.category) && e.category !== 'Sent' && e.category !== 'trash').length, fill: 'hsl(224, 15%, 50%)' }
+    { name: 'Suspension', id: 'Suspension / Disciplinary', count: grievances.filter(e => e.category === 'Suspension / Disciplinary').length, fill: 'hsl(25, 95%, 53%)' },
+    { name: 'Legal', id: 'Legal Issues', count: grievances.filter(e => e.category === 'Legal Issues').length, fill: 'hsl(0, 72%, 51%)' },
+    { name: 'RTI', id: 'RTI Matters', count: grievances.filter(e => e.category === 'RTI Matters').length, fill: 'hsl(210, 100%, 50%)' },
+    { name: 'CMO', id: 'CMO Issues', count: grievances.filter(e => e.category === 'CMO Issues').length, fill: 'hsl(260, 100%, 50%)' },
+    { name: 'Semester', id: 'Semester / Examination', count: grievances.filter(e => e.category === 'Semester / Examination').length, fill: 'hsl(234, 89%, 54%)' },
+    { name: 'Scholarship', id: 'Scholarship & Fee Concession', count: grievances.filter(e => e.category === 'Scholarship & Fee Concession').length, fill: 'hsl(40, 95%, 38%)' },
+    { name: 'Purchase', id: 'Purchase / Procurement Issues', count: grievances.filter(e => e.category === 'Purchase / Procurement Issues').length, fill: 'hsl(160, 100%, 40%)' },
+    { name: 'Cash', id: 'Cash Issues', count: grievances.filter(e => e.category === 'Cash Issues').length, fill: 'hsl(340, 80%, 50%)' },
+    { name: 'Ragging', id: 'Anti-Ragging Complaints', count: grievances.filter(e => e.category === 'Anti-Ragging Complaints').length, fill: 'hsl(15, 90%, 50%)' },
+    { name: 'Accreditation', id: 'Accreditation & Ranking', count: grievances.filter(e => e.category === 'Accreditation & Ranking').length, fill: 'hsl(280, 100%, 60%)' },
+    { name: 'Service', id: 'Service Matters', count: grievances.filter(e => e.category === 'Service Matters').length, fill: 'hsl(180, 100%, 40%)' },
+    { name: 'Appointment', id: 'Appointment Issues', count: grievances.filter(e => e.category === 'Appointment Issues').length, fill: 'hsl(130, 70%, 45%)' },
+    { name: 'Transfer', id: 'Transfer Cases', count: grievances.filter(e => e.category === 'Transfer Cases').length, fill: 'hsl(200, 90%, 45%)' },
+    { name: 'Inspection', id: 'Inspection Matters', count: grievances.filter(e => e.category === 'Inspection Matters').length, fill: 'hsl(250, 80%, 55%)' },
+    { name: 'Seat Matrix', id: 'Seat Matrix Issues', count: grievances.filter(e => e.category === 'Seat Matrix Issues').length, fill: 'hsl(310, 80%, 50%)' },
+    { name: 'Misc', id: 'Miscellaneous', count: grievances.filter(e => !categories.some(c => c.id === e.category) && e.category !== 'Sent' && e.category !== 'trash').length, fill: 'hsl(224, 15%, 50%)' }
   ].filter(c => c.count > 0 || [
     'Suspension', 'Legal', 'Semester', 'Scholarship', 'RTI', 'CMO', 'Service'
   ].includes(c.name))
@@ -101,9 +124,9 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   const dailyVolumeData = getLast7DaysData();
 
   const statCards = [
-    { title: 'Total Emails', value: stats.total, icon: <Mail className="w-5 h-5" />, variant: 'blue' as const },
-    { title: 'Pending Replies', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}` },
-    { title: 'Fresh Emails', value: stats.fresh, icon: <MailOpen className="w-5 h-5" />, variant: 'green' as const },
+    { title: 'Total Activity', value: stats.total, icon: <Mail className="w-5 h-5" />, variant: 'blue' as const },
+    { title: 'Open Grievances', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}` },
+    { title: 'Incoming Mail', value: stats.fresh, icon: <MailOpen className="w-5 h-5" />, variant: 'green' as const },
     { title: 'Follow-ups', value: stats.followUp, icon: <Reply className="w-5 h-5" />, variant: 'orange' as const },
     { title: 'Attachments', value: stats.withAttachments, icon: <Paperclip className="w-5 h-5" />, variant: 'purple' as const },
   ];

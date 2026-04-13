@@ -353,12 +353,18 @@ export default function App() {
               </div>
             )
           ) : (
-            // State 3: We have emails, show requested view
             activeView === 'dashboard' ? (
               <Dashboard emails={filteredEmails} onViewChange={setActiveView} />
             ) : (
-              <EmailTable emails={categoryEmails} categoryId={activeView} onEmailClick={setSelectedEmail}
-                onUpdateEmail={handleUpdateEmail} onDeleteEmail={handleDeleteEmail} onRestoreEmail={handleRestoreEmail} />
+              <EmailTable 
+                emails={categoryEmails} 
+                categoryId={activeView} 
+                onEmailClick={setSelectedEmail}
+                onUpdateEmail={handleUpdateEmail} 
+                onDeleteEmail={handleDeleteEmail} 
+                onRestoreEmail={handleRestoreEmail} 
+                selectedEmail={selectedEmail}
+              />
             )
           )}
         </main>

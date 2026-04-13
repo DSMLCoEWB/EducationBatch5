@@ -103,10 +103,10 @@ Content: {email_text}
 
     return None
 
-def get_batch_priorities(emails):
+def get_batch_triage(emails):
     """
     Emails: list of {id, subject, sender, content}
-    Returns: dict of {id: priority}
+    Returns: dict of {id: {"priority": int, "category": str}}
     """
     if not emails or client is None:
         return {}
@@ -114,27 +114,35 @@ def get_batch_priorities(emails):
     # Format emails into a single block
     emails_block = ""
     for e in emails:
-        emails_block += f"ID: {e['id']}\nSENDER: {e['sender']}\nSUBJECT: {e['subject']}\nCONTENT: {e['content'][:500]}...\n---\n"
+        emails_block += f"ID: {e['id']}\nSENDER: {e['sender']}\nSUBJECT: {e['subject']}\nCONTENT: {e['content'][:700]}...\n---\n"
+
+    categories_list = [
+        "Suspension / Disciplinary", "Legal Issues", "RTI Matters", "CMO Issues",
+        "Semester / Examination", "Scholarship & Fee Concession", "Purchase / Procurement Issues",
+        "Cash Issues", "Anti-Ragging Complaints", "Accreditation & Ranking", "Service Matters",
+        "Appointment Issues", "Transfer Cases", "Inspection Matters", "Seat Matrix Issues", "Miscellaneous"
+    ]
 
     prompt = f"""
 You are an expert triage assistant for a government education department. 
-Analyze the following batch of emails and assign a priority rank (0-6) to each.
+Analyze the following batch of emails and assign BOTH a category and a priority rank (0-6) to each.
+
+CATEGORIES:
+{", ".join(categories_list)}
 
 PRIORITY LEVELS (0-6):
-0: Chief Secretary / Cabinet / Highest Government Authority (Mandatory Command)
-1: Court orders, RTI Matters, Examination Paper Leakage/Breach, Student Safety Incidents (Critical)
-2: Anti-Ragging Complaints, FIR cases, CMO Issues, Ministerial References (High Risk)
-3: Service Matters (Salary/Pension Delays), Suspensions / Disciplinary, Financial Fraud (Integrity)
-4: Tenders / Procurement (Deadlines), Seat Matrix, Accreditation (NAAC/NBA)
-5: Ordinary Leave Requests, Admissions, Semester / Examination routine, Scholarship Queries (Routine)
-6: Miscellaneous, routine queries, website feedback, or general information (Standard)
+0: Chief Secretary / Cabinet / Highest Authority (Mandatory Command)
+1: Court orders, RTI, Exam Paper Leaks, Student Safety (Critical)
+2: Anti-Ragging, FIR, CMO Issues, Ministerial References (High Risk)
+3: Service Matters (Salary/Pension), Suspensions, Financial Fraud (Integrity)
+4: Tenders, Seat Matrix, Accreditation (Deadlines)
+5: Leave Requests, Admissions, Semester routine, Scholarship (Routine)
+6: Miscellaneous, routine info, web feedback (Standard)
 
 Rules:
 - If follow-up mentions or immediate deadlines exist, increase urgency (lower number), capped at Level 2.
-- Breach of examination integrity or accidents MUST be Level 1.
-- Ordinary staff leave/medical requests are Level 5.
 - Return YOUR RESPONSE AS A VALID JSON OBJECT ONLY.
-- Format: {{ "EMAIL_ID": PRIORITY_NUMBER, ... }}
+- Format: {{ "EMAIL_ID": {{ "priority": 0-6, "category": "One of the listed categories" }}, ... }}
 
 EMAILS TO PROCESS:
 {emails_block}
@@ -145,38 +153,42 @@ EMAILS TO PROCESS:
         return {}
 
     try:
-        print(f"DEBUG RAW AI RESPONSE: {result_text}")
         cleaned_json = result_text.strip()
         if cleaned_json.startswith("```"):
-            # Remove start/end backticks and any "json" tag
             match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned_json, re.DOTALL)
             if match:
                 cleaned_json = match.group(1)
 
-        # Aggressive cleaning: remove anything that is not part of the JSON object
-        # In case the LLM adds text before/after the backticks
         if "{" in cleaned_json and "}" in cleaned_json:
             cleaned_json = cleaned_json[cleaned_json.find("{"):cleaned_json.rfind("}")+1]
 
-        priorities = json.loads(cleaned_json)
+        triage_data = json.loads(cleaned_json)
 
         # Final ID normalization for matching
-        cleaned_priorities = {}
-        for k, v in priorities.items():
+        cleaned_results = {}
+        for k, v in triage_data.items():
             clean_k = str(k).strip().lower()
-            # If the AI adds "ID: " or quotes, strip them
             if clean_k.startswith("id:"):
                 clean_k = clean_k[3:].strip()
-            cleaned_priorities[clean_k] = int(v)
+            
+            # Ensure category is valid or fallback to Miscellaneous
+            cat = v.get("category", "Miscellaneous")
+            if cat not in categories_list:
+                cat = "Miscellaneous"
+                
+            cleaned_results[clean_k] = {
+                "priority": int(v.get("priority", 6)),
+                "category": cat
+            }
 
-        return cleaned_priorities
+        return cleaned_results
     except Exception as e:
-        print("Batch LLM scoring failed: " + str(e))
-        print(f"RAW TEXT was: {result_text[:200]}...") # Log start of raw text for debugging
+        print("Batch LLM triage failed: " + str(e))
         return {}
 
 def apply_thread_escalation(priority, followup_count):
-    # If many follow-ups, increase priority
-    if followup_count > 3 and priority in [4, 5]:
-        return 2  # escalate to legal-level seriousness
+    # If many follow-ups, increase priority but CAP it at Level 2 (High)
+    # This prevents routine frustration from hitting Level 1 (Critical)
+    if (followup_count or 0) > 3 and (priority or 5) > 2:
+        return 2  # escalate to high-level seriousness
     return priority

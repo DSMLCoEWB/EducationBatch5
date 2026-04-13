@@ -43,6 +43,15 @@ def init_db():
         )
     """)
     
+    # [SELF-HEALING]: Ensure 'has_attachment' is correctly set for existing rows
+    # This recovers emails with attachments that might have missed the flag during ingestion.
+    cursor.execute("""
+        UPDATE emails 
+        SET has_attachment = 1 
+        WHERE (has_attachment = 0 OR has_attachment IS NULL) 
+          AND (attachments IS NOT NULL AND attachments != '[]')
+    """)
+    
     # Create the revoked_sessions table for Google RISC security notifications
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS revoked_sessions (
