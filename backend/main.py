@@ -4,7 +4,7 @@ from itertools import count
 import os
 import sqlite3
 import pandas as pd
-from database_api import init_db, save_emails_batch, get_emails_from_db, mark_as_trashed, delete_all_for_user, get_existing_gmail_ids, update_email_attachment_content, DB_PATH, reclassify_all_stored_emails
+from database_api import init_db, save_emails_batch, get_emails_from_db, mark_as_trashed, delete_all_for_user, get_existing_gmail_ids, update_email_attachment_content, DB_PATH, reclassify_all_stored_emails, touch_user_sync_time
 import re
 import json
 import ast
@@ -33,7 +33,6 @@ from followup import detect_followup
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
-from chatbot import ask
 from agent_engine import get_chatbot_response
 from priority_llm import get_llm_priority, get_batch_triage, apply_thread_escalation
 from pydantic import BaseModel
@@ -872,7 +871,7 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
             subject=msg.get("subject", ""),
             attachment_content=msg.get("attachment_content", "")
         )
-        mail_type, parent_id, followup_count = detect_followup(msg, current_context_df)
+        mail_type, parent_id, followup_count = detect_followup(msg, current_context_df, user_email=user_email)
 
         # Always score immediately with deterministic heuristic in request path.
         # Optional LLM refinement is applied asynchronously in background.
@@ -885,13 +884,26 @@ def _build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
         # Improved Institute Detection: Identify public domains vs. genuine institutions
         sender_email = msg.get("sender_email", "").strip().lower()
         domain = sender_email.split("@")[-1] if "@" in sender_email else ""
-        PUBLIC_PROVIDERS = {'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'rediffmail.com', 'live.com', 'me.com'}
+        
+        # Comprehensive list of public/generic providers
+        PUBLIC_PROVIDERS = {
+            'gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 
+            'rediffmail.com', 'live.com', 'me.com', 'yandex.com', 'protonmail.com', 'zoho.com'
+        }
+        
+        # If it's a known academic or government suffix, it's definitely an institute
+        INSTITUTIONAL_SUFFIXES = ('.ac.in', '.edu.in', '.res.in', '.gov.in', '.edu', '.org.in', '.nic.in')
         
         if not domain or domain in PUBLIC_PROVIDERS:
             institute_guess = "Individual / Public"
         else:
-            # Clean name: extra the part between @ and the first . (e.g. nitw from nitw.ac.in)
-            institute_guess = domain.split('.')[0].upper()
+            # Check for institutional suffixes first for high-confidence match
+            if domain.endswith(INSTITUTIONAL_SUFFIXES):
+                # extract name e.g. nitw from nitw.ac.in
+                institute_guess = domain.split('.')[0].upper()
+            else:
+                # Fallback for corporate or other domains
+                institute_guess = domain.split('.')[0].upper()
 
         final_category = msg.get("category") or category
         if final_category == "Miscellaneous" and msg.get("is_sent_by_me"):
@@ -1446,6 +1458,9 @@ def _refresh_dynamic_cache(user_email: str, force_refresh: bool = False) -> pd.D
         _persist_dynamic_cache(user_email, df, cached_at=datetime.now())
     finally:
         _is_syncing_by_user[user_email] = False
+        # Touch the last_synced timestamp for auditing and Assistant health checks
+        touch_user_sync_time(user_email)
+        
         # Always trigger intelligence suite after sync (even if no new messages found)
         # as there might be a backlog of un-processed OCR or AI Triage in the DB.
         _schedule_attachment_ocr_enrichment(user_email)

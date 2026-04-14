@@ -21,11 +21,15 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   if (!emails) return null;
 
   // --- GRIEVANCE-CENTRIC AGGREGATION ---
+  // Locked to 'is_inbox' only to prevent Dashboard counts (86/84/84/2) from breaking
   const grievances = useMemo(() => {
     const threadGroups: Record<string, Email[]> = {};
     const standalone: Email[] = [];
     
-    emails.forEach(e => {
+    // Only aggregate emails that are inquiries in the inbox
+    const coreGrievances = emails.filter(e => e.isInbox);
+    
+    coreGrievances.forEach(e => {
       if (e.threadId) {
         if (!threadGroups[e.threadId]) threadGroups[e.threadId] = [];
         threadGroups[e.threadId].push(e);
@@ -37,8 +41,8 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
     const threadGrievances = Object.values(threadGroups).map(group => {
       const sorted = [...group].sort((a, b) => new Date(b.emailDate).getTime() - new Date(a.emailDate).getTime());
       const absoluteLatest = sorted[0];
-      const latestCitizen = sorted.find(e => !e.is_sent) || absoluteLatest;
-      return { ...latestCitizen, replied: absoluteLatest.replied };
+      const latestCitizen = sorted.find(e => !e.isSent) || absoluteLatest;
+    return { ...latestCitizen, replied: absoluteLatest.replied };
     });
 
     return [...threadGrievances, ...standalone];
@@ -65,6 +69,7 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
     avgPendingDuration: calculateAveragePendingDuration(),
     fresh: grievances.filter(g => g.mailType === 'fresh').length,
     followUp: grievances.filter(g => g.mailType === 'follow-up').length,
+    replies: emails.filter(e => (e.mailType || '').toLowerCase() === 'reply').length,
     withAttachments: grievances.filter(g => g.hasAttachment).length
   };
 
@@ -100,7 +105,8 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
 
   const mailTypeData = [
     { name: 'Fresh', value: stats.fresh, fill: 'hsl(152, 60%, 40%)' },
-    { name: 'Follow-up', value: stats.followUp, fill: 'hsl(25, 95%, 53%)' }
+    { name: 'Follow-up', value: stats.followUp, fill: 'hsl(25, 95%, 53%)' },
+    { name: 'Reply', value: stats.replies, fill: 'hsl(234, 89%, 54%)' }
   ];
 
   const getLast7DaysData = () => {
@@ -128,6 +134,7 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
     { title: 'Pending Replies', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}` },
     { title: 'Fresh Emails', value: stats.fresh, icon: <MailOpen className="w-5 h-5" />, variant: 'green' as const },
     { title: 'Follow-ups', value: stats.followUp, icon: <Reply className="w-5 h-5" />, variant: 'orange' as const },
+    { title: 'Replies Sent', value: stats.replies, icon: <Reply className="w-5 h-5" />, variant: 'blue' as const },
     { title: 'Attachments', value: stats.withAttachments, icon: <Paperclip className="w-5 h-5" />, variant: 'purple' as const },
   ];
 
@@ -150,7 +157,7 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   return (
     <div className="flex-1 p-4 sm:p-6 gradient-surface overflow-y-auto custom-scrollbar">
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
         {statCards.map((card) => (
           <div key={card.title} className={`bg-card rounded-xl border border-border border-l-4 ${cardBorderAccent[card.variant]} p-4 sm:p-5 shadow-card hover:shadow-elevated transition-all duration-200 hover:-translate-y-0.5`}>
             <div className="flex items-start justify-between">

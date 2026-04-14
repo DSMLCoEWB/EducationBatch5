@@ -81,3 +81,4 @@ backend/scratch/
 
 # Exceptions to text file ignores
 !backend/requirements.txt
+backend/brain/

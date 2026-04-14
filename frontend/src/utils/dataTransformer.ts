@@ -362,7 +362,9 @@ export function transformBackendEmail(backendEmail: any): Email {
   const category = categoryMap[categoryStr] || 'miscellaneous';
   
   const rawMailType = (backendEmail.mail_type || backendEmail.mailType || '').toLowerCase();
-  const mailType: MailType = rawMailType.includes('fresh') ? 'fresh' : 'follow-up';
+  let mailType: MailType = 'follow-up';
+  if (rawMailType.includes('fresh')) mailType = 'fresh';
+  else if (rawMailType.includes('reply')) mailType = 'reply';
   
   const content = backendEmail.content || '';
   const sender = backendEmail.sender || '';
@@ -389,7 +391,9 @@ export function transformBackendEmail(backendEmail: any): Email {
     is_demo: !!backendEmail.is_demo,
     threadId: backendEmail.thread_id || backendEmail.threadId,
     attachmentContent: backendEmail.attachment_content || backendEmail.attachmentContent,
-    is_sent: !!(backendEmail.is_sent || backendEmail.isSent),
+    isSent: !!(backendEmail.is_sent || backendEmail.isSent),
+    isInbox: !!(backendEmail.is_inbox || backendEmail.isInbox),
+    is_demo: !!backendEmail.is_demo,
     is_ocr_processed: !!backendEmail.is_ocr_processed,
     is_priority_refined: !!backendEmail.is_priority_refined,
   };

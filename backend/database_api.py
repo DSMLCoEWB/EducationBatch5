@@ -45,6 +45,9 @@ def init_db():
         )
     """)
     
+    # Create an index for last_synced to speed up audit queries
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_emails_last_synced ON emails(last_synced)")
+    
     # [SELF-HEALING]: Ensure 'has_attachment' is correctly set for existing rows
     # This recovers emails with attachments that might have missed the flag during ingestion.
     cursor.execute("""
@@ -218,6 +221,32 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
             email.get('institute_name'),
             user_email
         ))
+
+    # --- THREAD STATE RECONCILIATION ---
+    # For every thread touched in this batch, ensure 'replied' is set 
+    # based on whether the LAST email in that thread is a genuine 'SENT' reply.
+    # Exclude self-sent emails from marking a thread as 'replied'.
+    tids = {e.get('thread_id') for e in emails if e.get('thread_id')}
+    for tid in tids:
+        # Find the latest message in this thread that is NOT a self-sent test
+        cursor.execute("""
+            SELECT is_sent, is_inbox FROM emails 
+            WHERE thread_id = ? AND user_email = ? AND is_trashed = 0
+            ORDER BY date DESC LIMIT 1
+        """, (tid, user_email))
+        latest = cursor.fetchone()
+        
+        if latest:
+            # A thread is 'replied' ONLY if the latest message was sent by you 
+            # AND it's not in your own inbox (i.e. it was sent to someone else).
+            is_sent, is_in_inbox = latest
+            is_replied_state = 1 if (is_sent and not is_in_inbox) else 0
+            
+            # Update all emails in this thread to match the new 'replied' state
+            cursor.execute("""
+                UPDATE emails SET replied = ? 
+                WHERE thread_id = ? AND user_email = ?
+            """, (is_replied_state, tid, user_email))
     
     conn.commit()
     conn.close()
@@ -359,7 +388,9 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
     
     if category == 'trash':
         query += " AND is_trashed = 1"
-    elif category == 'all' or category == 'dashboard':
+    elif category == 'dashboard':
+        query += " AND (is_inbox = 1 OR is_sent = 1) AND is_trashed = 0"
+    elif category == 'all':
         query += " AND is_inbox = 1 AND is_trashed = 0"
     elif category == 'Sent':
         query += " AND is_sent = 1 AND is_trashed = 0"
@@ -575,3 +606,16 @@ def get_pending_ocr_emails(user_email: str, limit: int = 10) -> List[Dict[str, A
         d['attachments'] = json.loads(d['attachments'] or '[]')
         result.append(d)
     return result
+
+def touch_user_sync_time(user_email: str):
+    """Update last_synced for all an user's inbox emails to current time to mark a successful sync check."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE emails 
+        SET last_synced = CURRENT_TIMESTAMP 
+        WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0
+    """, (user_email,))
+    conn.commit()
+    conn.close()
+    print(f"🕒 [Audit]: Touched sync timestamp for {user_email}")

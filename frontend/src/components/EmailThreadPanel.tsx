@@ -157,7 +157,7 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
         </div>
 
         {/* Fixed Footer Reply Action */}
-        {!loading && !(thread.length === 1 && thread[0].is_sent && !thread[0].subject?.includes('[AICOE-SEED]')) && (
+        {!loading && !(thread.length === 1 && thread[0].isSent && !thread[0].subject?.includes('[AICOE-SEED]')) && (
           <div className="border-t border-border p-4 bg-muted/30 flex items-center justify-center">
             <button
               onClick={() => setShowReplyModal(true)}
@@ -237,8 +237,12 @@ function EmailCard({ email, history, isParent, isCurrentEmail, onReply, onRefres
               </span>
             )}
             {!isParent && (
-              <span className="px-1.5 py-0.5 bg-gov-orange-light text-gov-orange text-[10px] font-medium rounded">
-                Follow-up
+              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                email.mailType === 'reply' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' :
+                email.mailType === 'fresh' ? 'bg-gov-green-light text-gov-green' :
+                'bg-gov-orange-light text-gov-orange'
+              }`}>
+                {email.mailType === 'reply' ? 'Reply' : email.mailType === 'fresh' ? 'Fresh' : 'Follow-up'}
               </span>
             )}
           </div>
