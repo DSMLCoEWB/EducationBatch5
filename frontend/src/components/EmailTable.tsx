@@ -559,12 +559,12 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
                 Demo
               </span>
             )}
-            {email.hasAttachment && !email.is_ocr_processed && (
+            {email.hasAttachment && !email.is_ocr_processed && categoryId !== 'trash' && (
               <span className="flex-shrink-0 text-[10px] font-semibold bg-primary/10 text-primary px-1.5 py-0.5 rounded border border-primary/20 animate-pulse">
                 OCR Reading...
               </span>
             )}
-            {!email.is_priority_refined && categoryId !== 'Sent' && !email.isSent && (
+            {!email.is_priority_refined && categoryId !== 'Sent' && categoryId !== 'trash' && !email.isSent && (
               <span className="flex-shrink-0 text-[10px] font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border">
                 AI Analysis
               </span>
