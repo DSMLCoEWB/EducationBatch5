@@ -165,7 +165,9 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
           (e.subject?.toLowerCase() || '').includes(query) ||
           (e.sender?.toLowerCase() || '').includes(query) ||
           (e.content?.toLowerCase() || '').includes(query) ||
-          (e.snippet?.toLowerCase() || '').includes(query);
+          (e.snippet?.toLowerCase() || '').includes(query) ||
+          (e.category?.toLowerCase() || '').includes(query) ||
+          (e.instituteName?.toLowerCase() || '').includes(query);
         if (!matches) return false;
       }
 
