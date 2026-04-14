@@ -74,7 +74,7 @@ export default function App() {
 
     try {
       if (forceProcess) await processEmails();
-      const fetchCategory = (activeView === 'dashboard' || activeView === 'all') ? 'all' : activeView;
+      const fetchCategory = activeView === 'dashboard' ? 'dashboard' : (activeView === 'all' ? 'all' : activeView);
       const backendEmails = await fetchEmailsByCategory(fetchCategory);
       const transformedEmails = transformBackendEmails(backendEmails);
       setEmails(transformedEmails);

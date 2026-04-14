@@ -7,7 +7,7 @@ import {
   Trash2,
   RotateCcw
 } from 'lucide-react';
-import { Email } from '@/types';
+import { Email, MailType } from '@/types';
 import { getCategoryInfo } from '@/data/categories';
 import { ReplyModal, ReplyStatus } from './ReplyModal';
 import { sendReplyEmail } from '@/services/api';
@@ -27,7 +27,7 @@ type SortDirection = 'asc' | 'desc';
 
 interface Filters {
   priorities: string[];    // ['Critical', 'High', 'Medium', 'Low']
-  mailTypes: ('fresh' | 'follow-up')[];
+  mailTypes: MailType[];
   categories: string[];
   institutes: string[];
   repliedStatus: ('replied' | 'pending')[];
@@ -96,25 +96,26 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
       
       // Find the latest message from a CITIZEN (not sent by the department)
       // This anchors our priority and category to the actual grievance state.
-      const latestCitizen = sortedGroup.find(e => !e.is_sent) || absoluteLatest;
+      const latestCitizen = sortedGroup.find(e => !e.isSent) || absoluteLatest;
       
       // ACTION-AWARE PRIORITY: 
       // If the ABSOLUTE LATEST is a 'Sent' message (by us), the case is temporarily "Actioned".
       // We drop the display priority to Low (6) so it clears from urgent views.
       // If the Citizen follows up, absoluteLatest becomes a non-sent message again, 
       // and priority restores from latestCitizen.
-      const isCurrentlyActioned = absoluteLatest.is_sent && !absoluteLatest.is_demo;
+      const isCurrentlyActioned = absoluteLatest.isSent && !absoluteLatest.is_demo;
       const displayPriority = isCurrentlyActioned ? 6 : latestCitizen.priority;
 
       // A follow-up is any message in the thread after the initial one
       const threadFollowUps = Math.max(0, group.length - 1);
       
       results.push({
-        ...latestCitizen, // Anchor metadata to the grievance
+        ...latestCitizen, // Anchor metadata (Category/Priority) to the original grievance
         id: absoluteLatest.id, // Keep the latest ID for viewing/replying
         snippet: absoluteLatest.snippet, // Show the latest update snippet
         emailDate: absoluteLatest.emailDate, // Sort by absolute last touch
         priority: displayPriority, 
+        mailType: absoluteLatest.mailType, // Ensure 'Reply' tag propagates if latest is a reply
         threadCount: group.length,
         followUpCount: threadFollowUps,
         replied: absoluteLatest.replied
@@ -381,6 +382,8 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
                 <div className="space-y-1.5">
                   <FilterChip label="Has Attachment" active={filters.hasAttachment === true} onClick={() => setFilters(prev => ({ ...prev, hasAttachment: prev.hasAttachment === true ? null : true }))} />
                   <FilterChip label="Fresh Messages" active={filters.mailTypes.includes('fresh')} onClick={() => toggleMultiFilter('mailTypes', 'fresh')} />
+                  <FilterChip label="Follow-ups" active={filters.mailTypes.includes('follow-up')} onClick={() => toggleMultiFilter('mailTypes', 'follow-up')} />
+                  <FilterChip label="Replies" active={filters.mailTypes.includes('reply')} onClick={() => toggleMultiFilter('mailTypes', 'reply')} />
                 </div>
               </div>
               <div className="pt-2">
@@ -561,7 +564,7 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
                 OCR Reading...
               </span>
             )}
-            {!email.is_priority_refined && categoryId !== 'Sent' && !email.is_sent && (
+            {!email.is_priority_refined && categoryId !== 'Sent' && !email.isSent && (
               <span className="flex-shrink-0 text-[10px] font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border">
                 AI Analysis
               </span>
@@ -582,9 +585,12 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           </span>
         </td>
         <td className="px-4 py-3">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${email.mailType === 'fresh' ? 'bg-gov-green-light text-gov-green' : 'bg-gov-orange-light text-gov-orange'
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
+              email.mailType === 'fresh' ? 'bg-gov-green-light text-gov-green' : 
+              email.mailType === 'reply' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' :
+              'bg-gov-orange-light text-gov-orange'
             }`}>
-            {email.mailType === 'fresh' ? 'Fresh' : 'Follow-up'}
+            {email.mailType === 'fresh' ? 'Fresh' : email.mailType === 'reply' ? 'Reply' : 'Follow-up'}
           </span>
         </td>
         <td className="px-4 py-3 text-center">

@@ -205,3 +205,33 @@ select option {
   ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
   * { scrollbar-color: inherit; scrollbar-width: inherit; }
 }
+
+/* Chatbot Specific Table Styling */
+.chatbot-content table {
+  @apply w-full border-collapse my-3 text-[11px] leading-tight overflow-hidden rounded-lg border border-border/60;
+  display: table;
+}
+
+.chatbot-content thead {
+  @apply bg-muted/50 border-b border-border;
+}
+
+.chatbot-content th {
+  @apply px-3 py-2 text-left font-bold text-foreground/80 first:rounded-tl-lg last:rounded-tr-lg;
+}
+
+.chatbot-content td {
+  @apply px-3 py-2 border-b border-border/30 text-muted-foreground/90 transition-colors;
+}
+
+.chatbot-content tr:last-child td {
+  @apply border-b-0;
+}
+
+.chatbot-content tr:hover td {
+  @apply bg-primary/5 text-foreground;
+}
+
+.chatbot-table-wrapper {
+  @apply w-full overflow-x-auto rounded-lg border border-border/40 my-4 bg-card/30 backdrop-blur-sm;
+}

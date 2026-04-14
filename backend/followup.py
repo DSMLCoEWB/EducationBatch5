@@ -18,12 +18,10 @@ def has_explicit_reference(subject, content):
 
     # 2. Body-based follow-up indicators (Strict word boundaries)
     followup_patterns = [
-        r'\bregarding previous',
-        r'\bas mentioned',
-        r'\bas per previous',
-        r'\bin continuation',
-        r'\bfollowing up',
-        r'\bfollow-up',
+        r'\bregarding (?:my )?previous',
+        r'\bas mentioned (?:in |at )?previous',
+        r'\bin continuation (?:of|to)',
+        r'\bfollowing up (?:on|regarding)',
         r'\bearlier mail',
         r'\bprevious mail',
         r'\bprevious email',
@@ -38,7 +36,25 @@ def has_explicit_reference(subject, content):
             return True
     return False
 
-def detect_followup(email, df):
+def detect_followup(email, df, user_email=None):
+    # -1. Admin Reply Check - If this is an outbound email sent by us, 
+    # it is not a 'Follow-up' to the grievance, it is a 'Reply'.
+    # EXCEPTION: If is_self_sent (sent to self), treat as a simulation (Fresh/Follow-up).
+    is_sent = email.get("is_sent_by_me") or email.get("is_sent")
+    is_in_inbox = email.get("is_inbox") or email.get("is_inbox") == 1
+
+    if is_sent and not is_in_inbox:
+        # THREAD AWARENESS: Distinguish between 'Reply' (to inquiry) and 'Fresh' (Admin started)
+        tid = email.get("thread_id")
+        if tid and df is not None and not df.empty:
+            # Check if this thread has ANY citizen messages (is_sent=0)
+            has_citizen_msg = df[(df["thread_id"] == tid) & (df["is_sent"] == 0)].shape[0] > 0
+            if has_citizen_msg:
+                return "Reply", None, 0
+            else:
+                return "Fresh", None, 0
+        return "Reply", None, 0 # Default for outbound-only without context
+
     # 0. Gmail Threading - Only treat as follow-up if it's explicitly a response (Re:/Fwd:),
     # otherwise treat as a separate grievance even if Gmail threads them (common in self-tests).
     subject = email.get("subject", "")

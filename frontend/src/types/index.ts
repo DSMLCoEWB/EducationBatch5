@@ -20,7 +20,7 @@ export type EmailCategory =
   | 'trash'
   | string;
 
-export type MailType = 'fresh' | 'follow-up';
+export type MailType = 'fresh' | 'follow-up' | 'reply';
 
 export interface Email {
   id: string;
@@ -41,11 +41,12 @@ export interface Email {
   parentEmailId?: string;
   replied: boolean;
   replyText?: string;
-  is_demo?: boolean;
   threadId?: string;
   threadCount?: number;
   attachmentContent?: string;
-  is_sent?: boolean;
+  isSent?: boolean;
+  isInbox?: boolean;
+  is_demo?: boolean;
   is_ocr_processed?: boolean;
   is_priority_refined?: boolean;
 }

@@ -15,7 +15,7 @@ interface Message {
   sources?: { section: string; text: string }[];
 }
 
-export function Chatbot({ }: ChatbotProps) {
+export function Chatbot({ emails }: ChatbotProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
@@ -73,12 +73,58 @@ export function Chatbot({ }: ChatbotProps) {
   };
 
   const formatMessage = (content: string) => {
-    // Simple pseudo-markdown to HTML for 'Premium' feel without dependencies
-    return content
+    let html = content;
+
+    // 1. Fenced Code Blocks
+    html = html.replace(/```(?:[a-z]*)\n?([\s\S]*?)\n?```/g, '<pre class="bg-muted p-3 py-2 rounded-lg my-2 overflow-x-auto text-xs border border-border"><code>$1</code></pre>');
+
+    // 2. Inline Code
+    html = html.replace(/`([^`]+)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">$1</code>');
+
+    // 3. Tables (Detection Logic) - Kept robust
+    const tableRegex = /((?:\|.*\|(?:\n|$)){2,})/g;
+    html = html.replace(tableRegex, (match) => {
+      const lines = match.trim().split('\n');
+      if (lines.length < 2) return match;
+      const headers = lines[0].split('|').filter(c => c.trim()).map(c => c.trim());
+      const rows = lines.slice(2).map(line => 
+        line.split('|').filter(c => c.trim()).map(c => c.trim())
+      );
+      let tableHtml = '<div class="chatbot-table-wrapper"><table><thead><tr>';
+      headers.forEach(h => tableHtml += `<th>${h}</th>`);
+      tableHtml += '</tr></thead><tbody>';
+      rows.forEach(row => {
+        if (row.length === 0) return;
+        tableHtml += '<tr>';
+        row.forEach(cell => tableHtml += `<td>${cell}</td>`);
+        tableHtml += '</tr>';
+      });
+      tableHtml += '</tbody></table></div>';
+      return tableHtml;
+    });
+
+    // 4. Headers (Clean replacement)
+    html = html.replace(/^### (.*$)/gm, '<h3 class="text-sm font-bold mt-4 mb-1 text-primary">$1</h3>');
+    html = html.replace(/^## (.*$)/gm, '<h2 class="text-base font-bold mt-5 mb-2 border-b border-border/50 pb-1">$1</h2>');
+    html = html.replace(/^# (.*$)/gm, '<h1 class="text-lg font-black mt-6 mb-3 text-primary">$1</h1>');
+
+    // 5. Blockquotes
+    html = html.replace(/^\> (.*$)/gm, '<blockquote class="border-l-4 border-primary/30 pl-4 py-1 my-2 italic text-muted-foreground">$1</blockquote>');
+
+    // 6. Formatting
+    html = html
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/\n/g, '<br/>')
-      .replace(/•\s?(.*?)(?=<br\/>|$)/g, '<li class="ml-4">$1</li>');
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="text-primary hover:underline font-medium">$1</a>');
+
+    // 7. Lists
+    // Unordered
+    html = html.replace(/^[\*\-•] (.*$)/gm, '<li class="ml-4 list-disc">$1</li>');
+    // Ordered
+    html = html.replace(/^\d+\. (.*$)/gm, '<li class="ml-4 list-decimal">$1</li>');
+
+    // 8. Line Breaks (Smart)
+    return html.replace(/\n(?!<)/g, '<br/>');
   };
 
   return (
@@ -149,7 +195,7 @@ export function Chatbot({ }: ChatbotProps) {
                         : 'bg-background dark:bg-muted border border-border rounded-tl-none'
                     }`}>
                       <div 
-                        className={`text-sm leading-relaxed prose prose-sm max-w-none ${
+                        className={`text-sm leading-relaxed prose prose-sm max-w-none chatbot-content ${
                           message.type === 'user' 
                             ? 'prose-invert text-primary-foreground' 
                             : 'dark:prose-invert text-foreground'
