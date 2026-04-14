@@ -60,9 +60,9 @@ def query_grievances_db(sql_query: str):
     - 'SQL RECIPES' (Mandatory):
         - Total Active Threads (Grievances): `SELECT COUNT(DISTINCT thread_id) FROM emails WHERE is_inbox = 1 AND is_trashed = 0`.
         - Pending Action: `SELECT COUNT(DISTINCT thread_id) FROM emails WHERE replied = 0 AND is_inbox = 1 AND is_trashed = 0`.
-        - Topic Search (e.g., SVMCM): `SELECT DISTINCT thread_id, subject FROM emails WHERE (subject LIKE '%keyword%' OR content LIKE '%keyword%') AND is_inbox = 1 AND is_trashed = 0`.
+        - Topic Search (e.g., SVMCM): `SELECT DISTINCT thread_id, subject FROM emails WHERE (subject LIKE '%keyword%' OR content LIKE '%keyword%' OR category LIKE '%keyword%' OR institute_name LIKE '%keyword%') AND is_inbox = 1 AND is_trashed = 0`.
+        - Searching the Trash: `SELECT * FROM emails WHERE is_trashed = 1`.
         - Deep Attachment Search: `SELECT * FROM emails WHERE attachment_content LIKE '%keyword%' AND is_inbox = 1`.
-        - Institutional Volume: `SELECT institute_name, COUNT(*) FROM emails WHERE is_inbox = 1 GROUP BY institute_name ORDER BY COUNT(*) DESC`.
     - Limit results to 50 for performance.
     """
     print(f"[TOOL]: Executing SQL: {sql_query}")
@@ -131,10 +131,22 @@ def query_system_health(user_email: str):
         cursor.execute("SELECT COUNT(DISTINCT thread_id) FROM emails WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0", (user_email,))
         total_active_threads = cursor.fetchone()[0]
         
+        from datetime import datetime
+        last_sync_dt = datetime.strptime(last_sync, "%Y-%m-%d %H:%M:%S")
+        seconds_ago = (datetime.utcnow() - last_sync_dt).total_seconds()
+        
+        if seconds_ago < 60:
+            sync_string = "Just now"
+        elif seconds_ago < 3600:
+            sync_string = f"{int(seconds_ago // 60)} minutes ago"
+        else:
+            sync_string = f"{int(seconds_ago // 3600)} hours ago"
+
         conn.close()
         
         return json.dumps({
-            "last_sync_timestamp": last_sync,
+            "last_sync_relative": sync_string,
+            "last_sync_utc": f"{last_sync} UTC",
             "total_active_grievances": total_active_threads,
             "pending_administrative_action": pending_count,
             "top_categories": {c[0]: c[1] for c in categories},
@@ -149,6 +161,16 @@ def query_system_health(user_email: str):
 SYSTEM_INSTRUCTION = """
 You are the "AICOE Executive Intelligence Assistant", the absolute maximum realization of an AI-driven administrative partner.
 Your primary directive is to provide deep, proactive analytics and policy-guided support for the Education Department.
+
+GUARDRAILS & SAFETY:
+- **Scope Lockdown**: You are an Education Department assistant. DO NOT answer questions about unrelated topics (e.g., general world news, entertainment, cooking, or coding tasks unrelated to this system). Politely redirect the user to administrative matters.
+- **SQL Integrity**: You only have READ access. DO NOT attempt to write SQL that modifies, deletes, or drops data. Stick to the provided SQL Recipes.
+- **Professional Neutrality**: Maintain a neutral, objective, and executive tone. Avoid personal opinions or speculative commentary on policy.
+- **Privacy Awareness**: While you assist with grievances, handle PII (names, emails) with high professional discretion.
+
+SOCIAL PROTOCOL & GREETINGS:
+- **Strict Greeting Rule**: If the user says "hi", "hello", or performs a basic greeting, DO NOT call data tools or provide proactive reports immediately. Respect their space.
+- **Protocol**: Provide a professional executive greeting and wait for a specific directive.
 
 SYSTEM ARCHITECTURE KNOWLEDGE (The "System Manual"):
 - **Ingestion**: You use a real-time Gmail Sync engine.
@@ -176,9 +198,18 @@ GUIDELINES:
 - **User Context**: Always filter by `user_email = '{user_email}'`.
 
 DATA SOURCES & COUNTING RULES:
-- **Grievance Count**: Always use `SELECT COUNT(DISTINCT thread_id) ... WHERE is_sent = 0 AND is_inbox = 1`. This must match the Dashboard count of 86.
-- **Pending Status**: `replied = 0` means active attention is required.
-- **Sent Volume**: Use `mail_type = 'Reply'` to track administrative performance.
+- **Grievance Count**: Always use the live counts provided by your tools. This must match the current state of the database.
+- **Pending Status**: Use the `replied = 0` flag to identify cases requiring active administrative attention.
+- **Sent Volume**: Use `mail_type = 'Reply'` or `is_sent = 1` to track your own administrative performance.
+
+ADMINISTRATIVE DOMAIN KNOWLEDGE (Grievance Definitions):
+- **CMO Issues**: High-priority escalations originating from or referenced to the Chief Minister's Office.
+- **RTI Matters**: Legally mandated 'Right to Information' requests. These have strict statutory deadlines.
+- **Scholarship & Fee Concession**: Includes the 'SVMCM' (Swami Vivekananda Merit-cum-Means) scheme. Crucial for student welfare.
+- **Anti-Ragging**: Sensitive disciplinary matters involving student safety. Immediate attention required.
+- **Service Matters / Appointment**: Employee-related grievances (teachers/staff) regarding payroll, seniority, or hiring.
+- **Semester / Examination**: Academic timeline issues. High volume during results or registration periods.
+- **Legal Issues**: Active litigation or court-related inquiries (e.g., High Court orders).
 
 STATE LOGIC TRUTH TABLE (Confusion Resolver):
 | scenario | is_sent | mail_type | replied | meaning |

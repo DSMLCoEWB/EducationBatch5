@@ -7,28 +7,29 @@ from google.genai import types
 # Ordered by Priority: 1. Latest Stable -> 2. Latest Previews -> 3. High Volume Fallbacks
 ULTIMATE_FALLBACK_LIST = [
     # Primary: High Quota Free Model (500 RPD)
-    "gemini-3.1-flash-lite-preview", 
+    "models/gemini-3.1-flash-lite-preview", 
     
     # Tier 1: Latest Stable Production Model
-    "gemini-flash-latest",
+    "models/gemini-flash-latest",
     
-    # Tier 2: Latest Reasoning Previews
-    "gemini-3-flash-preview", 
-    "gemini-2.5-flash-lite",
+    # Tier 2: Latest Previews & Reasoning
+    "models/gemini-3-flash-preview", 
+    "models/gemini-2.5-flash-lite",
     
     # Tier 3: Professional Design & Reasoning (Gemma 4 Family)
-    "gemma-4-31b",                  # Professional design core (1,500 RPD)
-    "gemma-4-26b",                  # 1,500 RPD
+    "models/gemma-4-31b-it",
+    "models/gemma-4-26b-a4b-it",
     
     # Tier 4: High Volume Safety Net (Gemma 3 Family)
-    "gemma-3-27b",                  # 14,400 RPD (Extreme volume)
-    "gemma-3-12b",                  # 14,400 RPD
-    "gemma-3-4b",                   # 14,400 RPD
-    "gemma-3-2b",                   # 14,400 RPD
-    "gemma-3-1b",                   # 14,400 RPD
+    "models/gemma-3-27b-it",
+    "models/gemma-3-12b-it",
+    "models/gemma-3-4b-it",
+    "models/gemma-3n-e2b-it",
+    "models/gemma-3-1b-it",
     
     # Tier 5: Specialized Reasoning
-    "gemini-robotics-er-1.5-preview" # Specialized (20 RPD)
+    "models/gemini-robotics-er-1.6-preview",
+    "models/gemini-robotics-er-1.5-preview"
 ]
 
 def generate_content_with_fallback(

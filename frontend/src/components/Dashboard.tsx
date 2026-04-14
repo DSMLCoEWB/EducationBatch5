@@ -244,16 +244,16 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie 
-                data={mailTypeData} 
+                data={mailTypeData.filter(d => d.value > 0)} 
                 cx="50%" 
                 cy="45%" 
                 innerRadius={60} 
-                outerRadius={85} 
+                outerRadius={80} 
                 paddingAngle={5}
                 dataKey="value"
                 stroke="none"
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                labelLine={false}
+                label={({ name, percent }) => percent > 0.02 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
+                labelLine={true}
               >
                 {mailTypeData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.fill} />
