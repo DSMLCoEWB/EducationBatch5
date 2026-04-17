@@ -23,6 +23,7 @@ import {
   fetchRefinementStats,
   updateSyncInterval,
   fetchSyncStatus,
+  fetchDashboard,
   RefinementStats,
   SyncStatus
 } from '@/services/api';
@@ -37,7 +38,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
-  const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(30);
+  const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(600);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -139,7 +140,46 @@ export default function App() {
   // Removed handleTestApiKeys
 
   useEffect(() => {
-    const timer = window.setInterval(() => { void refreshGmailAuthStatus(); }, 10000);
+    if (!gmailConnected) return;
+
+    const apiBase = import.meta.env.VITE_API_URL || "";
+    let eventSource: EventSource | null = null;
+    let retryCount = 0;
+
+    const setupSSE = () => {
+      // Connect to the hardened SSE stream
+      eventSource = new EventSource(`${apiBase}/emails/events`, { withCredentials: true });
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === 'refresh' || data.event === 'sync_complete') {
+            console.log("🔔 [SSE] Signal received: Refreshing UI...");
+            void loadEmails(false, false);
+            void refreshRefinementStats();
+            void refreshGmailAuthStatus();
+          }
+        } catch (e) {
+          console.error("Failed to parse SSE event", e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource?.close();
+        const backoff = Math.min(1000 * Math.pow(2, retryCount), 30000);
+        setTimeout(setupSSE, backoff);
+        retryCount++;
+      };
+    };
+
+    setupSSE();
+    return () => eventSource?.close();
+  }, [gmailConnected, loadEmails, refreshRefinementStats, refreshGmailAuthStatus]);
+
+  // Passivity Safeguard: Very long interval fallback for auth (10 Minutes)
+  // This maintains session longevity without suspicious bot frequency.
+  useEffect(() => {
+    const timer = window.setInterval(() => { void refreshGmailAuthStatus(); }, 600000);
     return () => window.clearInterval(timer);
   }, [refreshGmailAuthStatus]);
 
@@ -148,40 +188,11 @@ export default function App() {
     void loadEmails(false);
   }, [activeView, loadEmails]);
 
-  useEffect(() => {
-    if (!autoRefreshEnabled || refreshIntervalSeconds <= 0) return;
-    const timer = window.setInterval(async () => {
-      try {
-        await loadEmails(true, false);
-        await refreshGmailAuthStatus();
-        await refreshRefinementStats();
-      } catch (err) { console.error('Auto-refresh failed:', err); }
-    }, refreshIntervalSeconds * 1000);
-    return () => window.clearInterval(timer);
-  }, [autoRefreshEnabled, refreshIntervalSeconds, loadEmails, refreshGmailAuthStatus, refreshRefinementStats]);
+  // Removed high-frequency auto-refresh timer to prevent bot detection.
+  // The system now relies exclusively on the push-based SSE stream.
 
   // Unified Sync Status Polling (Background Sync Visibility)
-  useEffect(() => {
-    if (!gmailConnected) return;
-    
-    const pollStatus = async () => {
-      try {
-        const { syncing } = await fetchSyncStatus();
-        if (syncing) {
-          setIsRefreshing(true);
-        } else {
-          // Only stop the refreshing state if the backend confirms sync is done
-          // and we aren't currently waiting for a manual loadEmails call to finish.
-          if (!isPollingRef.current) {
-            setIsRefreshing(false);
-          }
-        }
-      } catch (err) { }
-    };
-
-    const statusTimer = window.setInterval(pollStatus, 2000);
-    return () => window.clearInterval(statusTimer);
-  }, [gmailConnected, isRefreshing]);
+  // Removed 2s Sync Status polling. Handled by the real-time SSE stream.
 
   const handleUpdateEmail = (emailId: string, updates: Partial<Email>) => {
     setEmails(prev => prev.map(email => email.id === emailId ? { ...email, ...updates } : email));

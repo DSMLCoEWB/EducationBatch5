@@ -37,59 +37,59 @@ def has_explicit_reference(subject, content):
     return False
 
 def detect_followup(email, df, user_email=None):
-    # -1. Admin Reply Check - If this is an outbound email sent by us, 
-    # it is not a 'Follow-up' to the grievance, it is a 'Reply'.
-    # EXCEPTION: If is_self_sent (sent to self), treat as a simulation (Fresh/Follow-up).
+    """
+    Refined Tagging Rules (Admin-Centric Perspective):
+    1. Admin -> Others: Always 'Reply' (Administrative Action/Sent).
+    2. Admin -> Self: 'Fresh' (1st) or 'Follow-up' (2nd+) -> Simulation for testing.
+    3. Citizen -> Admin: 'Fresh' if 1st citizen msg in thread, else 'Follow-up'.
+    """
     is_sent = email.get("is_sent_by_me") or email.get("is_sent")
     is_in_inbox = email.get("is_inbox") or email.get("is_inbox") == 1
-
-    if is_sent and not is_in_inbox:
-        # THREAD AWARENESS: Distinguish between 'Reply' (to inquiry) and 'Fresh' (Admin started)
-        tid = email.get("thread_id")
-        if tid and df is not None and not df.empty:
-            # Check if this thread has ANY citizen messages (is_sent=0)
-            has_citizen_msg = df[(df["thread_id"] == tid) & (df["is_sent"] == 0)].shape[0] > 0
-            if has_citizen_msg:
-                return "Reply", None, 0
-            else:
-                return "Fresh", None, 0
-        return "Reply", None, 0 # Default for outbound-only without context
-
-    # 0. Gmail Threading - Only treat as follow-up if it's explicitly a response (Re:/Fwd:),
-    # otherwise treat as a separate grievance even if Gmail threads them (common in self-tests).
-    subject = email.get("subject", "")
-    # Strip prefixes like [AICOE-SEED] for checking thread status
-    clean_subject = re.sub(r'^\[[^\]]+\]\s*', '', subject.lower().strip())
-    is_explicit_thread = clean_subject.startswith(('re:', 'fwd:', 'aw:', 'wg:'))
+    sender_email = (email.get("sender_email") or "").strip().lower()
+    recipient_email = (email.get("recipient_email") or "").strip().lower()
+    user_email_norm = user_email.strip().lower() if user_email else None
     
+    # A true self-sent test is from you AND to you
+    is_true_self_sent = user_email_norm and (sender_email == user_email_norm) and (recipient_email == user_email_norm)
+
+    # RULE 1: All Outbound to others = "Reply" (Sent Action)
+    if is_sent and not is_in_inbox and not is_true_self_sent:
+        return "Reply", None, 0
+
+    # Everything else is either a Citizen Inbound or a Self-Sent Test Simulation.
+    tid = email.get("thread_id")
     eid = email.get("email_id")
     
-    if email.get("thread_id") and not df.empty and is_explicit_thread:
-        # Check if any other email in the cache has the same thread_id
-        # EXCLUDE the current email itself if it happens to be in df (re-processing case)
-        same_thread = df[(df["thread_id"] == email["thread_id"]) & (df["email_id"] != eid)]
-        if not same_thread.empty:
-            # Mark it as a follow-up to the most recent email in that thread
-            parent = same_thread.iloc[-1]
-            return "Follow-up", parent["email_id"], parent.get("followup_count", 0) + 1
+    # If no thread context, it must be Fresh
+    if not tid or df is None or df.empty:
+        return "Fresh", None, 0
 
-    # A. Manual Threading (Reliable Fallback) - Check parent_email_id
-    if email.get("parent_email_id"):
-        if not df.empty and email["parent_email_id"] in df["email_id"].values:
-            parent = df[df["email_id"] == email["parent_email_id"]].iloc[0]
+    # Find context in same thread
+    same_thread = df[(df["thread_id"] == tid) & (df["email_id"] != eid)]
+    if same_thread.empty:
+        # Fallback to Manual Threading (parent_email_id)
+        parent_id = email.get("parent_email_id")
+        if parent_id and parent_id in df["email_id"].values:
+            parent = df[df["email_id"] == parent_id].iloc[0]
             return "Follow-up", parent["email_id"], parent.get("followup_count", 0) + 1
+        return "Fresh", None, 0
 
-    # B. Check for explicit references (Re:, Fwd:, etc.) ONLY
-    # We no longer mark everything from same sender as follow-up to avoid self-test issues.
-    content = email.get("content", "")
+    # --- REFINED CONTEXT LOGIC ---
     
-    if has_explicit_reference(subject, content) and not df.empty and email.get("sender"):
-        # Filter by sender, and exclude current email
-        same_sender_df = df[(df["sender"] == email["sender"]) & (df["email_id"] != eid)]
-        if not same_sender_df.empty:
-            # Find the most recent email from same sender as parent
-            parent = same_sender_df.iloc[-1]
-            return "Follow-up", parent["email_id"], parent.get("followup_count", 0) + 1
+    if is_true_self_sent:
+        # SIMULATION MODE: Any previous messages in thread make it a follow-up
+        parent = same_thread.iloc[-1]
+        return "Follow-up", parent["email_id"], parent.get("followup_count", 0) + 1
 
-    # Default: Fresh email
-    return "Fresh", None, 0
+    # CITIZEN MODE: Check if NOT an admin-only thread
+    # is_sent=0 means inbound from citizen. We only care if the citizen has spoken before.
+    prev_citizen_msgs = same_thread[same_thread["is_sent"] == 0]
+    
+    if prev_citizen_msgs.empty:
+        # Even if there are Admin messages (Notice sent by you), 
+        # this is the FIRST message from the citizen -> Mark as Fresh (New Task).
+        return "Fresh", None, 0
+    else:
+        # Citizen is following up on their own existing case
+        parent = prev_citizen_msgs.iloc[-1]
+        return "Follow-up", parent["email_id"], parent.get("followup_count", 0) + 1

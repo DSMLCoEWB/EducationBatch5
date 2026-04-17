@@ -53,7 +53,7 @@ export interface BackendCategory {
 
 export interface BackendDashboard {
   total: number;
-  fresh: number;
+  pendingTriage: number;
   followup: number;
 }
 
@@ -134,7 +134,7 @@ export interface RefinementStats {
 ============================ */
 
 export async function fetchCategories(): Promise<BackendCategory[]> {
-  const response = await apiFetch(`${API_BASE_URL}/categories`);
+  const response = await apiFetch(`${API_BASE_URL}/emails/categories`);
   if (!response.ok) throw new Error("Failed to fetch categories");
   return response.json();
 }
@@ -154,7 +154,7 @@ export async function fetchAllEmails(): Promise<BackendEmail[]> {
 }
 
 export async function fetchDashboard(): Promise<BackendDashboard> {
-  const response = await apiFetch(`${API_BASE_URL}/dashboard`);
+  const response = await apiFetch(`${API_BASE_URL}/emails/dashboard`);
   if (!response.ok) throw new Error("Failed to fetch dashboard");
   return response.json();
 }
@@ -198,7 +198,7 @@ export async function askChatbot(question: string): Promise<string> {
 ============================ */
 
 export async function fetchColleges(): Promise<string[]> {
-  const response = await apiFetch(`${API_BASE_URL}/colleges`);
+  const response = await apiFetch(`${API_BASE_URL}/emails/colleges`);
   if (!response.ok) throw new Error("Failed to fetch colleges");
   const data = await response.json();
   return data.colleges;
@@ -228,7 +228,7 @@ export async function generateReplyDetailed(
   history?: any[],
   emailId?: string
 ): Promise<GenerateReplyResult> {
-  const response = await apiFetch(`${API_BASE_URL}/generate-reply-detailed`, {
+  const response = await apiFetch(`${API_BASE_URL}/generate-reply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ 
@@ -276,7 +276,7 @@ export async function sendReply(
   threadId: string = "",
   inReplyTo: string = ""
 ): Promise<boolean> {
-  const response = await apiFetch(`${API_BASE_URL}/send-reply`, {
+  const response = await apiFetch(`${API_BASE_URL}/emails/send-reply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -307,7 +307,7 @@ export async function sendReplyEmail(
   replyText: string,
   emailId: string
 ): Promise<SendReplyResult> {
-  const response = await apiFetch(`${API_BASE_URL}/send-reply`, {
+  const response = await apiFetch(`${API_BASE_URL}/emails/send-reply`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -453,7 +453,7 @@ export interface SyncStatus {
 }
 
 export async function fetchSyncStatus(): Promise<SyncStatus> {
-  const response = await apiFetch(`${API_BASE_URL}/sync-status`);
+  const response = await apiFetch(`${API_BASE_URL}/emails/sync-status`);
   if (!response.ok) throw new Error("Failed to fetch sync status");
   return response.json();
 }
@@ -467,7 +467,7 @@ export async function reprocessAttachment(emailId: string, filename: string): Pr
 }
 
 export async function fetchRefinementStats(): Promise<RefinementStats> {
-  const response = await apiFetch(`${API_BASE_URL}/refinement-stats`);
+  const response = await apiFetch(`${API_BASE_URL}/emails/stats/refinement`);
   if (!response.ok) throw new Error("Failed to fetch refinement stats");
   return response.json();
 }
