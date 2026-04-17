@@ -12,9 +12,12 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 INDEX_PATH = os.path.join(DATA_DIR, "faiss.index")
 CHUNKS_PATH = os.path.join(DATA_DIR, "policy_chunks.json")
 
-TOP_K = 5
-SIMILARITY_THRESHOLD = 0.40
-MIN_SCORE = 0.40
+# Operational Parameters (Linked to Environment)
+TOP_K = int(os.getenv("RAG_TOP_K", "5"))
+SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", "0.40"))
+MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.40"))
+RAG_FINAL_LIMIT = int(os.getenv("RAG_FINAL_RESULT_LIMIT", "3"))
+
 
 # ---------- EMBEDDING ----------
 _embedder = None
@@ -152,9 +155,10 @@ def retrieve_policy_chunks(query: str):
             }
             results.append(res)
 
-    # LIMIT results to top 3 and Sort
+    # LIMIT results to RAG_FINAL_LIMIT and Sort
     results.sort(key=lambda x: x["score"], reverse=True)
-    results = results[:3]
+    results = results[:RAG_FINAL_LIMIT]
+
     
     # Consistency filter: if results come from 3 different sections, prefer the absolute top section
     unique_sections = set(res["metadata"]["section"] for res in results)

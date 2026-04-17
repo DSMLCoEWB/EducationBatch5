@@ -23,12 +23,12 @@ export function ReplyModal({ email, history, onClose, onSendReply }: ReplyModalP
   const generateTemplateSuggestedReply = (): string => {
     const greetings = `Dear ${email.sender},\n\nThank you for your email regarding "${email.subject}".\n\n`;
     const categoryResponses: Record<string, string> = {
-      suspension: `We have received and reviewed your communication regarding the disciplinary matter. The Education Department acknowledges the seriousness of this case and will conduct a thorough review.\n\nOur team will examine the documentation provided and coordinate with the relevant authorities. You can expect a formal response within 5-7 working days.`,
-      fir: `We acknowledge receipt of your notification regarding the legal matter involving a student.\n\nThe Education Department takes such matters with utmost seriousness. We will coordinate with the legal affairs division and provide necessary guidance. Official documentation will be provided within 3 working days.`,
-      semester: `Your request regarding semester examination arrangements has been received and is being reviewed by our coordination team.`,
-      miscellaneous: `We have received your communication and appreciate you keeping us informed.`,
-      demo: `This is a demonstration grievance reply.`,
-      Sent: `This is a message sent by you. Follow-ups will be tracked automatically.`
+      "Suspension / Disciplinary": `We have received and reviewed your communication regarding the disciplinary matter. The Education Department acknowledges the seriousness of this case and will conduct a thorough review.\n\nOur team will examine the documentation provided and coordinate with the relevant authorities. You can expect a formal response within 5-7 working days.`,
+      "Legal Issues": `We acknowledge receipt of your notification regarding the legal matter involving a student.\n\nThe Education Department takes such matters with utmost seriousness. We will coordinate with the legal affairs division and provide necessary guidance. Official documentation will be provided within 3 working days.`,
+      "Semester / Examination": `Your request regarding semester examination arrangements has been received and is being reviewed by our coordination team.`,
+      "Miscellaneous": `We have received your communication and appreciate you keeping us informed.`,
+      "demo": `This is a demonstration grievance reply.`,
+      "Sent": `This is a message sent by you. Follow-ups will be tracked automatically.`
     };
     const closing = `\n\nBest regards,\nEducation Department\nGovernment Office`;
     const categoryResponse = categoryResponses[email.category as string] || categoryResponses.miscellaneous;
