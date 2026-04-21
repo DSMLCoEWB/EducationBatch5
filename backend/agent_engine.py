@@ -1,12 +1,11 @@
 import os
 import sqlite3
 import json
-from google import genai
-from google.genai import types
+import openai
 from dotenv import load_dotenv
 from rag.retriever import retrieve_policy_chunks
 from database_api import save_chat_message, get_chat_history
-from ai_utils import generate_content_with_fallback, ULTIMATE_FALLBACK_LIST
+from ai_utils import generate_content_with_fallback
 
 load_dotenv()
 
@@ -18,7 +17,11 @@ API_KEY = (
     or os.getenv("GEMINI_API_KEY")
 )
 
-client = genai.Client(api_key=API_KEY) if API_KEY else None
+if os.getenv("USE_LOCAL_LLM") == "true":
+    client = openai.OpenAI(base_url=os.getenv("LOCAL_LLM_URL", "http://localhost:11434/v1"), api_key="ollama")
+else:
+    client = None
+
 
 # --- TOOLS ---
 
@@ -83,7 +86,7 @@ def query_grievances_db(sql_query: str):
 
 SYSTEM_INSTRUCTION = """
 You are the "AICOE Education Department Assistant", a premium AI chatbot designed to help administration and citizens with grievance management.
-Your tone is professional, helpful, and data-driven.
+Your tone is professional, helpful, and data-driven. 
 
 You have access to two primary tools:
 1. `query_policy_rag`: Use this to answer questions about rules, policies, and procedural guidelines.
@@ -100,6 +103,12 @@ GUIDELINES:
 - If you don't know the answer, even after using tools, say so politely.
 - DATA INTEGRITY: By default, you only represent active grievances. Never include items where `is_trashed = 1` in your counts or summaries unless the user explicitly mentions "Trash" or "Deleted".
 - USER CONTEXT: If a user asks about "my" emails, ALWAYS filter by the current logged-in `user_email`.
+
+SCOPE RESTRICTION:
+- You are STRICTLY limited to topics related to grievance management, education department policies, and email tracking.
+- If a user asks anything outside this scope (e.g., general knowledge, coding, weather, personal advice, current events, or any unrelated topic), politely decline and redirect them.
+- Example refusal: "I'm sorry, I'm only equipped to assist with grievance management and AICOE Education Department matters. Please ask me something related to that."
+- Do NOT attempt to answer out-of-scope questions even if you know the answer.
 """
 
 def get_chatbot_response(user_message: str, user_email: str, session_id: str = "default"):
@@ -121,15 +130,13 @@ def get_chatbot_response(user_message: str, user_email: str, session_id: str = "
     tools = [query_policy_rag, query_grievances_db]
     
     try:
-        # Use automatic tool calling with multi-model fallback
+        # Local LLM chat (Skipping native tool execution binding for now, purely RAG simulation in prompt)
+        # We simulate config for ai_utils duck-typing
+        config_dict = {"system_instruction": SYSTEM_INSTRUCTION}
         response = generate_content_with_fallback(
             client=client,
             contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
-                tools=tools,
-            ),
-            model_list=ULTIMATE_FALLBACK_LIST,
+            config=config_dict,
             label="Chatbot"
         )
         

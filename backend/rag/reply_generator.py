@@ -5,8 +5,8 @@ from typing import Dict, Any, List
 from dotenv import load_dotenv
 
 from rag.retriever import retrieve_policy_chunks
-from google import genai
-from ai_utils import generate_content_with_fallback, ULTIMATE_FALLBACK_LIST
+import openai
+from ai_utils import generate_content_with_fallback
 
 # ---------- CONFIG ----------
 load_dotenv()
@@ -17,11 +17,13 @@ if not API_KEY or "your_google_api_key" in API_KEY or "your_gemini_api_key" in A
     print(f"[ERROR]: Gemini API key is missing. KEY_LEN: {len(API_KEY) if API_KEY else 0}")
 
 client = None
-if API_KEY:
+if os.getenv("USE_LOCAL_LLM") == "true":
+    client = openai.OpenAI(base_url=os.getenv("LOCAL_LLM_URL", "http://localhost:11434/v1"), api_key="ollama")
+elif API_KEY:
     try:
-        client = genai.Client(api_key=API_KEY)
+        client = None # Gemini fallback removed
     except Exception as e:
-        print(f"[ERROR]: Gemini Client Init Failed: {e}")
+        print(f"[ERROR]: Fallback init failed: {e}")
 
 # ---------- SYSTEM PROMPT ----------
 SYSTEM_PROMPT = """
@@ -129,7 +131,6 @@ def generate_reply(subject: str, sender: str, email: str, chunks: List[Dict[str,
     response = generate_content_with_fallback(
         client=client,
         contents=prompt,
-        model_list=ULTIMATE_FALLBACK_LIST,
         label="RAG-Generator"
     )
     if not response:

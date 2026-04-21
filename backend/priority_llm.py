@@ -5,9 +5,9 @@ import threading
 import time
 from collections import deque
 from google import genai
+import openai
 from dotenv import load_dotenv
-from ai_utils import generate_content_with_fallback, ULTIMATE_FALLBACK_LIST
-
+from ai_utils import generate_content_with_fallback
 load_dotenv()
 
 _api_key = (
@@ -15,7 +15,10 @@ _api_key = (
     or os.getenv("PRIORITY_GEMINI_API_KEY")
 )
 # Note: PRIORITY_LLM will only operate if a dedicated key is provided to avoid saturating the main key.
-client = genai.Client(api_key=_api_key) if _api_key else None
+if os.getenv("USE_LOCAL_LLM") == "true":
+    client = openai.OpenAI(base_url=os.getenv("LOCAL_LLM_URL", "http://localhost:11434/v1"), api_key="ollama")
+else:
+    client = genai.Client(api_key=_api_key) if _api_key else None
 _LLM_PRIORITY_MAX_CALLS = int(os.getenv("PRIORITY_LLM_MAX_CALLS", "5"))
 _LLM_PRIORITY_WINDOW_SECONDS = int(os.getenv("PRIORITY_LLM_WINDOW_SECONDS", "300"))
 _llm_call_timestamps: deque[float] = deque()
@@ -49,7 +52,6 @@ def _score_with_llm(prompt: str) -> str | None:
         response = generate_content_with_fallback(
             client=client,
             contents=prompt,
-            model_list=ULTIMATE_FALLBACK_LIST,
             label="Priority-LLM"
         )
         if not response:

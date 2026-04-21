@@ -1,94 +1,114 @@
 import os
 import time
+import json
 from typing import List, Any, Optional
-from google.genai import types
-
-# --- ULTIMATE MODEL FALLBACK SEQUENCE (Best-to-Least Verified Free Tier) ---
-# Ordered by Priority: 1. Latest Stable -> 2. Latest Previews -> 3. High Volume Fallbacks
-ULTIMATE_FALLBACK_LIST = [
-    # Primary: High Quota Free Model (500 RPD)
-    "gemini-3.1-flash-lite-preview", 
-    
-    # Tier 1: Latest Stable Production Model
-    "gemini-flash-latest",
-    
-    # Tier 2: Latest Reasoning Previews
-    "gemini-3-flash-preview", 
-    "gemini-2.5-flash-lite",
-    
-    # Tier 3: Professional Design & Reasoning (Gemma 4 Family)
-    "gemma-4-31b",                  # Professional design core (1,500 RPD)
-    "gemma-4-26b",                  # 1,500 RPD
-    
-    # Tier 4: High Volume Safety Net (Gemma 3 Family)
-    "gemma-3-27b",                  # 14,400 RPD (Extreme volume)
-    "gemma-3-12b",                  # 14,400 RPD
-    "gemma-3-4b",                   # 14,400 RPD
-    "gemma-3-2b",                   # 14,400 RPD
-    "gemma-3-1b",                   # 14,400 RPD
-    
-    # Tier 5: Specialized Reasoning
-    "gemini-robotics-er-1.5-preview" # Specialized (20 RPD)
-]
 
 def generate_content_with_fallback(
     client, 
     contents: Any, 
-    config: Optional[types.GenerateContentConfig] = None, 
-    model_list: List[str] = ULTIMATE_FALLBACK_LIST,
+    config: Optional[Any] = None, 
+    model_list: List[str] = [], # Kept for API compatibility but ignored
     label: str = "AI Service"
 ):
     """
-    Executes a generate_content call with automated fallback through a list of models.
-    Handles 429 (Rate Limit) and 404 (Not Found/Deprecated) errors.
+    Executes a generate_content call using OpenAI SDK for Ollama.
     """
     if not client:
-        print(f"[{label}]: Error - No Gemini client initialized.")
+        print(f"[{label}]: Error - No OpenAI client initialized for local Ollama.")
         return None
 
-    last_error = None
-    for model_name in model_list:
-        # Internal Retry Loop for the current model (Handle temporary congestion)
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                if attempt > 0:
-                    wait_time = (2 ** attempt) + 0.5 # Exponential backoff: 2.5s, 4.5s...
-                    print(f"[{label}]: Rate limit backoff. Waiting {wait_time}s before retry {attempt} on {model_name}...")
-                    time.sleep(wait_time)
+    model_name = os.getenv("LOCAL_LLM_MODEL", "llama3.2:3b")
+    
+    # Internal Retry Loop
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                wait_time = (2 ** attempt) + 0.5 
+                print(f"[{label}]: Wait {wait_time}s before retry {attempt} on {model_name}...")
+                time.sleep(wait_time)
 
-                print(f"[{label}]: Attempting generation with {model_name}...")
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=config
-                )
+            print(f"[{label}]: Attempting generation with {model_name}...")
+            
+            # Parse contents
+            prompt = ""
+            if isinstance(contents, list):
+                for part in contents:
+                    if isinstance(part, str):
+                        prompt += part + "\n"
+                    # Ignore bytes (images/pdfs) for local text-only model
+            elif hasattr(contents, "parts"):
+                # Handle old google.genai.types.Content format if passed
+                prompt = contents.parts[0].text
+            else:
+                prompt = str(contents)
+
+            messages = [{"role": "user", "content": prompt}]
+            
+            # Parse config (duck typing old google.genai GenerateContentConfig)
+            temp = 0.2
+            if hasattr(config, 'temperature'):
+                temp = config.temperature
+            elif isinstance(config, dict) and 'temperature' in config:
+                temp = config['temperature']
+
+            sys_inst = ""
+            if hasattr(config, 'system_instruction'):
+                sys_inst = config.system_instruction
+            elif isinstance(config, dict) and 'system_instruction' in config:
+                sys_inst = config['system_instruction']
+            
+            if sys_inst:
+                messages.insert(0, {"role": "system", "content": f"{sys_inst}\n\nIMPORTANT: Ensure valid output."})
+
+            kwargs = {
+                "model": model_name,
+                "messages": messages,
+                "temperature": temp
+            }
+            
+            # Check for JSON request
+            is_json = False
+            if hasattr(config, 'response_mime_type') and config.response_mime_type == "application/json":
+                is_json = True
+            elif isinstance(config, dict) and config.get('response_mime_type') == "application/json":
+                is_json = True
                 
-                # If we got here, it succeeded
-                if response and (response.text or (hasattr(response, 'candidates') and response.candidates)):
-                    print(f"[{label}]: Success with {model_name}")
-                    return response
-                
-                print(f"[{label}]: Empty response from {model_name}, moving to next...")
-                break # Exit retry loop and move to next model
-                
-            except Exception as e:
-                last_error = e
-                err_msg = str(e).lower()
-                
-                if "429" in err_msg or "rate limit" in err_msg:
-                    if attempt < max_retries - 1:
-                        continue # Retry same model
-                    else:
-                        print(f"[{label}]: Rate limit hit on {model_name} after {max_retries} attempts. Falling back to next model...")
-                        break # Move to next model
-                elif "404" in err_msg or "not found" in err_msg:
-                    print(f"[{label}]: Model {model_name} not available or deprecated. Falling back...")
-                    break # Move to next model
+            if hasattr(config, 'response_schema') or (isinstance(config, dict) and config.get('response_schema')):
+                is_json = True
+
+            if is_json:
+                kwargs["response_format"] = {"type": "json_object"}
+                if sys_inst:
+                    messages[0]["content"] += " MUST BE RAW JSON ONLY. DO NOT USE MARKDOWN ```json ``` BLOCKS."
                 else:
-                    # For other errors (auth, network), we log and skip
-                    print(f"[{label}]: Unexpected error with {model_name}: {e}")
-                    break # Move to next model
+                    messages.insert(0, {"role": "system", "content": "MUST BE RAW JSON ONLY. DO NOT USE MARKDOWN ```json ``` BLOCKS."})
 
-    print(f"[{label}]: FATAL - All models failed in fallback loop. Last error: {last_error}")
+            response = client.chat.completions.create(**kwargs)
+            
+            class MockResponse:
+                def __init__(self, text):
+                    self.text = text
+            
+            if response and response.choices:
+                print(f"[{label}]: Success with {model_name}")
+                text = response.choices[0].message.content
+                if text.startswith("```json"):
+                    text = text[7:]
+                if text.endswith("```"):
+                    text = text[:-3]
+                text = text.strip()
+                return MockResponse(text)
+            
+            print(f"[{label}]: Empty response from {model_name}, retrying...")
+            
+        except Exception as e:
+            err_msg = str(e).lower()
+            print(f"[{label}]: Unexpected error with {model_name}: {e}")
+            if "429" in err_msg or "rate limit" in err_msg:
+                continue
+            else:
+                break
+
+    print(f"[{label}]: FATAL - Model failed after retries.")
     return None

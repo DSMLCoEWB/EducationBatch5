@@ -7,7 +7,6 @@ from email.parser import BytesParser
 from email.utils import parsedate_to_datetime
 import hashlib
 import base64
-from google.genai import Client, types
 from ai_utils import generate_content_with_fallback
 
 # Directory to store extracted attachments
@@ -16,39 +15,8 @@ os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
 
 # ---------------- ATTACHMENT TEXT EXTRACTION ----------------
 def extract_text_from_attachment_ai(path: str) -> str:
-    """Uses Gemini Vision to extract text from images and scanned PDFs."""
-    try:
-        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return ""
-
-        client = Client(api_key=api_key)
-        
-        # Read file as bytes
-        with open(path, "rb") as f:
-            file_data = f.read()
-
-        mime_type = "image/jpeg"
-        if path.lower().endswith(".pdf"):
-            mime_type = "application/pdf"
-        elif path.lower().endswith(".png"):
-            mime_type = "image/png"
-
-        contents = [
-            types.Part.from_bytes(data=file_data, mime_type=mime_type),
-            "Extract all legible text from this document for archival purposes. If it is an official document (like a scholarship letter or grievance), preserve the core facts like names, dates, and decision status."
-        ]
-
-        response = generate_content_with_fallback(
-            client=client,
-            contents=contents,
-            label="OCR Service"
-        )
-
-        if response and response.text:
-            return f"\n--- [Extracted from Attachment: {os.path.basename(path)}] ---\n{response.text}\n"
-    except Exception as e:
-        print(f"⚠️ AI OCR failed for {path}: {e}")
+    """Logs a warning for AI OCR since local llama3.2:3b does not support vision."""
+    print(f"⚠️ Skipping AI OCR for {os.path.basename(path)} - Local Llama 3.2 3B is text-only.")
     return ""
 
 
