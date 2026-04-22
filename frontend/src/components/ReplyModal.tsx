@@ -6,13 +6,23 @@ import { GenerateReplyResult, generateReplyDetailed } from '@/services/api';
 interface ReplyModalProps {
   email: Email;
   history?: Email[];
+  initialSubject?: string;
+  initialBody?: string;
+  initialRecipient?: string;
   onClose: () => void;
-  onSendReply: (replyText: string) => Promise<void>;
+  onSendReply: (replyText: string, recipient?: string, subject?: string) => Promise<void>;
 }
 
-export function ReplyModal({ email, history, onClose, onSendReply }: ReplyModalProps) {
-  const [replyText, setReplyText] = useState('');
-  const [usingSuggested, setUsingSuggested] = useState(false);
+export function ReplyModal({ 
+  email, history, onClose, onSendReply,
+  initialSubject, initialBody, initialRecipient 
+}: ReplyModalProps) {
+  const [replyText, setReplyText] = useState(initialBody || '');
+  const [recipient, setRecipient] = useState(initialRecipient || email.senderEmail || '');
+  const [subject, setSubject] = useState(initialSubject || `Re: ${email.subject}`);
+  const isForward = !!initialRecipient === false && !!initialBody; // Simple heuristic for forward mode if initialBody exists but no recipient
+  
+  const [usingSuggested, setUsingSuggested] = useState(!!initialBody);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -23,12 +33,12 @@ export function ReplyModal({ email, history, onClose, onSendReply }: ReplyModalP
   const generateTemplateSuggestedReply = (): string => {
     const greetings = `Dear ${email.sender},\n\nThank you for your email regarding "${email.subject}".\n\n`;
     const categoryResponses: Record<string, string> = {
-      suspension: `We have received and reviewed your communication regarding the disciplinary matter. The Education Department acknowledges the seriousness of this case and will conduct a thorough review.\n\nOur team will examine the documentation provided and coordinate with the relevant authorities. You can expect a formal response within 5-7 working days.`,
-      fir: `We acknowledge receipt of your notification regarding the legal matter involving a student.\n\nThe Education Department takes such matters with utmost seriousness. We will coordinate with the legal affairs division and provide necessary guidance. Official documentation will be provided within 3 working days.`,
-      semester: `Your request regarding semester examination arrangements has been received and is being reviewed by our coordination team.`,
-      miscellaneous: `We have received your communication and appreciate you keeping us informed.`,
-      demo: `This is a demonstration grievance reply.`,
-      Sent: `This is a message sent by you. Follow-ups will be tracked automatically.`
+      "Suspension / Disciplinary": `We have received and reviewed your communication regarding the disciplinary matter. The Education Department acknowledges the seriousness of this case and will conduct a thorough review.\n\nOur team will examine the documentation provided and coordinate with the relevant authorities. You can expect a formal response within 5-7 working days.`,
+      "Legal Issues": `We acknowledge receipt of your notification regarding the legal matter involving a student.\n\nThe Education Department takes such matters with utmost seriousness. We will coordinate with the legal affairs division and provide necessary guidance. Official documentation will be provided within 3 working days.`,
+      "Semester / Examination": `Your request regarding semester examination arrangements has been received and is being reviewed by our coordination team.`,
+      "Miscellaneous": `We have received your communication and appreciate you keeping us informed.`,
+      "demo": `This is a demonstration grievance reply.`,
+      "Sent": `This is a message sent by you. Follow-ups will be tracked automatically.`
     };
     const closing = `\n\nBest regards,\nEducation Department\nGovernment Office`;
     const categoryResponse = categoryResponses[email.category as string] || categoryResponses.miscellaneous;
@@ -75,7 +85,7 @@ export function ReplyModal({ email, history, onClose, onSendReply }: ReplyModalP
     setIsSending(true);
     setSendError(null);
     try {
-      await onSendReply(replyText);
+      await onSendReply(replyText, recipient, subject);
       onClose();
     } catch (error: any) {
       setSendError(error?.message || 'Failed to send reply.');
@@ -90,19 +100,34 @@ export function ReplyModal({ email, history, onClose, onSendReply }: ReplyModalP
         {/* Header */}
         <div className="gradient-header text-primary-foreground px-6 py-4 flex items-center justify-between">
           <div className="min-w-0">
-            <h3 className="font-semibold text-base">Reply to Email</h3>
-            <p className="text-sm text-primary-foreground/70 truncate mt-0.5">{email.subject}</p>
+            <h3 className="font-semibold text-base">{initialRecipient || !initialBody ? 'Reply to Email' : 'Forward Email'}</h3>
+            <p className="text-sm text-primary-foreground/70 truncate mt-0.5">{subject}</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="p-1.5 hover:bg-primary-foreground/10 rounded-lg transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Original preview */}
-        <div className="px-6 py-3 bg-muted/50 border-b border-border">
-          <div className="text-xs space-y-0.5">
-            <p className="text-muted-foreground">From: <span className="text-foreground font-medium">{email.sender}</span> ({email.senderEmail})</p>
-            <p className="text-muted-foreground">Institute: <span className="text-foreground font-medium">{email.instituteName}</span></p>
+        {/* Dynamic Headers */}
+        <div className="px-6 py-4 bg-muted/30 border-b border-border space-y-3">
+          <div className="grid grid-cols-[60px_1fr] items-center gap-3">
+            <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">To</span>
+            <input 
+              type="text"
+              value={recipient}
+              onChange={(e) => setRecipient(e.target.value)}
+              placeholder="recipient@example.com"
+              className="bg-background border border-border/60 rounded-md px-2.5 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 w-full font-medium"
+            />
+          </div>
+          <div className="grid grid-cols-[60px_1fr] items-center gap-3">
+            <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">Subject</span>
+            <input 
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="bg-background border border-border/60 rounded-md px-2.5 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 w-full font-medium"
+            />
           </div>
         </div>
 

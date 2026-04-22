@@ -5,16 +5,14 @@ import numpy as np
 import re
 from sentence_transformers import SentenceTransformer
 
-# ---------- CONFIG ----------
-BASE_DIR = os.path.dirname(__file__)
-DATA_DIR = os.path.join(BASE_DIR, "data")
+from config import (
+    INDEX_PATH, CHUNKS_PATH, RAG_TOP_K as TOP_K, 
+    RAG_MIN_SCORE as MIN_SCORE, RAG_FINAL_LIMIT
+)
 
-INDEX_PATH = os.path.join(DATA_DIR, "faiss.index")
-CHUNKS_PATH = os.path.join(DATA_DIR, "policy_chunks.json")
+# Operational Parameters aliasing for internal consistency
+SIMILARITY_THRESHOLD = MIN_SCORE
 
-TOP_K = 5
-SIMILARITY_THRESHOLD = 0.40
-MIN_SCORE = 0.40
 
 # ---------- EMBEDDING ----------
 _embedder = None
@@ -74,7 +72,7 @@ def reload_retriever_data(force: bool = False) -> None:
             _last_chunks_mtime = chunks_mtime
             return
 
-        index = faiss.read_index(INDEX_PATH)
+        index = faiss.read_index(str(INDEX_PATH))
         with open(chunks_path, "r", encoding="utf-8") as f:
             policy_chunks = json.load(f)
 
@@ -152,9 +150,10 @@ def retrieve_policy_chunks(query: str):
             }
             results.append(res)
 
-    # LIMIT results to top 3 and Sort
+    # LIMIT results to RAG_FINAL_LIMIT and Sort
     results.sort(key=lambda x: x["score"], reverse=True)
-    results = results[:3]
+    results = results[:RAG_FINAL_LIMIT]
+
     
     # Consistency filter: if results come from 3 different sections, prefer the absolute top section
     unique_sections = set(res["metadata"]["section"] for res in results)

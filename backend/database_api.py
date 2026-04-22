@@ -20,8 +20,10 @@ def init_db():
             id TEXT PRIMARY KEY,
             gmail_id TEXT UNIQUE,
             thread_id TEXT,
+            parent_email_id TEXT,
             sender TEXT,
             sender_email TEXT,
+            recipient_email TEXT,
             subject TEXT,
             content TEXT,
             category TEXT,
@@ -78,19 +80,19 @@ def init_db():
         )
     """)
     
+    # [MIGRATION]: Add parent_email_id if it doesn't exist
+    try:
+        cursor.execute("SELECT parent_email_id FROM emails LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Database Migration: Adding parent_email_id column...")
+        cursor.execute("ALTER TABLE emails ADD COLUMN parent_email_id TEXT")
+
     # [MIGRATION]: Add is_priority_refined if it doesn't exist in older databases
     try:
         cursor.execute("SELECT is_priority_refined FROM emails LIMIT 1")
     except sqlite3.OperationalError:
-        print("💾 Database Migration: Adding is_priority_refined column...")
+        print("Database Migration: Adding is_priority_refined column...")
         cursor.execute("ALTER TABLE emails ADD COLUMN is_priority_refined BOOLEAN DEFAULT 0")
-    
-    # [MIGRATION]: Add is_ocr_processed if it doesn't exist
-    try:
-        cursor.execute("SELECT is_ocr_processed FROM emails LIMIT 1")
-    except sqlite3.OperationalError:
-        print("💾 Database Migration: Adding is_ocr_processed column...")
-        cursor.execute("ALTER TABLE emails ADD COLUMN is_ocr_processed BOOLEAN DEFAULT 0")
     
     # [PATCH]: Ensure index for performance
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_emails_user_email ON emails(user_email)")
@@ -110,7 +112,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_category ON emails (user_email, is_inbox, is_sent, is_trashed)")
     # Index for fast conversation thread lookups
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_thread ON emails (user_email, thread_id)")
-
+ 
     # [MIGRATION]: Add attachment_content if it doesn't exist
     try:
         cursor.execute("SELECT attachment_content FROM emails LIMIT 1")
@@ -122,7 +124,7 @@ def init_db():
     try:
         cursor.execute("SELECT is_ocr_processed FROM emails LIMIT 1")
     except sqlite3.OperationalError:
-        print("💾 Database Migration: Adding is_ocr_processed column...")
+        print("Database Migration: Adding is_ocr_processed column...")
         cursor.execute("ALTER TABLE emails ADD COLUMN is_ocr_processed BOOLEAN DEFAULT 0")
     
     # [MIGRATION]: Add followup_count if it doesn't exist
@@ -132,75 +134,64 @@ def init_db():
         print("[DB] Database Migration: Adding followup_count column...")
         cursor.execute("ALTER TABLE emails ADD COLUMN followup_count INTEGER DEFAULT 0")
     
+    # [MIGRATION]: Add recipient_email if it doesn't exist
+    try:
+        cursor.execute("SELECT recipient_email FROM emails LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Database Migration: Adding recipient_email column...")
+        cursor.execute("ALTER TABLE emails ADD COLUMN recipient_email TEXT")
+
     # [MIGRATION]: Add institute_name if it doesn't exist
     try:
         cursor.execute("SELECT institute_name FROM emails LIMIT 1")
     except sqlite3.OperationalError:
-        print("[DB] Database Migration: Adding institute_name column...")
+        print("Database Migration: Adding institute_name column...")
         cursor.execute("ALTER TABLE emails ADD COLUMN institute_name TEXT")
+
+    # [NEW] Table: user_sync_history (Tracks the History ID bookmark for incremental sync)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_sync_history (
+            user_email TEXT PRIMARY KEY,
+            last_history_id TEXT,
+            last_sync_completed TIMESTAMP,
+            consecutive_errors INTEGER DEFAULT 0
+        )
+    """)
+
+    # [NEW] Table: sync_audit (Government-grade audit trail for every sync cycle)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sync_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT,
+            sync_type TEXT, -- 'INCREMENTAL' or 'FULL'
+            status TEXT,    -- 'SUCCESS' or 'FAILED'
+            duration_ms INTEGER,
+            messages_added INTEGER DEFAULT 0,
+            messages_deleted INTEGER DEFAULT 0,
+            error_message TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_audit_user ON sync_audit(user_email, timestamp)")
     
     conn.commit()
     conn.close()
+
 
 def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
     """Save or update a batch of emails in the database."""
     conn = sqlite3.connect(DB_PATH, timeout=30)
     cursor = conn.cursor()
     
-    for email in emails:
-        # Check if already exists in our DB (Persistence check for trashed state)
-        cursor.execute("SELECT is_trashed, is_inbox, is_sent, is_priority_refined, is_ocr_processed FROM emails WHERE id = ?", (email['email_id'],))
-        existing = cursor.fetchone()
-        
-        is_trashed = 1 if email.get('category') == 'trash' or email.get('is_trashed') else (existing[0] if existing else 0)
-        
-        # Merge flags: If we found this email in INBOX fetch previously and now in SENT fetch, both bits should be 1
-        new_is_inbox = 1 if email.get('is_inbox') else (existing[1] if existing else 0)
-        new_is_sent = 1 if email.get('is_sent') else (existing[2] if existing else 0)
-        new_is_refined = 1 if email.get('is_priority_refined') else (existing[3] if existing else 0)
-        new_is_ocr = 1 if email.get('is_ocr_processed') else (existing[4] if existing else 0)
-        
-        attachments_raw = email.get('attachments', '[]')
-        attachments_json = json.dumps(attachments_raw, ensure_ascii=False) if isinstance(attachments_raw, list) else attachments_raw
-        
-        cursor.execute("""
-            INSERT INTO emails (
-                id, gmail_id, thread_id, sender, sender_email, subject, content,
-                category, mail_type, priority, date, has_attachment, attachments,
-                is_demo, replied, is_trashed, is_inbox, is_sent, is_priority_refined, is_ocr_processed, attachment_content, followup_count, institute_name, user_email, last_synced
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(id) DO UPDATE SET
-                gmail_id=COALESCE(excluded.gmail_id, gmail_id),
-                thread_id=COALESCE(excluded.thread_id, thread_id),
-                sender=COALESCE(excluded.sender, sender),
-                sender_email=COALESCE(excluded.sender_email, sender_email),
-                subject=COALESCE(excluded.subject, subject),
-                content=COALESCE(excluded.content, content),
-                category=CASE 
-                    WHEN is_trashed=1 OR excluded.is_trashed=1 THEN 'trash' 
-                    WHEN category IS NULL OR category = 'Sent' OR category = '' THEN excluded.category 
-                    ELSE category 
-                END,
-                mail_type=COALESCE(excluded.mail_type, mail_type),
-                priority=COALESCE(excluded.priority, priority),
-                date=COALESCE(excluded.date, date),
-                attachments=COALESCE(excluded.attachments, attachments),
-                replied=MAX(replied, excluded.replied),
-                is_trashed=MAX(is_trashed, excluded.is_trashed),
-                is_inbox=MAX(is_inbox, excluded.is_inbox),
-                is_sent=MAX(is_sent, excluded.is_sent),
-                is_priority_refined=MAX(is_priority_refined, excluded.is_priority_refined),
-                is_ocr_processed=MAX(is_ocr_processed, excluded.is_ocr_processed),
-                attachment_content=COALESCE(excluded.attachment_content, attachment_content),
-                followup_count=COALESCE(excluded.followup_count, followup_count),
-                institute_name=COALESCE(excluded.institute_name, institute_name),
-                last_synced=CURRENT_TIMESTAMP
-        """, (
+    def _save_params(email, user_email, is_trashed, new_is_inbox, new_is_sent, new_is_refined, new_is_ocr, attachments_json):
+        return (
             email['email_id'],
             email.get('gmail_id'),
             email.get('thread_id'),
+            email.get('parent_email_id'),
             email.get('sender'),
             email.get('sender_email'),
+            email.get('recipient_email'),
             email.get('subject'),
             email.get('content'),
             email.get('category'),
@@ -220,7 +211,62 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
             email.get('followup_count', 0),
             email.get('institute_name'),
             user_email
-        ))
+        )
+
+    sql = """
+        INSERT INTO emails (
+            id, gmail_id, thread_id, parent_email_id, sender, sender_email, recipient_email, subject, content,
+            category, mail_type, priority, date, has_attachment, attachments,
+            is_demo, replied, is_trashed, is_inbox, is_sent, is_priority_refined, is_ocr_processed, attachment_content, followup_count, institute_name, user_email, last_synced
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET
+            gmail_id=COALESCE(excluded.gmail_id, gmail_id),
+            thread_id=COALESCE(excluded.thread_id, thread_id),
+            parent_email_id=COALESCE(excluded.parent_email_id, parent_email_id),
+            sender=COALESCE(excluded.sender, sender),
+            sender_email=COALESCE(excluded.sender_email, sender_email),
+            recipient_email=COALESCE(excluded.recipient_email, recipient_email),
+            subject=COALESCE(excluded.subject, subject),
+            content=COALESCE(excluded.content, content),
+            category=CASE 
+                WHEN is_trashed=1 OR excluded.is_trashed=1 THEN 'trash' 
+                WHEN category IS NULL OR category = 'Sent' OR category = '' THEN excluded.category 
+                ELSE category 
+            END,
+            mail_type=COALESCE(excluded.mail_type, mail_type),
+            priority=COALESCE(excluded.priority, priority),
+            date=COALESCE(excluded.date, date),
+            attachments=COALESCE(excluded.attachments, attachments),
+            replied=MAX(replied, excluded.replied),
+            is_trashed=MAX(is_trashed, excluded.is_trashed),
+            is_inbox=MAX(is_inbox, excluded.is_inbox),
+            is_sent=MAX(is_sent, excluded.is_sent),
+            is_priority_refined=MAX(is_priority_refined, excluded.is_priority_refined),
+            is_ocr_processed=MAX(is_ocr_processed, excluded.is_ocr_processed),
+            attachment_content=COALESCE(excluded.attachment_content, attachment_content),
+            followup_count=COALESCE(excluded.followup_count, followup_count),
+            institute_name=COALESCE(excluded.institute_name, institute_name),
+            last_synced=CURRENT_TIMESTAMP
+    """
+
+    for email in emails:
+        # Check if already exists in our DB (Persistence check for trashed state)
+        cursor.execute("SELECT is_trashed, is_inbox, is_sent, is_priority_refined, is_ocr_processed FROM emails WHERE id = ?", (email['email_id'],))
+        existing = cursor.fetchone()
+        
+        is_trashed = 1 if email.get('category') == 'trash' or email.get('is_trashed') else (existing[0] if existing else 0)
+        
+        # Merge flags: If we found this email in INBOX fetch previously and now in SENT fetch, both bits should be 1
+        new_is_inbox = 1 if email.get('is_inbox') else (existing[1] if existing else 0)
+        new_is_sent = 1 if email.get('is_sent') else (existing[2] if existing else 0)
+        new_is_refined = 1 if email.get('is_priority_refined') else (existing[3] if existing else 0)
+        new_is_ocr = 1 if email.get('is_ocr_processed') else (existing[4] if existing else 0)
+        
+        attachments_raw = email.get('attachments', '[]')
+        attachments_json = json.dumps(attachments_raw, ensure_ascii=False) if isinstance(attachments_raw, list) else attachments_raw
+        
+        cursor.execute(sql, _save_params(email, user_email, is_trashed, new_is_inbox, new_is_sent, new_is_refined, new_is_ocr, attachments_json))
+
 
     # --- THREAD STATE RECONCILIATION ---
     # For every thread touched in this batch, ensure 'replied' is set 
@@ -619,3 +665,67 @@ def touch_user_sync_time(user_email: str):
     conn.commit()
     conn.close()
     print(f"🕒 [Audit]: Touched sync timestamp for {user_email}")
+
+def get_user_sync_history(user_email: str) -> Optional[Dict[str, Any]]:
+    """Retrieve the last sync history for a user."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_sync_history WHERE user_email = ?", (user_email,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def update_user_sync_history(user_email: str, history_id: str, reset_errors: bool = True):
+    """Update or create the sync history for a user."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    if reset_errors:
+        cursor.execute("""
+            INSERT INTO user_sync_history (user_email, last_history_id, last_sync_completed, consecutive_errors)
+            VALUES (?, ?, ?, 0)
+            ON CONFLICT(user_email) DO UPDATE SET
+                last_history_id = excluded.last_history_id,
+                last_sync_completed = excluded.last_sync_completed,
+                consecutive_errors = 0
+        """, (user_email, history_id, now))
+    else:
+        cursor.execute("""
+            INSERT INTO user_sync_history (user_email, last_history_id, last_sync_completed)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_email) DO UPDATE SET
+                last_history_id = excluded.last_history_id,
+                last_sync_completed = excluded.last_sync_completed
+        """, (user_email, history_id, now))
+    conn.commit()
+    conn.close()
+
+def log_sync_audit(user_email: str, sync_type: str, status: str, duration_ms: int, added: int = 0, deleted: int = 0, error: str = None):
+    """Log a sync cycle result for administrative audit."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO sync_audit (user_email, sync_type, status, duration_ms, messages_added, messages_deleted, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (user_email, sync_type, status, duration_ms, added, deleted, error))
+    conn.commit()
+    conn.close()
+
+def increment_sync_error(user_email: str):
+    """Increment consecutive error count for backoff logic."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE user_sync_history SET consecutive_errors = consecutive_errors + 1 WHERE user_email = ?", (user_email,))
+    conn.commit()
+    conn.close()
+
+def get_consecutive_sync_errors(user_email: str) -> int:
+    """Get count of errors for backoff."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT consecutive_errors FROM user_sync_history WHERE user_email = ?", (user_email,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else 0
+

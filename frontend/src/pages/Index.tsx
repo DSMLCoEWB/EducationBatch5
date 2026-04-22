@@ -17,14 +17,13 @@ import {
   fetchColleges,
   fetchGmailAuthStatus,
   getGoogleAuthStartUrl,
-  processEmails,
   trashEmail,
   restoreEmail,
   fetchRefinementStats,
   updateSyncInterval,
   fetchSyncStatus,
+  triggerManualSync,
   RefinementStats,
-  SyncStatus
 } from '@/services/api';
 import { transformBackendEmails, initializeCollegeDatabase } from '@/utils/dataTransformer';
 
@@ -36,8 +35,7 @@ export default function App() {
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
-  const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(30);
+  const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(600);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -66,17 +64,25 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  const loadEmails = useCallback(async (forceProcess: boolean = false, showOverlay: boolean = true): Promise<Email[]> => {
+  const loadEmails = useCallback(async (showOverlay: boolean = true): Promise<Email[]> => {
     if (isPollingRef.current) return [];
     isPollingRef.current = true;
+    
+    // Check if a background sync is currently active before clearing overlay
+    let isServerSyncing = false;
+    try {
+      const syncStatus = await fetchSyncStatus();
+      isServerSyncing = syncStatus.syncing;
+    } catch { /* Fail silent */ }
+
     if (showOverlay) setIsRefreshing(true);
     if (showOverlay && activeView !== 'dashboard' && activeView !== 'all') setEmails([]);
 
     try {
-      if (forceProcess) await processEmails();
       const fetchCategory = activeView === 'dashboard' ? 'dashboard' : (activeView === 'all' ? 'all' : activeView);
       const backendEmails = await fetchEmailsByCategory(fetchCategory);
       const transformedEmails = transformBackendEmails(backendEmails);
+      
       setEmails(transformedEmails);
       setLastSyncedAt(new Date());
       setError(null);
@@ -91,7 +97,16 @@ export default function App() {
       setError('Failed to refresh emails from backend.');
       return [];
     } finally {
-      setIsRefreshing(false);
+      // If server is still syncing and we got 0 emails, keep the spinner
+      // Use a functional check to avoid stale closure on emails.length
+      setEmails(prev => {
+        if (isServerSyncing && prev.length === 0) {
+          setIsRefreshing(true);
+        } else {
+          setIsRefreshing(false);
+        }
+        return prev;
+      });
       isPollingRef.current = false;
     }
   }, [activeView]);
@@ -139,7 +154,51 @@ export default function App() {
   // Removed handleTestApiKeys
 
   useEffect(() => {
-    const timer = window.setInterval(() => { void refreshGmailAuthStatus(); }, 10000);
+    if (!gmailConnected) return;
+
+    const apiBase = import.meta.env.VITE_API_URL || "";
+    let eventSource: EventSource | null = null;
+    let retryCount = 0;
+
+    const setupSSE = () => {
+      // Connect to the hardened SSE stream
+      eventSource = new EventSource(`${apiBase}/emails/events`, { withCredentials: true });
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === 'sync_started') {
+            setIsRefreshing(true);
+          } else if (data.event === 'refinement_progress') {
+            void refreshRefinementStats();
+            void loadEmails(false);
+          } else if (data.event === 'refresh' || data.event === 'sync_complete') {
+            console.log("🔔 [SSE] Signal received: Sync Complete.");
+            void loadEmails(false);
+            void refreshRefinementStats();
+            void refreshGmailAuthStatus();
+            setIsRefreshing(false);
+          }
+        } catch (e) {
+          console.error("Failed to parse SSE event", e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource?.close();
+        const backoff = Math.min(1000 * Math.pow(2, retryCount), 30000);
+        setTimeout(setupSSE, backoff);
+        retryCount++;
+      };
+    };
+
+    setupSSE();
+    return () => eventSource?.close();
+  }, [gmailConnected, loadEmails, refreshRefinementStats, refreshGmailAuthStatus]);
+
+  useEffect(() => {
+    const pollInterval = Number(import.meta.env.VITE_AUTH_STATUS_POLLING_SECONDS || 60) * 1000;
+    const timer = window.setInterval(() => { void refreshGmailAuthStatus(); }, pollInterval);
     return () => window.clearInterval(timer);
   }, [refreshGmailAuthStatus]);
 
@@ -148,40 +207,11 @@ export default function App() {
     void loadEmails(false);
   }, [activeView, loadEmails]);
 
-  useEffect(() => {
-    if (!autoRefreshEnabled || refreshIntervalSeconds <= 0) return;
-    const timer = window.setInterval(async () => {
-      try {
-        await loadEmails(true, false);
-        await refreshGmailAuthStatus();
-        await refreshRefinementStats();
-      } catch (err) { console.error('Auto-refresh failed:', err); }
-    }, refreshIntervalSeconds * 1000);
-    return () => window.clearInterval(timer);
-  }, [autoRefreshEnabled, refreshIntervalSeconds, loadEmails, refreshGmailAuthStatus, refreshRefinementStats]);
+  // Removed high-frequency auto-refresh timer to prevent bot detection.
+  // The system now relies exclusively on the push-based SSE stream.
 
   // Unified Sync Status Polling (Background Sync Visibility)
-  useEffect(() => {
-    if (!gmailConnected) return;
-    
-    const pollStatus = async () => {
-      try {
-        const { syncing } = await fetchSyncStatus();
-        if (syncing) {
-          setIsRefreshing(true);
-        } else {
-          // Only stop the refreshing state if the backend confirms sync is done
-          // and we aren't currently waiting for a manual loadEmails call to finish.
-          if (!isPollingRef.current) {
-            setIsRefreshing(false);
-          }
-        }
-      } catch (err) { }
-    };
-
-    const statusTimer = window.setInterval(pollStatus, 2000);
-    return () => window.clearInterval(statusTimer);
-  }, [gmailConnected, isRefreshing]);
+  // Removed 2s Sync Status polling. Handled by the real-time SSE stream.
 
   const handleUpdateEmail = (emailId: string, updates: Partial<Email>) => {
     setEmails(prev => prev.map(email => email.id === emailId ? { ...email, ...updates } : email));
@@ -191,6 +221,7 @@ export default function App() {
     try {
       setEmails(prev => prev.filter(email => email.id !== id));
       await trashEmail(id);
+      void loadEmails(false);
     } catch (error) {
       console.error("Failed to delete email:", error);
       alert("Failed to delete email: " + (error instanceof Error ? error.message : "Internal Error"));
@@ -199,11 +230,10 @@ export default function App() {
 
   const handleRestoreEmail = async (id: string) => {
     try {
-      // Visually restore to Inbox in React state immediately by toggling the flag rather than deleting it.
-      setEmails(prev => prev.map(email => 
-        email.id === id ? { ...email, isTrashed: 0, isInbox: 1 } : email
-      ));
+      // Visually remove it from the Trash view immediately
+      setEmails(prev => prev.filter(email => email.id !== id));
       await restoreEmail(id);
+      void loadEmails(false);
     } catch (error) {
       console.error("Failed to restore email:", error);
       alert("Failed to restore email: " + (error instanceof Error ? error.message : "Internal Error"));
@@ -298,13 +328,25 @@ export default function App() {
         searchQuery={searchQuery} onSearchChange={setSearchQuery}
         dateRange={dateRange} onDateRangeChange={setDateRange}
         onOpenPolicyManagement={() => setShowPolicyManagement(true)}
-        autoRefreshEnabled={autoRefreshEnabled} onAutoRefreshEnabledChange={setAutoRefreshEnabled}
         refreshIntervalSeconds={refreshIntervalSeconds} 
         onRefreshIntervalSecondsChange={(seconds) => {
           setRefreshIntervalSeconds(seconds);
           void updateSyncInterval(seconds).catch(e => console.error("Failed to update backend interval:", e));
         }}
-        onRefreshNow={async () => { await loadEmails(true); await refreshRefinementStats(); }}
+        onRefreshNow={async () => { 
+          try {
+            setIsRefreshing(true);
+            await triggerManualSync();
+            await loadEmails(false); 
+            await refreshRefinementStats(); 
+          } catch (e: any) {
+            console.warn("Manual Sync Cooldown:", e.message);
+            // Even if sync is on cooldown, we still refresh the local UI state
+            await loadEmails(false);
+            await refreshRefinementStats();
+            setIsRefreshing(false);
+          }
+        }}
         isRefreshing={isRefreshing} lastSyncedAt={lastSyncedAt}
         gmailConnected={gmailConnected} gmailIdentity={gmailIdentity} gmailAuthMode={gmailAuthMode}
         onConnectGmail={() => window.open(getGoogleAuthStartUrl(), '_blank', 'noopener,noreferrer')}
@@ -342,7 +384,7 @@ export default function App() {
               <InitialSyncingView />
             ) : lastSyncedAt ? (
               // Priority 2: Sync definitively finished and total emails are still zero
-              <EmptyInboxView onRefreshNow={async () => { await loadEmails(true); await refreshRefinementStats(); }} />
+              <EmptyInboxView onRefreshNow={async () => { await loadEmails(); await refreshRefinementStats(); }} />
             ) : (
               // Initial boot-up state (before first sync call returns)
               <div className="flex-1 flex items-center justify-center">

@@ -9,15 +9,14 @@ import torch
 from sentence_transformers import SentenceTransformer
 from rag.retriever import get_embedder
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-RAG_DATA_DIR = BASE_DIR / "rag" / "data"
-INDEX_PATH = RAG_DATA_DIR / "faiss.index"
-CHUNKS_PATH = RAG_DATA_DIR / "policy_chunks.json"
+from config import (
+    INDEX_PATH, CHUNKS_PATH, DEMO_POLICY_DIR, DATA_DIR
+)
 
 # Chunking parameters
 CHUNK_SIZE_TOKENS = 500
 OVERLAP_TOKENS = 50
-DEMO_CHUNKS_PATH = RAG_DATA_DIR / "demo_policy_chunks.json"
+DEMO_CHUNKS_PATH = DATA_DIR / "demo_policy_chunks.json"
 DEMO_CHUNK_MARKER = "DEMO_POLICY_CHUNK_MARKER"
 
 DEMO_CATEGORY_KEYS: Dict[str, Dict[str, Any]] = {

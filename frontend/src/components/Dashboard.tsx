@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Mail, MailOpen, Reply, Paperclip, Clock, TrendingUp } from 'lucide-react';
-import { BarChart, Bar, PieChart, Pie, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { Mail, MailOpen, Reply, Paperclip, Clock, TrendingUp, LayoutList, MessageSquare, CheckCircle } from 'lucide-react';
+import { BarChart, Bar, AreaChart, Area, PieChart, Pie, Label, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { Email } from '@/types';
 
 interface DashboardProps { 
@@ -67,9 +67,10 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
     total: grievances.length,
     unreplied: grievances.filter(g => !g.replied).length,
     avgPendingDuration: calculateAveragePendingDuration(),
-    fresh: grievances.filter(g => g.mailType === 'fresh').length,
-    followUp: grievances.filter(g => g.mailType === 'follow-up').length,
+    fresh: grievances.filter(g => g.mailType === 'fresh' && !g.replied).length,
+    followUp: grievances.filter(g => g.mailType === 'follow-up' && !g.replied).length,
     replies: emails.filter(e => (e.mailType || '').toLowerCase() === 'reply').length,
+    actions: grievances.filter(g => g.mailType === 'action').length,
     withAttachments: grievances.filter(g => g.hasAttachment).length
   };
 
@@ -104,9 +105,9 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   .sort((a, b) => b.count - a.count);
 
   const mailTypeData = [
-    { name: 'Fresh', value: stats.fresh, fill: 'hsl(152, 60%, 40%)' },
-    { name: 'Follow-up', value: stats.followUp, fill: 'hsl(25, 95%, 53%)' },
-    { name: 'Reply', value: stats.replies, fill: 'hsl(234, 89%, 54%)' }
+    { name: 'Fresh', value: stats.fresh, fill: 'hsl(180, 100%, 40%)' },
+    { name: 'Ongoing', value: stats.followUp, fill: 'hsl(25, 95%, 53%)' },
+    { name: 'Resolved', value: grievances.filter(g => g.replied).length, fill: 'hsl(152, 60%, 40%)' }
   ];
 
   const getLast7DaysData = () => {
@@ -130,46 +131,88 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   const dailyVolumeData = getLast7DaysData();
 
   const statCards = [
-    { title: 'Total Conversations', value: stats.total, icon: <Mail className="w-5 h-5" />, variant: 'blue' as const },
-    { title: 'Pending Replies', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}` },
-    { title: 'Fresh Emails', value: stats.fresh, icon: <MailOpen className="w-5 h-5" />, variant: 'green' as const },
-    { title: 'Follow-ups', value: stats.followUp, icon: <Reply className="w-5 h-5" />, variant: 'orange' as const },
-    { title: 'Replies Sent', value: stats.replies, icon: <Reply className="w-5 h-5" />, variant: 'blue' as const },
+    { title: 'Total Conversations', value: stats.total, icon: <LayoutList className="w-5 h-5" />, variant: 'blue' as const },
+    { title: 'Unresolved', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}` },
+    { title: 'Resolved', value: grievances.filter(g => g.replied).length, icon: <CheckCircle className="w-5 h-5" />, variant: 'green' as const },
+    { title: 'Fresh Threads', value: stats.fresh, icon: <Mail className="w-5 h-5" />, variant: 'cyan' as const },
+    { title: 'Ongoing Threads', value: stats.followUp, icon: <MessageSquare className="w-5 h-5" />, variant: 'orange' as const },
     { title: 'Attachments', value: stats.withAttachments, icon: <Paperclip className="w-5 h-5" />, variant: 'purple' as const },
   ];
 
-  const variantStyles = {
-    blue: 'bg-secondary text-primary',
-    red: 'bg-gov-red-light text-gov-red',
-    green: 'bg-gov-green-light text-gov-green',
-    orange: 'bg-gov-orange-light text-gov-orange',
-    purple: 'bg-gov-purple-light text-gov-purple',
-  };
-
-  const cardBorderAccent = {
-    blue: 'border-l-primary',
-    red: 'border-l-gov-red',
-    green: 'border-l-gov-green',
-    orange: 'border-l-gov-orange',
-    purple: 'border-l-gov-purple',
+  const cardStyles = {
+    blue: {
+      bg: 'bg-blue-50/50 dark:bg-blue-950/20',
+      border: 'border-blue-100 dark:border-blue-800/50',
+      accent: 'border-t-primary',
+      iconBg: 'bg-primary/10 text-primary',
+      shadow: 'shadow-[0_8px_20px_-6px_rgba(30,58,138,0.15)] hover:shadow-[0_12px_30px_-4px_rgba(30,58,138,0.25)]'
+    },
+    red: {
+      bg: 'bg-red-50/50 dark:bg-red-950/20',
+      border: 'border-red-100 dark:border-red-800/50',
+      accent: 'border-t-gov-red',
+      iconBg: 'bg-gov-red-light text-gov-red',
+      shadow: 'shadow-[0_8px_20px_-6px_rgba(185,28,28,0.15)] hover:shadow-[0_12px_30px_-4px_rgba(185,28,28,0.25)]'
+    },
+    green: {
+      bg: 'bg-green-50/50 dark:bg-green-950/20',
+      border: 'border-green-100 dark:border-green-800/50',
+      accent: 'border-t-gov-green',
+      iconBg: 'bg-gov-green-light text-gov-green',
+      shadow: 'shadow-[0_8px_20px_-6px_rgba(21,128,61,0.15)] hover:shadow-[0_12px_30px_-4px_rgba(21,128,61,0.25)]'
+    },
+    orange: {
+      bg: 'bg-orange-50/50 dark:bg-orange-950/20',
+      border: 'border-orange-100 dark:border-orange-800/50',
+      accent: 'border-t-gov-orange',
+      iconBg: 'bg-gov-orange-light text-gov-orange',
+      shadow: 'shadow-[0_8px_20px_-6px_rgba(194,65,12,0.15)] hover:shadow-[0_12px_30px_-4px_rgba(194,65,12,0.25)]'
+    },
+    purple: {
+      bg: 'bg-purple-50/50 dark:bg-purple-950/20',
+      border: 'border-purple-100 dark:border-purple-800/50',
+      accent: 'border-t-gov-purple',
+      iconBg: 'bg-gov-purple-light text-gov-purple',
+      shadow: 'shadow-[0_8px_20px_-6px_rgba(109,40,217,0.15)] hover:shadow-[0_12px_30px_-4px_rgba(109,40,217,0.25)]'
+    },
+    cyan: {
+      bg: 'bg-cyan-50/50 dark:bg-cyan-950/20',
+      border: 'border-cyan-100 dark:border-cyan-800/50',
+      accent: 'border-t-cyan-500',
+      iconBg: 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400',
+      shadow: 'shadow-[0_8px_20px_-6px_rgba(8,145,178,0.15)] hover:shadow-[0_12px_30px_-4px_rgba(8,145,178,0.25)]'
+    },
   };
 
   return (
     <div className="flex-1 p-4 sm:p-6 gradient-surface overflow-y-auto custom-scrollbar">
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3 sm:gap-4 mb-6">
-        {statCards.map((card) => (
-          <div key={card.title} className={`bg-card rounded-xl border border-border border-l-4 ${cardBorderAccent[card.variant]} p-4 sm:p-5 shadow-card hover:shadow-elevated transition-all duration-200 hover:-translate-y-0.5`}>
-            <div className="flex items-start justify-between">
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{card.title}</p>
-                <p className="text-xl sm:text-2xl font-bold text-foreground">{card.value}</p>
-                {card.subtitle && <p className="text-[11px] text-muted-foreground">{card.subtitle}</p>}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
+        {statCards.map((card) => {
+          const style = cardStyles[card.variant];
+          return (
+            <div 
+              key={card.title} 
+              className={`relative ${style.bg} rounded-2xl border ${style.border} border-t-4 ${style.accent} p-5 ${style.shadow} transition-all duration-300 hover:-translate-y-1 group`}
+            >
+              <div className="flex items-start justify-between">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.15em]">{card.title}</p>
+                  <p className="text-2xl font-bold text-foreground tracking-tight">{card.value}</p>
+                  {card.subtitle && (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="w-1 h-1 rounded-full bg-gov-red animate-pulse" />
+                      <p className="text-[10px] font-bold text-gov-red uppercase tracking-wider">{card.subtitle}</p>
+                    </div>
+                  )}
+                </div>
+                <div className={`p-3 rounded-xl ${style.iconBg} shadow-sm group-hover:scale-110 transition-transform duration-300`}>
+                  {card.icon}
+                </div>
               </div>
-              <div className={`p-2.5 rounded-lg ${variantStyles[card.variant]}`}>{card.icon}</div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* High-Impact Category Chart (Full Width) */}
@@ -241,37 +284,56 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
         {/* Distribution & Volume row */}
         <div className="bg-card rounded-xl border border-border p-5 shadow-card overflow-hidden lg:col-span-5">
           <h3 className="text-sm font-semibold text-foreground mb-6">Inquiry Character Distribution</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie 
-                data={mailTypeData.filter(d => d.value > 0)} 
-                cx="50%" 
-                cy="45%" 
-                innerRadius={60} 
-                outerRadius={80} 
-                paddingAngle={5}
-                dataKey="value"
-                stroke="none"
-                label={({ name, percent }) => percent > 0.02 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
-                labelLine={true}
-              >
-                {mailTypeData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.fill} />
-                ))}
-              </Pie>
-              <Tooltip 
-                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '11px' }}
+        <ResponsiveContainer width="100%" height={300}>
+          <PieChart>
+            <Pie 
+              data={mailTypeData.filter(d => d.value > 0)} 
+              cx="50%" 
+              cy="45%" 
+              innerRadius={70} 
+              outerRadius={90} 
+              paddingAngle={5}
+              dataKey="value"
+              stroke="none"
+              label={({ name, percent }) => percent > 0.02 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
+              labelLine={false}
+            >
+              {mailTypeData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.fill} />
+              ))}
+              <Label 
+                value={stats.total} 
+                position="center" 
+                className="text-4xl font-normal fill-foreground"
+                style={{ fontFamily: 'inherit', letterSpacing: '-0.02em' }}
               />
-              <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: 600 }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+              <Label 
+                value="TOTAL" 
+                position="center" 
+                dy={28}
+                className="text-[10px] font-medium fill-muted-foreground uppercase tracking-[0.2em]"
+                style={{ fontFamily: 'inherit' }}
+              />
+            </Pie>
+            <Tooltip 
+              contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '11px' }}
+            />
+            <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: 600 }} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
 
-        {/* Line Chart */}
-        <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow lg:col-span-7">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Daily Volume (7 Days)</h3>
+      {/* Area Chart with Gradient */}
+      <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow lg:col-span-7">
+        <h3 className="text-sm font-semibold text-foreground mb-4">Activity Volume (7 Days)</h3>
         <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={dailyVolumeData} margin={{ bottom: isMobile ? 30 : 10 }}>
+          <AreaChart data={dailyVolumeData} margin={{ bottom: isMobile ? 30 : 10 }}>
+            <defs>
+              <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
             <XAxis 
               dataKey="date" 
@@ -286,11 +348,16 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
               contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px' }}
               itemStyle={{ color: 'hsl(var(--foreground))' }}
             />
-            <Legend verticalAlign="top" height={36} iconType="circle" />
-            <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={3}
-              dot={{ fill: 'hsl(var(--primary))', r: 4, strokeWidth: 2, stroke: 'hsl(var(--card))' }}
-              activeDot={{ r: 6, strokeWidth: 0 }} name="Emails" />
-          </LineChart>
+            <Area 
+              type="monotone" 
+              dataKey="count" 
+              stroke="hsl(var(--primary))" 
+              strokeWidth={3}
+              fillOpacity={1} 
+              fill="url(#colorCount)" 
+              name="Activity"
+            />
+          </AreaChart>
         </ResponsiveContainer>
       </div>
     </div>

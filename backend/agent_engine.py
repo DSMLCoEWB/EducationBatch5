@@ -5,7 +5,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from rag.retriever import retrieve_policy_chunks
-from database_api import save_chat_message, get_chat_history
+from db.repository import save_chat_message, get_chat_history
 from ai_utils import generate_content_with_fallback, ULTIMATE_FALLBACK_LIST
 
 load_dotenv()

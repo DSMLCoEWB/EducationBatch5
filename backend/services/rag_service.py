@@ -1,0 +1,268 @@
+import os
+import json
+import hashlib
+import faiss
+import numpy as np
+import re
+from typing import List, Dict, Any, Optional
+from sentence_transformers import SentenceTransformer
+from google import genai
+
+from config import (
+    INDEX_PATH, CHUNKS_PATH, RAG_TOP_K, 
+    RAG_MIN_SCORE, RAG_FINAL_LIMIT, ULTIMATE_FALLBACK_LIST,
+    RAG_UNREPLIED_MAX, RAG_ANCHOR_DEPTH
+)
+from core.logging import get_logger
+from ai_utils import generate_content_with_fallback
+
+logger = get_logger("services.rag")
+
+# --- EMBEDDING SINGLETON ---
+_embedder = None
+
+def get_embedder():
+    global _embedder
+    if _embedder is None:
+        logger.info("📡 Loading SentenceTransformer (all-MiniLM-L6-v2)...")
+        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    return _embedder
+
+def strip_html(text: str) -> str:
+    """Removes HTML tags and normalizes whitespace for cleaner semantic embeddings."""
+    if not text: return ""
+    clean = re.sub(r"<(style|script)[^>]*>[\s\S]*?<\/\1>", " ", text, flags=re.IGNORECASE)
+    clean = re.sub(r"<[^>]*>", " ", clean)
+    clean = clean.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    return " ".join(clean.split()).strip()
+
+# --- RETRIEVER ---
+_index = None
+_policy_chunks = []
+
+def reload_retriever_data():
+    global _index, _policy_chunks
+    if not os.path.exists(INDEX_PATH) or not os.path.exists(CHUNKS_PATH):
+        logger.warning("⚠️ RAG Index or Chunks missing from disk.")
+        return
+        
+    try:
+        _index = faiss.read_index(str(INDEX_PATH))
+        with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
+            _policy_chunks = json.load(f)
+        logger.info(f"📚 RAG Index Loaded: {_index.ntotal} chunks.")
+    except Exception as e:
+        logger.error(f"❌ Failed to load RAG index: {e}")
+
+def retrieve_policy_chunks(query: str) -> List[Dict[str, Any]]:
+    """Performs semantic search against policy documents via FAISS."""
+    if _index is None:
+        reload_retriever_data()
+    
+    if _index is None or not _policy_chunks:
+        return []
+
+    model = get_embedder()
+    clean_query = strip_html(query)
+    
+    query_emb = model.encode([clean_query], normalize_embeddings=True)
+    query_emb = np.asarray(query_emb).astype("float32")
+
+    # 1. Search FAISS for candidates
+    scores_faiss, indices = _index.search(query_emb, RAG_TOP_K)
+    
+    candidate_idxs = [int(idx) for idx in indices[0] if idx != -1]
+    if not candidate_idxs:
+        return []
+        
+    candidate_chunks = [_policy_chunks[idx] for idx in candidate_idxs]
+    
+    # 2. Batch Re-ranking (Surgical Parity)
+    # Manual Cosine Similarity overrides raw FAISS distances for better precision
+    texts_to_score = [c.get("text", "") for c in candidate_chunks]
+    chunk_embs = model.encode(texts_to_score, normalize_embeddings=True)
+    chunk_embs = np.asarray(chunk_embs).astype("float32")
+    
+    semantic_scores = np.dot(chunk_embs, query_emb[0])
+    
+    results = []
+    for i, chunk in enumerate(candidate_chunks):
+        score = float(semantic_scores[i])
+        if score >= RAG_MIN_SCORE:
+            results.append({
+                "text": chunk.get("text", ""),
+                "metadata": {
+                    "clause_id": chunk.get("clause_id", "N/A"),
+                    "section": chunk.get("section_title", "General")
+                },
+                "score": score
+            })
+
+    # 3. Sort and Apply Limit
+    results.sort(key=lambda x: x["score"], reverse=True)
+    results = results[:RAG_FINAL_LIMIT]
+    
+    # 4. Consistency Filtering (Prefer dominant section)
+    unique_sections = set(res["metadata"]["section"] for res in results)
+    if len(unique_sections) > 2 and results:
+        highest_scoring_section = results[0]["metadata"]["section"]
+        results = [res for res in results if res["metadata"]["section"] == highest_scoring_section]
+
+    return results
+
+# --- GENERATION CONFIG ---
+
+SYSTEM_PROMPT = """
+You are a senior professional grievance redressal officer for an educational institution.
+Primary Goal: Generate a formal, helpful, and policy-grounded email reply.
+
+Rules:
+1. Strict Grounding: Use ONLY the provided policy context.
+2. Complete Response: Output a FULL email body (Salutation, Body, Signature).
+3. NO REDUNDANT SUBJECT: DO NOT include a "Subject:" line in your response.
+4. NO HARD WRAPPING: Do NOT insert line breaks within paragraphs. Use double newlines between paragraphs.
+5. Minimum Length: The body must be 3-5 sentences minimum.
+6. Policy Citation: You MUST explicitly mention specific clause IDs (e.g., "As per MSC-06...") to support your statements.
+7. Delay Handling: If the query is about a delay, mention the specific escalation path (e.g., nodal officer) or response timelines.
+8. Tone: Professional, authoritative yet respectful.
+9. Language: Formal English.
+
+If context is insufficient, state that no relevant policy clause is available.
+"""
+
+# --- REPLY GENERATOR ---
+
+def generate_suggested_reply_with_evidence(
+    email_content: str,
+    email_subject: str = "",
+    sender: str = "",
+    category: str = "",
+    attachment_content: str = "",
+    history: List[Dict[str, Any]] = [],
+    email_id: str = None
+) -> Dict[str, Any]:
+    """Generates a policy-grounded reply using Surgical RAG context."""
+    
+    # 1. Prepare Surgical Context (Anchor-Turn Windowing)
+    safe_history = history if history else []
+    
+    # Temporal Truncation (if applicable)
+    if email_id and safe_history:
+        found_idx = -1
+        for i, m in enumerate(safe_history):
+            if str(m.get('id', '')) == str(email_id) or str(m.get('email_id', '')) == str(email_id):
+                found_idx = i
+                break
+        if found_idx != -1:
+            safe_history = safe_history[:found_idx + 1]
+            
+    # Solve for Anchor Turn: Last Dept Reply + Its Citizen Trigger
+    unreplied_msgs = []
+    anchor_turn = []
+    rev_history = list(reversed(safe_history))
+    last_sent_idx = -1
+    
+    for i, msg in enumerate(rev_history):
+        content_upper = str(msg.get('content', '')).upper()
+        subject_upper = str(msg.get('subject', '')).upper()
+        if (msg.get('is_sent') or msg.get('isSent')) and "[AICOE-SEED]" not in content_upper and "[AICOE-SEED]" not in subject_upper:
+            last_sent_idx = i
+            break
+            
+    if last_sent_idx == -1:
+        unreplied_msgs = rev_history[:RAG_UNREPLIED_MAX]
+    else:
+        unreplied_msgs = rev_history[:last_sent_idx][:RAG_UNREPLIED_MAX]
+        # Anchor consists of Dept Reply + Its Citizen Trigger (The "Handshake")
+        anchor_turn.append(rev_history[last_sent_idx])
+        for j in range(last_sent_idx + 1, len(rev_history)):
+            if len(anchor_turn) >= RAG_ANCHOR_DEPTH:
+                break
+            msg_j = rev_history[j]
+            if not (msg_j.get('is_sent') or msg_j.get('isSent')):
+                anchor_turn.append(msg_j)
+
+    # 2. Build Surgical Retrieval Query
+    retrieval_query_parts = [f"Subject: {email_subject}", email_content, attachment_content]
+    if not unreplied_msgs and len(anchor_turn) >= 2:
+        retrieval_query_parts.append(anchor_turn[1].get('content', ''))
+    for m in unreplied_msgs:
+        if m.get('id') != (safe_history[-1].get('id') if safe_history else None):
+            retrieval_query_parts.append(m.get('content', ''))
+            
+    search_query = f"Category: {category} | " + " ".join([p for p in retrieval_query_parts if p]).strip()
+    chunks = retrieve_policy_chunks(search_query[:1000])
+    
+    if not chunks:
+        return {
+            "suggested_reply": "Dear Sir/Madam,\n\nYour grievance has been received and is under review. The institution will process the matter as per applicable policy provisions.\n\nSincerely,\nGrievance Support Desk",
+            "evidence": [],
+            "status": "no_policy"
+        }
+
+    # 3. Format History for LLM (Chronological Surgical Window)
+    history_to_format = []
+    if anchor_turn: history_to_format.extend(reversed(anchor_turn))
+    if unreplied_msgs: history_to_format.extend(reversed(unreplied_msgs))
+    
+    history_lines = []
+    for m in history_to_format:
+        is_dept = bool(m.get('is_sent') or m.get('isSent'))
+        role = "Dpt-Response (You)" if is_dept else "Citizen-Inquiry"
+        if m.get('id') != (safe_history[-1].get('id') if safe_history else None):
+            history_lines.append(f"[{role}]: {m.get('content', '')[:300]}")
+    
+    history_text = "\n".join(history_lines)
+    citizen_name = str(sender).split('<')[0].strip() if sender and str(sender).lower() != "nan" else "Sir/Madam"
+
+    # 4. Final Generation Prompt
+    context_text = "\n\n".join([f"[Clause {c['metadata']['clause_id']}] {c['text']}" for c in chunks])
+    
+    prompt = f"""
+    {SYSTEM_PROMPT}
+
+    CONVERSATION HISTORY:
+    {history_text}
+    
+    CURRENT INQUIRY:
+    Subject: {email_subject}
+    From: {sender}
+    Content: {email_content}
+    OCR-Attachments: {attachment_content if attachment_content else "None"}
+    
+    POLICY CONTEXT:
+    {context_text}
+    
+    TASK:
+    Write a professional reply to {citizen_name}. 
+    - Respond directly to the inquiry using the policy context.
+    - Reference specific Clause IDs (e.g., EXM-01).
+    - Start with 'Dear {citizen_name},' and end with 'Sincerely, Grievance Support Desk'.
+    """
+
+    api_key = os.getenv("GOOGLE_API_KEY")
+    client = genai.Client(api_key=api_key) if api_key else None
+    
+    if not client:
+        return {"suggested_reply": "AI Service currently unavailable.", "status": "error"}
+
+    response = generate_content_with_fallback(
+        client=client,
+        contents=prompt,
+        label="RAG-Service"
+    )
+
+    reply = response.text if response else "Error generating reply."
+    
+    # Strip LLM-injected "Subject:" tags
+    if "subject:" in reply.lower():
+        lines = [l for l in reply.split('\n') if not l.strip().lower().startswith("subject:")]
+        reply = "\n".join(lines).strip()
+
+    return {
+        "suggested_reply": reply,
+        "evidence": chunks,
+        "status": "ok",
+        "trust_score": chunks[0]["score"] if chunks else 0.0,
+        "trust_label": "High" if chunks and chunks[0]["score"] > 0.7 else "Medium"
+    }

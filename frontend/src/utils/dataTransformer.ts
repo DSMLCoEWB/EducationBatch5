@@ -359,12 +359,13 @@ function extractSenderName(sender: string): string {
 export function transformBackendEmail(backendEmail: any): Email {
   // Support both snake_case (backend) and camelCase (frontend types)
   const categoryStr = backendEmail.category || '';
-  const category = categoryMap[categoryStr] || 'miscellaneous';
+  const category = categoryMap[categoryStr] || 'Miscellaneous';
   
   const rawMailType = (backendEmail.mail_type || backendEmail.mailType || '').toLowerCase();
   let mailType: MailType = 'follow-up';
   if (rawMailType.includes('fresh')) mailType = 'fresh';
   else if (rawMailType.includes('reply')) mailType = 'reply';
+  else if (rawMailType.includes('action')) mailType = 'action';
   
   const content = backendEmail.content || '';
   const sender = backendEmail.sender || '';
@@ -380,10 +381,14 @@ export function transformBackendEmail(backendEmail: any): Email {
     snippet: createSnippet(content),
     priority: backendEmail.priority ?? 99,
     hasAttachment: !!(backendEmail.has_attachment || backendEmail.hasAttachment || (backendEmail.attachments && backendEmail.attachments.length > 0)),
-    attachments: backendEmail.attachments || [],
+    attachments: Array.isArray(backendEmail.attachments) 
+      ? backendEmail.attachments 
+      : (typeof backendEmail.attachments === 'string' ? JSON.parse(backendEmail.attachments || '[]') : []),
     emlFile: backendEmail.eml_file || backendEmail.emlFile || '',
     category,
     mailType,
+    html_content: backendEmail.html_content,
+    replyText: backendEmail.replyText || '',
     followUpCount: backendEmail.followup_count || backendEmail.followUpCount || 0,
     emailDate: new Date(backendEmail.date || backendEmail.emailDate || new Date()),
     parentEmailId: backendEmail.parent_email_id || backendEmail.parentEmailId || undefined,
@@ -393,7 +398,10 @@ export function transformBackendEmail(backendEmail: any): Email {
     attachmentContent: backendEmail.attachment_content || backendEmail.attachmentContent,
     isSent: !!(backendEmail.is_sent || backendEmail.isSent),
     isInbox: !!(backendEmail.is_inbox || backendEmail.isInbox),
-    is_demo: !!backendEmail.is_demo,
+    recipientEmail: backendEmail.recipient_email || backendEmail.recipientEmail,
+    to: backendEmail.to,
+    cc: backendEmail.cc,
+    bcc: backendEmail.bcc,
     is_ocr_processed: !!backendEmail.is_ocr_processed,
     is_priority_refined: !!backendEmail.is_priority_refined,
   };

@@ -5,7 +5,7 @@ from google.genai import types
 
 # --- ULTIMATE MODEL FALLBACK SEQUENCE (Best-to-Least Verified Free Tier) ---
 # Ordered by Priority: 1. Latest Stable -> 2. Latest Previews -> 3. High Volume Fallbacks
-ULTIMATE_FALLBACK_LIST = [
+_DEFAULT_FALLBACK_LIST = [
     # Primary: High Quota Free Model (500 RPD)
     "models/gemini-3.1-flash-lite-preview", 
     
@@ -31,6 +31,18 @@ ULTIMATE_FALLBACK_LIST = [
     "models/gemini-robotics-er-1.6-preview",
     "models/gemini-robotics-er-1.5-preview"
 ]
+
+_env_models = os.getenv("AI_FALLBACK_MODELS")
+if _env_models:
+    ULTIMATE_FALLBACK_LIST = [m.strip() for m in _env_models.split(",") if m.strip()]
+else:
+    ULTIMATE_FALLBACK_LIST = _DEFAULT_FALLBACK_LIST
+
+
+# --- SPECIALIZED VISION FALLBACK (Vision-Capable Only) ---
+# Deduplicated list of models that explicitly support Part.from_bytes (Images/PDFs)
+VISION_FALLBACK_LIST = [m for m in ULTIMATE_FALLBACK_LIST if "gemini" in m.lower()]
+
 
 def generate_content_with_fallback(
     client, 
