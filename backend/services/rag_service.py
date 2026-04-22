@@ -10,7 +10,8 @@ from google import genai
 
 from config import (
     INDEX_PATH, CHUNKS_PATH, RAG_TOP_K, 
-    RAG_MIN_SCORE, RAG_FINAL_LIMIT, ULTIMATE_FALLBACK_LIST
+    RAG_MIN_SCORE, RAG_FINAL_LIMIT, ULTIMATE_FALLBACK_LIST,
+    RAG_UNREPLIED_MAX, RAG_ANCHOR_DEPTH
 )
 from core.logging import get_logger
 from ai_utils import generate_content_with_fallback
@@ -169,14 +170,17 @@ def generate_suggested_reply_with_evidence(
             break
             
     if last_sent_idx == -1:
-        unreplied_msgs = rev_history[:3]
+        unreplied_msgs = rev_history[:RAG_UNREPLIED_MAX]
     else:
-        unreplied_msgs = rev_history[:last_sent_idx][:3]
+        unreplied_msgs = rev_history[:last_sent_idx][:RAG_UNREPLIED_MAX]
+        # Anchor consists of Dept Reply + Its Citizen Trigger (The "Handshake")
         anchor_turn.append(rev_history[last_sent_idx])
         for j in range(last_sent_idx + 1, len(rev_history)):
-            if not (rev_history[j].get('is_sent') or rev_history[j].get('isSent')):
-                anchor_turn.append(rev_history[j])
+            if len(anchor_turn) >= RAG_ANCHOR_DEPTH:
                 break
+            msg_j = rev_history[j]
+            if not (msg_j.get('is_sent') or msg_j.get('isSent')):
+                anchor_turn.append(msg_j)
 
     # 2. Build Surgical Retrieval Query
     retrieval_query_parts = [f"Subject: {email_subject}", email_content, attachment_content]

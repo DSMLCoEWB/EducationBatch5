@@ -1,11 +1,21 @@
 import json
 import hashlib
 import threading
+import httplib2
 from pathlib import Path
+
+def get_hardened_http(timeout: int = 60):
+    """
+    Creates an httplib2.Http instance with system proxy discovery disabled
+    and a relaxed timeout for stable SSL handshakes on constrained networks.
+    """
+    # Explicitly set proxy_info=None to bypass the httplib2 'WRONG_VERSION_NUMBER' bug
+    return httplib2.Http(proxy_info=None, timeout=timeout)
 from typing import Any, Optional
 from cryptography.fernet import Fernet, InvalidToken
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleAuthRequest
+import google_auth_httplib2
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -14,6 +24,10 @@ from config import (
     GOOGLE_OAUTH_SCOPES, SYNC_ENABLED
 )
 from core.gmail_context import GMAIL_SERVICE_MAP, GMAIL_SERVICE_LOCK
+
+# Proactive Cache Reset: Wipe stale connections on reload to ensure hardened transport is used.
+with GMAIL_SERVICE_LOCK:
+    GMAIL_SERVICE_MAP.clear()
 from utils.rate_limiter import GMAIL_RATE_LIMITER
 from core.logging import get_logger
 
@@ -104,7 +118,8 @@ def get_gmail_api_service(user_email: str) -> Any:
 
         # 4. Built Service with Proactive Rate Limiting
         GMAIL_RATE_LIMITER.wait()
-        service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+        auth_http = google_auth_httplib2.AuthorizedHttp(creds, http=get_hardened_http())
+        service = build("gmail", "v1", http=auth_http, cache_discovery=False)
         
         with GMAIL_SERVICE_LOCK:
             GMAIL_SERVICE_MAP[user_email] = service
@@ -118,7 +133,8 @@ def get_gmail_api_service(user_email: str) -> Any:
 
 def extract_email_from_credentials(creds: Credentials) -> str:
     """Resolves the Gmail address for a given set of credentials."""
-    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+    auth_http = google_auth_httplib2.AuthorizedHttp(creds, http=get_hardened_http())
+    service = build("gmail", "v1", http=auth_http, cache_discovery=False)
     profile = service.users().getProfile(userId="me").execute()
     email_addr = str(profile.get("emailAddress", "")).strip().lower()
     if not email_addr:

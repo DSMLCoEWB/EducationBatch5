@@ -51,11 +51,6 @@ export interface BackendCategory {
   count: number;
 }
 
-export interface BackendDashboard {
-  total: number;
-  pendingTriage: number;
-  followup: number;
-}
 
 export interface RAGEvidenceItem {
   clause_id: string;
@@ -87,6 +82,7 @@ export interface UploadPolicyResult {
     index_path: string;
     chunks_path: string;
     is_update: boolean;
+    duplicate?: boolean;
   };
 }
 
@@ -114,15 +110,6 @@ export interface GmailAuthStatus {
   auth_mode: 'oauth' | 'app_password' | 'none' | string;
 }
 
-export interface ApiKeyStatus {
-  status: 'success' | 'error' | 'missing' | 'testing';
-  message: string;
-}
-
-export interface ApiKeyTestResult {
-  main: ApiKeyStatus;
-  priority: ApiKeyStatus;
-}
 
 export interface RefinementStats {
   refined: number;
@@ -136,6 +123,20 @@ export interface RefinementStats {
 export async function fetchCategories(): Promise<BackendCategory[]> {
   const response = await apiFetch(`${API_BASE_URL}/emails/categories`);
   if (!response.ok) throw new Error("Failed to fetch categories");
+  return response.json();
+}
+
+export async function triggerManualSync(): Promise<{ status: string }> {
+  const response = await apiFetch(`${API_BASE_URL}/emails/sync`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    if (response.status === 429) {
+      const errorData = await response.json().catch(() => ({ detail: 'Cooldown active' }));
+      throw new Error(errorData.detail || 'Stealth cooldown active. Please wait a moment.');
+    }
+    throw new Error('Sync failed');
+  }
   return response.json();
 }
 
@@ -153,18 +154,6 @@ export async function fetchAllEmails(): Promise<BackendEmail[]> {
   return fetchEmailsByCategory('all');
 }
 
-export async function fetchDashboard(): Promise<BackendDashboard> {
-  const response = await apiFetch(`${API_BASE_URL}/emails/dashboard`);
-  if (!response.ok) throw new Error("Failed to fetch dashboard");
-  return response.json();
-}
-
-export async function processEmails(): Promise<void> {
-  const response = await apiFetch(`${API_BASE_URL}/process`, {
-    method: "POST",
-  });
-  if (!response.ok) throw new Error("Failed to process emails");
-}
 
 export async function fetchEmailThread(threadId: string): Promise<BackendEmail[]> {
   const response = await apiFetch(`${API_BASE_URL}/emails/threads/${encodeURIComponent(threadId)}`);
@@ -265,6 +254,10 @@ export async function composeEmail(to: string, subject: string, body: string): P
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ to_email: to, subject, body }),
   });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Failed to compose email" }));
+    throw new Error(err.detail || "Failed to compose email");
+  }
   return response.json();
 }
 
@@ -410,6 +403,24 @@ export async function loadDemoPolicies(): Promise<DemoPolicySyncResult> {
   return (await response.json()) as DemoPolicySyncResult;
 }
 
+export async function activatePolicy(policyId: string): Promise<any> {
+    const response = await apiFetch(`${API_BASE_URL}/policies/${encodeURIComponent(policyId)}/activate`, {
+        method: 'POST',
+    });
+
+    if (!response.ok) {
+        let detail = 'Failed to activate policy';
+        try {
+            const err = await response.json();
+            detail = err.detail || detail;
+        } catch {
+            // Ignore
+        }
+        throw new Error(detail);
+    }
+    return response.json();
+}
+
 export async function deletePolicy(policyId: string): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/policies/${encodeURIComponent(policyId)}`, {
     method: 'DELETE',
@@ -431,18 +442,9 @@ export async function deletePolicy(policyId: string): Promise<void> {
    SYSTEM HEALTH
 ============================ */
 
-export async function testApiKeys(): Promise<ApiKeyTestResult> {
-  const response = await apiFetch(`${API_BASE_URL}/test-api-keys`, {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    throw new Error('Failed to test API keys');
-  }
-  return response.json();
-}
 
 export async function updateSyncInterval(seconds: number): Promise<void> {
-  const response = await apiFetch(`${API_BASE_URL}/settings/sync-interval?interval=${seconds}`, {
+  const response = await apiFetch(`${API_BASE_URL}/emails/settings/sync-interval?interval=${seconds}`, {
     method: "POST",
   });
   if (!response.ok) throw new Error("Failed to update sync interval");
@@ -459,7 +461,7 @@ export async function fetchSyncStatus(): Promise<SyncStatus> {
 }
 
 export async function reprocessAttachment(emailId: string, filename: string): Promise<{ status: string; extracted_text: string }> {
-  const response = await apiFetch(`${API_BASE_URL}/emails/${emailId}/attachments/reprocess?filename=${encodeURIComponent(filename)}`, {
+  const response = await apiFetch(`${API_BASE_URL}/emails/reprocess-attachment?email_id=${encodeURIComponent(emailId)}&filename=${encodeURIComponent(filename)}`, {
     method: 'POST'
   });
   if (!response.ok) throw new Error("Failed to reprocess attachment");

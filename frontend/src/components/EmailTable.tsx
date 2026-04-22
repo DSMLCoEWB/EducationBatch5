@@ -222,8 +222,13 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
           bValue = b.followUpCount || 0;
           break;
         case 'sender':
-          aValue = (a.sender || '').toLowerCase();
-          bValue = (b.sender || '').toLowerCase();
+          if (categoryId === 'Sent') {
+            aValue = (a.recipientEmail || '').toLowerCase();
+            bValue = (b.recipientEmail || '').toLowerCase();
+          } else {
+            aValue = (a.sender || '').toLowerCase();
+            bValue = (b.sender || '').toLowerCase();
+          }
           break;
         default: return 0;
       }
@@ -415,7 +420,13 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
           <table className="w-full">
             <thead className="bg-muted/50 border-b border-border">
               <tr>
-                <SortableHeader label="Sender" field="sender" current={sortField} direction={sortDirection} onSort={handleSort} />
+                <SortableHeader 
+                  label={categoryId === 'Sent' ? 'Recipient' : 'Sender'} 
+                  field="sender" 
+                  current={sortField} 
+                  direction={sortDirection} 
+                  onSort={handleSort} 
+                />
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Priority</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Institute</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Subject</th>
@@ -531,8 +542,14 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
     <>
       <tr onClick={onClick} className="hover:bg-accent/50 cursor-pointer transition-colors">
         <td className="px-4 py-3">
-          <div className="font-medium text-foreground text-sm">{email.sender}</div>
-          <div className="text-xs text-muted-foreground truncate max-w-[150px]">{email.senderEmail}</div>
+          {categoryId === 'Sent' ? (
+            <div className="text-sm text-foreground font-medium truncate max-w-[150px]">{email.recipientEmail || "Unknown"}</div>
+          ) : (
+            <>
+              <div className="font-medium text-foreground text-sm">{email.sender}</div>
+              <div className="text-xs text-muted-foreground truncate max-w-[150px]">{email.senderEmail}</div>
+            </>
+          )}
         </td>
         <td className="px-4 py-3">
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${priority <= 1 ? 'bg-gov-red-light text-gov-red' :
@@ -590,9 +607,10 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${
               email.mailType === 'fresh' ? 'bg-gov-green-light text-gov-green' : 
               email.mailType === 'reply' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' :
+              email.mailType === 'action' ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400' :
               'bg-gov-orange-light text-gov-orange'
             }`}>
-            {email.mailType === 'fresh' ? 'Fresh' : email.mailType === 'reply' ? 'Reply' : 'Follow-up'}
+            {email.mailType === 'fresh' ? 'Fresh' : email.mailType === 'reply' ? 'Reply' : email.mailType === 'action' ? 'Action' : 'Follow-up'}
           </span>
         </td>
         <td className="px-4 py-3 text-center">
@@ -605,7 +623,7 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           )}
         </td>
         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-          {new Date(email.emailDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          {new Date(email.emailDate).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
         </td>
         <td className="px-4 py-3">
           {daysPending !== null && (

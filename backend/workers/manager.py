@@ -151,3 +151,17 @@ class WorkerManager:
                         GMAIL_SERVICE_MAP.pop(key, None)
                     llm_refined_cache.pop(key, None)
                     user_display_name_cache.pop(key, None)
+
+    def stop_all(self):
+        """Cleanly shuts down all active background threads and executors."""
+        logger.info("🛑 [WorkerManager] Initiating global shutdown sequence...")
+        with self._lock:
+            for user_email in list(self.sync_workers.keys()):
+                self.sync_workers[user_email]["stop_flag"] = True
+                self.sync_workers[user_email]["stop_event"].set()
+            for event in self.intelligence_stop_events.values():
+                event.set()
+                
+        self.stop_maintenance.set()
+        self.executor.shutdown(wait=False, cancel_futures=True)
+        logger.info("✅ [WorkerManager] All background workers halted.")

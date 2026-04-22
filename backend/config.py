@@ -39,11 +39,15 @@ GOOGLE_OAUTH_SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.settings.basic",
     "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/userinfo.email",
 ]
 
 # --- SECURITY & SESSIONS ---
 APP_SESSION_SECRET = os.getenv("APP_SESSION_SECRET", GOOGLE_OAUTH_ENCRYPTION_KEY).strip()
 SEEDED_SUBJECT_PREFIX = "[AICOE-SEED]"
+
+# Relax oauthlib strict scope checking to allow Google to inject 'openid' without crashing
+os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
 
 # --- DATABASE ---
 DB_PATH = DATA_DIR / "grievances.db"
@@ -54,12 +58,14 @@ GMAIL_CALLS_PER_MINUTE_LIMIT = int(os.getenv("GMAIL_CALLS_PER_MINUTE_LIMIT", "50
 SYNC_JITTER_SECONDS = float(os.getenv("SYNC_JITTER_SECONDS", "60.0"))
 SYNC_MAX_BACKOFF_SECONDS = float(os.getenv("SYNC_MAX_BACKOFF_SECONDS", "3600.0"))
 GMAIL_SYNC_INTERVAL_SECONDS = int(os.getenv("GMAIL_SYNC_INTERVAL_SECONDS", "300"))
+MANUAL_SYNC_COOLDOWN_SECONDS = int(os.getenv("MANUAL_SYNC_COOLDOWN_SECONDS", "120"))
+GMAIL_FULL_SYNC_DAYS = int(os.getenv("GMAIL_FULL_SYNC_DAYS", "14"))
 
 # --- CACHING & MEMORY ---
-CACHE_TTL_SECONDS = 900 if IS_PRODUCTION else 3600
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "3600"))
 MAX_CACHE_ENTRIES = 20 if IS_PRODUCTION else 100
 MAX_DF_ROWS = 5000 if IS_PRODUCTION else 20000
-CLEANUP_INTERVAL_SECONDS = 60
+CLEANUP_INTERVAL_SECONDS = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "60"))
 # Support both names for sync interval to match template
 GMAIL_SYNC_INTERVAL_SECONDS = int(os.getenv("GMAIL_SYNC_INTERVAL_SECONDS", os.getenv("DYNAMIC_AUTO_REFRESH_SECONDS", "300")))
 
@@ -111,12 +117,16 @@ RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.40"))
 RAG_SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", RAG_MIN_SCORE))
 RAG_FINAL_LIMIT = int(os.getenv("RAG_FINAL_LIMIT", "3"))
 
-# --- ANALYTICS RATE LIMITS ---
-PRIORITY_LLM_MAX_CALLS = int(os.getenv("PRIORITY_LLM_MAX_CALLS", "5"))
-PRIORITY_LLM_WINDOW_SECONDS = int(os.getenv("PRIORITY_LLM_WINDOW_SECONDS", "300"))
+# --- SURGICAL RAG "3+2" PARAMETERS ---
+RAG_UNREPLIED_MAX = int(os.getenv("RAG_UNREPLIED_MAX", "3"))
+RAG_ANCHOR_DEPTH = int(os.getenv("RAG_ANCHOR_DEPTH", "2"))
 
-DYNAMIC_USE_LLM_PRIORITY = os.getenv("DYNAMIC_USE_LLM_PRIORITY", "false").strip().lower() == "true"
-DEMO_USE_LLM_PRIORITY = os.getenv("DEMO_USE_LLM_PRIORITY", "false").strip().lower() == "true"
+# ---------- 📊 PRIORITY LLM RATE LIMITING ----------
+PRIORITY_LLM_MAX_CALLS = int(os.getenv("PRIORITY_LLM_MAX_CALLS", "1"))
+PRIORITY_LLM_WINDOW_SECONDS = int(os.getenv("PRIORITY_LLM_WINDOW_SECONDS", "60"))
+
+AI_BATCH_SIZE = int(os.getenv("AI_BATCH_SIZE", "15"))
+
 COLUMNS = [
     "email_id", "gmail_id", "thread_id", "sender", "sender_email", 
     "subject", "date", "has_attachment", "attachments", 

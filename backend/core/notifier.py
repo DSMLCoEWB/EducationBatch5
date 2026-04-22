@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import time
 from typing import Dict, List, Any
 from core.logging import get_logger
 
@@ -48,11 +49,12 @@ class SSENotifier:
             return
 
         with self._lock:
-            # Debounce: At most one update every 5 seconds per user
+            # Debounce: At most one update every 5 seconds per (user, event_type)
+            debounce_key = f"{user_email}:{event_type}"
             now = time.time()
-            if user_email in self._last_notify and (now - self._last_notify[user_email]) < 5:
+            if debounce_key in self._last_notify and (now - self._last_notify[debounce_key]) < 5:
                 return
-            self._last_notify[user_email] = now
+            self._last_notify[debounce_key] = now
 
             queues = self._user_queues.get(user_email, [])
             if not queues:

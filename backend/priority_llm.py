@@ -84,11 +84,24 @@ Content: {email_text}
     return int(match.group()) if match else None
 
 def get_batch_triage(emails):
+    """Sends a batch of emails to the LLM for high-precision triage using numeric mapping."""
     if not emails or client is None: return {}
     
+    # 1. Create a stable numeric map to avoid sending complex Gmail IDs to LLM
+    id_map = {}
     emails_block = ""
-    for e in emails:
-        emails_block += f"ID: {e['id']}\nSENDER: {e['sender']}\nSUBJECT: {e['subject']}\nCONTENT: {e['content'][:700]}...\n---\n"
+    for idx, e in enumerate(emails, 1):
+        actual_id = str(e.get('id', ''))
+        id_map[str(idx)] = actual_id
+        
+        # Build the text block for AI to read
+        content_snippet = (e.get('content', '') or "")[:700]
+        att_snippet = (e.get('attachment_content', '') or "")[:500]
+        
+        emails_block += f"INDEX: {idx}\nSENDER: {e.get('sender')}\nSUBJECT: {e.get('subject')}\nCONTENT: {content_snippet}...\n"
+        if att_snippet:
+            emails_block += f"ATTACHMENT_TEXT: {att_snippet}...\n"
+        emails_block += "---\n"
 
     categories_list = [
         "Suspension / Disciplinary", "Legal Issues", "RTI Matters", "CMO Issues",
@@ -109,7 +122,8 @@ PRIORITY RUBRIC:
 
 Rules:
 - Return YOUR RESPONSE AS A VALID JSON OBJECT ONLY.
-- Format: {{ "EMAIL_ID": {{ "priority": 0-6, "category": "One of the listed categories" }}, ... }}
+- Format: {{ "INDEX": {{ "priority": 0-6, "category": "One of the listed categories" }}, ... }}
+- Use the numeric INDEX provided for each email.
 
 EMAILS TO PROCESS:
 {emails_block}
@@ -123,21 +137,24 @@ EMAILS TO PROCESS:
             cleaned_json = cleaned_json[cleaned_json.find("{"):cleaned_json.rfind("}")+1]
         
         triage_data = json.loads(cleaned_json)
-        cleaned_results = {}
-        for k, v in triage_data.items():
-            clean_k = str(k).strip().lower()
-            if clean_k.startswith("id:"): clean_k = clean_k[3:].strip()
+        final_results = {}
+        
+        for idx_key, v in triage_data.items():
+            # Map numeric index back to real DB ID
+            actual_id = id_map.get(str(idx_key))
+            if not actual_id:
+                continue
             
             cat = v.get("category", "Miscellaneous")
             if cat not in categories_list: cat = "Miscellaneous"
             
-            cleaned_results[clean_k] = {
+            final_results[actual_id] = {
                 "priority": int(v.get("priority", 6)),
                 "category": cat
             }
-        return cleaned_results
+        return final_results
     except Exception as e:
-        print(f"Batch LLM triage failed: {e}")
+        logger.error(f"❌ [Triage] Failed to parse AI batch results: {e}. Raw: {result_text[:200]}")
         return {}
 
 def apply_thread_escalation(priority, followup_count):

@@ -11,6 +11,28 @@ from services.rag_service import get_embedder, reload_retriever_data
 
 logger = get_logger("app")
 
+async def startup_resumer():
+    """Background task to resume intelligence processing for all users on startup."""
+    from db.repository import get_all_active_users, has_enrichment_work
+    from core.coordination import trigger_intelligence_suite
+    import asyncio
+    
+    # Small delay to ensure DB and SSE systems are fully ready
+    await asyncio.sleep(5)
+    
+    try:
+        users = get_all_active_users()
+        logger.info(f"📋 [Startup] Found {len(users)} users to scan for pending work.")
+        
+        for user_email in users:
+            if has_enrichment_work(user_email):
+                logger.info(f"💡 [Startup] Pending intelligence work found for {user_email}. Resuming...")
+                trigger_intelligence_suite(user_email)
+            else:
+                logger.debug(f"⏭️ [Startup] No pending work for {user_email}.")
+    except Exception as e:
+        logger.error(f"⚠️ [Startup] Resumer failed: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # --- STARTUP ---
@@ -29,6 +51,10 @@ async def lifespan(app: FastAPI):
         get_embedder()
         reload_retriever_data()
         logger.info("✅ Database initialized and AI models warmed up.")
+        
+        # 2. Resume background intelligence work
+        asyncio.create_task(startup_resumer())
+        
     except Exception as e:
         logger.error(f"⚠️ Startup warmup failed: {e}")
         

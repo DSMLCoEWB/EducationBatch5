@@ -66,21 +66,3 @@ def chatbot_chat(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/reprocess-attachment")
-def reprocess_attachment(
-    email_id: str,
-    filename: str,
-    user_email: str = Depends(get_authenticated_user)
-):
-    """Manually triggers OCR re-processing for a specific attachment."""
-    from config import ATTACHMENTS_DIR
-    import os
-    path = os.path.join(ATTACHMENTS_DIR, filename)
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Attachment file not found.")
-        
-    text = extract_text_from_attachment_ai(path)
-    if text:
-        update_email_attachment_content(user_email, email_id, text, filename)
-        return {"status": "success", "extracted_text": text}
-    return {"status": "failed"}

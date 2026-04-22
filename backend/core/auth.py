@@ -36,11 +36,13 @@ def build_google_flow(state: Optional[str] = None) -> Flow:
             "redirect_uris": [GOOGLE_OAUTH_REDIRECT_URI],
         }
     }
-    return Flow.from_client_config(
+    flow = Flow.from_client_config(
         client_config,
         scopes=GOOGLE_OAUTH_SCOPES,
         state=state
     )
+    flow.redirect_uri = GOOGLE_OAUTH_REDIRECT_URI
+    return flow
 
 def save_google_credentials(user_email: str, creds: Credentials):
     GOOGLE_OAUTH_TOKENS_DIR.mkdir(parents=True, exist_ok=True)
