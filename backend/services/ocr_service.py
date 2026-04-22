@@ -33,14 +33,17 @@ def extract_text_from_attachment_ai(path: str) -> str:
             "If it is an official document, preserve core facts like names, dates, and status."
         ]
 
+        from ai_utils import generate_content_with_fallback, VISION_FALLBACK_LIST
+        
         response = generate_content_with_fallback(
             client=client,
             contents=contents,
-            label="OCR Service"
+            label="OCR Service",
+            model_list=VISION_FALLBACK_LIST
         )
 
         if response and response.text:
-            return f"\n--- [Extracted from Attachment: {os.path.basename(path)}] ---\n{response.text}\n"
+            return response.text.strip()
     except Exception as e:
         logger.error(f"⚠️ AI OCR failed for {path}: {e}")
     return ""

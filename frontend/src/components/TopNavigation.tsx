@@ -15,8 +15,6 @@ interface TopNavigationProps {
   dateRange: string;
   onDateRangeChange: (range: string) => void;
   onOpenPolicyManagement: () => void;
-  autoRefreshEnabled: boolean;
-  onAutoRefreshEnabledChange: (enabled: boolean) => void;
   refreshIntervalSeconds: number;
   onRefreshIntervalSecondsChange: (seconds: number) => void;
   onRefreshNow: () => void;
@@ -35,7 +33,6 @@ interface TopNavigationProps {
 
 export function TopNavigation({ 
   searchQuery, onSearchChange, dateRange, onDateRangeChange,
-  autoRefreshEnabled, onAutoRefreshEnabledChange,
   refreshIntervalSeconds, onRefreshIntervalSecondsChange,
   onRefreshNow, isRefreshing, lastSyncedAt,
   gmailConnected, gmailIdentity, gmailAuthMode,
@@ -108,25 +105,18 @@ export function TopNavigation({
             </SelectContent>
           </Select>
 
-          <label className="inline-flex items-center gap-1.5 text-xs text-primary-foreground/60 cursor-pointer select-none">
-            <input type="checkbox" checked={autoRefreshEnabled} onChange={(e) => onAutoRefreshEnabledChange(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-primary-foreground/30 text-primary focus:ring-primary/30" />
-            Auto
-          </label>
-
           <Select 
             value={String(refreshIntervalSeconds)} 
             onValueChange={(val) => onRefreshIntervalSecondsChange(Number(val))}
-            disabled={!autoRefreshEnabled}
           >
             <SelectTrigger className="w-[75px] h-9 bg-white/10 border-white/20 rounded-full text-white text-xs hover:bg-white/20 transition-all focus:ring-0 focus:ring-offset-0 disabled:opacity-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="rounded-2xl border-white/10 shadow-2xl glass-card">
-              <SelectItem value="5">5s</SelectItem>
-              <SelectItem value="15">15s</SelectItem>
-              <SelectItem value="30">30s</SelectItem>
-              <SelectItem value="60">60s</SelectItem>
+              <SelectItem value="300">5m</SelectItem>
+              <SelectItem value="600">10m</SelectItem>
+              <SelectItem value="1800">30m</SelectItem>
+              <SelectItem value="3600">1h</SelectItem>
             </SelectContent>
           </Select>
 
@@ -194,26 +184,18 @@ export function TopNavigation({
               </SelectContent>
             </Select>
 
-            {/* Auto-refresh */}
-            <label className="inline-flex items-center gap-1.5 text-xs text-primary-foreground/60 cursor-pointer select-none">
-              <input type="checkbox" checked={autoRefreshEnabled} onChange={(e) => onAutoRefreshEnabledChange(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-primary-foreground/30 text-primary focus:ring-primary/30" />
-              Auto
-            </label>
-            
             <Select 
               value={String(refreshIntervalSeconds)} 
               onValueChange={(val) => onRefreshIntervalSecondsChange(Number(val))}
-              disabled={!autoRefreshEnabled}
             >
               <SelectTrigger className="w-[70px] h-9 bg-white/10 border-white/20 rounded-full text-white text-xs focus:ring-0 disabled:opacity-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="rounded-2xl border-white/10 glass-card">
-                <SelectItem value="5">5s</SelectItem>
-                <SelectItem value="15">15s</SelectItem>
-                <SelectItem value="30">30s</SelectItem>
-                <SelectItem value="60">60s</SelectItem>
+                <SelectItem value="300">5m</SelectItem>
+                <SelectItem value="600">10m</SelectItem>
+                <SelectItem value="1800">30m</SelectItem>
+                <SelectItem value="3600">1h</SelectItem>
               </SelectContent>
             </Select>
 

@@ -12,7 +12,7 @@ from core.dependencies import get_authenticated_user
 from db.repository import (
     get_db_conn, update_sync_interval, get_user_sync_history,
     mark_as_trashed, get_emails_from_db, get_refinement_stats,
-    get_categories_from_db, get_dashboard_stats
+    get_categories_from_db, get_dashboard_stats, get_thread_from_db
 )
 from utils.seeding import (
     send_demo_emails_to_gmail_inbox, cleanup_seeded_emails,
@@ -23,7 +23,7 @@ from gmail.client import get_gmail_api_service
 from core.notifier import SSE_NOTIFIER
 from core.coordination import trigger_intelligence_suite, run_background_sync_loop
 from core.context import worker_manager
-from config import FILES_DIR
+from config import FILES_DIR, MANUAL_SYNC_COOLDOWN_SECONDS
 
 router = APIRouter(prefix="/emails", tags=["Emails"])
 
@@ -43,15 +43,15 @@ def list_emails(
 @router.get("/threads/{thread_id}")
 def get_thread(thread_id: str, user_email: str = Depends(get_authenticated_user)):
     """Fetches all emails in a specific conversation thread."""
-    with get_db_conn() as conn:
-        import sqlite3
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM emails WHERE thread_id = ? AND user_email = ? ORDER BY date ASC", (thread_id, user_email))
-        rows = [dict(r) for r in cursor.fetchall()]
-        if not rows:
+    try:
+        threads = get_thread_from_db(user_email, thread_id)
+        if not threads:
              raise HTTPException(status_code=404, detail="Thread not found")
-        return rows
+        return threads
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{email_id}/trash")
 def trash_email(email_id: str, user_email: str = Depends(get_authenticated_user)):
@@ -101,16 +101,17 @@ def trigger_sync_manual(user_email: str = Depends(get_authenticated_user)):
     if history and history.get("last_sync_completed"):
         last_sync = datetime.fromisoformat(history["last_sync_completed"])
         elapsed = (datetime.now() - last_sync).total_seconds()
-        if elapsed < 120:
+        if elapsed < MANUAL_SYNC_COOLDOWN_SECONDS:
              raise HTTPException(
                  status_code=429, 
-                 detail=f"Cooldown active. Please wait {int(120 - elapsed)}s for stealth protection."
+                 detail=f"Cooldown active. Please wait {int(MANUAL_SYNC_COOLDOWN_SECONDS - elapsed)}s for stealth protection."
              )
 
     if not worker_manager.is_sync_running(user_email):
         worker_manager.start_sync_worker(user_email, run_background_sync_loop)
     
-    # Immediate incremental sync in foreground for respondiveness
+    # Immediate incremental sync in foreground for responsiveness
+    SSE_NOTIFIER.notify(user_email, "sync_started")
     sync_gmail_incremental(user_email)
     trigger_intelligence_suite(user_email)
     # Notify UI that sync is complete
@@ -192,6 +193,11 @@ def compose_email(payload: ComposeRequest, user_email: str = Depends(get_authent
     
     try:
         sent_msg = service.users().messages().send(userId='me', body={'raw': raw_msg}).execute()
+        
+        # Force immediate incremental sync to persist the sent email to SQLite
+        from gmail.sync_engine import sync_gmail_incremental
+        sync_gmail_incremental(user_email)
+        
         # Notify UI to refresh dashboard as a 'Sent' item was created
         SSE_NOTIFIER.notify(user_email)
         return {"success": True, "id": sent_msg['id'], "status": "sent"}
@@ -229,7 +235,7 @@ def send_reply(
     # 2. Construct MIME message
     message = MIMEText(body)
     message['to'] = to_email
-    message['subject'] = subject if subject.startswith("Re:") else f"Re: {subject}"
+    message['subject'] = subject if (subject.startswith("Re:") or subject.startswith("Fwd:")) else f"Re: {subject}"
     
     # Standard Threading Headers
     if actual_gmail_id:
@@ -243,6 +249,10 @@ def send_reply(
             userId='me', 
             body={'raw': raw_msg, 'threadId': actual_thread_id} if actual_thread_id else {'raw': raw_msg}
         ).execute()
+        
+        # Force immediate incremental sync to persist the reply to SQLite
+        from gmail.sync_engine import sync_gmail_incremental
+        sync_gmail_incremental(user_email)
         
         # Notify UI to refresh
         SSE_NOTIFIER.notify(user_email)
@@ -302,3 +312,103 @@ def download_eml(eml_filename: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404)
     return FileResponse(path, media_type="message/rfc822")
+
+@router.get("/download/attachment/{filename}")
+def download_attachment(filename: str):
+    """Provides direct access to stored email attachments and inline images."""
+    from config import ATTACHMENTS_DIR
+    import mimetypes
+    
+    # Path Traversal Protection
+    safe_filename = os.path.basename(filename)
+    path = os.path.join(ATTACHMENTS_DIR, safe_filename)
+    
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Attachment not found on server")
+        
+    mime_type, _ = mimetypes.guess_type(path)
+    return FileResponse(
+        path, 
+        media_type=mime_type or "application/octet-stream",
+        filename=safe_filename.split('_', 1)[-1] if '_' in safe_filename else safe_filename
+    )
+
+@router.post("/reprocess-attachment")
+def reprocess_attachment(
+    email_id: str = Query(...),
+    filename: str = Query(...),
+    user_email: str = Depends(get_authenticated_user)
+):
+    """Force downloads and OCR-processes a specific attachment."""
+    from gmail.client import get_gmail_api_service
+    from gmail.sync_engine import _fetch_and_save_attachment_locally
+    from services.ocr_service import extract_attachment_text
+    from db.repository import update_email_attachment_content, reset_refinement_status, get_db_conn
+    from cache.manager import get_user_lock
+    import sqlite3
+    
+    # 1. Thread-safety: Lock the user to prevent background worker interference
+    with get_user_lock(user_email):
+        service = get_gmail_api_service(user_email)
+        if not service:
+            raise HTTPException(status_code=401, detail="Gmail service unauthorized")
+            
+        # 1. Resolve attachment metadata from DB
+    with get_db_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT gmail_id, attachments FROM emails WHERE id = ? AND user_email = ?", (email_id, user_email))
+        row = cursor.fetchone()
+        
+    if not row:
+        raise HTTPException(status_code=404, detail="Email not found")
+        
+    msg_id = row['gmail_id']
+    atts = json.loads(row['attachments'] or '[]')
+    
+    # Find the specific attachment metadata (Handle both legacy strings and new dicts)
+    target_att = None
+    for att in atts:
+        current_fname = att.get('filename') if isinstance(att, dict) else att
+        if current_fname == filename:
+            target_att = att if isinstance(att, dict) else {"filename": att, "original_name": att}
+            break
+            
+    if not target_att:
+        # Final Fuzzy Fallback: if filename doesn't match exactly, check if it's the original_name
+        for att in atts:
+            if isinstance(att, dict) and att.get('original_name') == filename:
+                target_att = att
+                break
+
+    if not target_att:
+        raise HTTPException(status_code=404, detail="Attachment metadata not found")
+
+    # 2. Force Download (Use 20MB limit as requested for manual processing)
+    # Note: 20MB is the practical limit for raw files in Gmail's 25MB encoded limit
+    limit = 20 * 1024 * 1024
+    local_path = _fetch_and_save_attachment_locally(service, msg_id, target_att, user_email, limit_bytes=limit)
+    
+    if not local_path:
+        raise HTTPException(status_code=500, detail="Failed to download attachment (might exceed size limit)")
+
+    # 3. Extract Text via OCR
+    text = extract_attachment_text(local_path)
+    if text:
+        # CRITICAL: Use the stable, unique filename from metadata for the header key, 
+        # not the potentially varying 'filename' parameter from the request.
+        # We pass both the stable and original names to ensure the DB can sweep away any duplicates.
+        stable_filename = target_att.get('filename') if isinstance(target_att, dict) else filename
+        orig_filename = target_att.get('original_name') if isinstance(target_att, dict) else filename
+        update_email_attachment_content(user_email, email_id, text, stable_filename, orig_filename)
+        
+        # 4. Reset AI Refinement status so it triggers again with new context
+        reset_refinement_status(user_email, email_id)
+        
+        # 5. Notify UI of progress
+        from core.notifier import SSE_NOTIFIER
+        SSE_NOTIFIER.notify(user_email)
+        
+        return {"status": "success", "extracted_text": text[:100] + "..."}
+    
+    return {"status": "error", "detail": "OCR failed to find text"}

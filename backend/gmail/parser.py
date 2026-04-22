@@ -32,7 +32,7 @@ def parse_gmail_message_raw(raw_bytes: bytes) -> Optional[Dict[str, Any]]:
     email_date = None
     try:
         if raw_date:
-            email_date = parsedate_to_datetime(raw_date).date().isoformat()
+            email_date = parsedate_to_datetime(raw_date).isoformat()
     except Exception:
         email_date = None
 
@@ -62,9 +62,12 @@ def parse_gmail_message_raw(raw_bytes: bytes) -> Optional[Dict[str, Any]]:
         else:
             try:
                 content = msg.get_content()
-                body = content if isinstance(content, str) else ""
+                if msg.get_content_type() == "text/html":
+                    body_html = content if isinstance(content, str) else ""
+                else:
+                    body_text = content if isinstance(content, str) else ""
             except Exception:
-                body = ""
+                pass
     except Exception as e:
         logger.error(f"⚠️ Error while processing MIME parts: {e}")
 
@@ -74,7 +77,8 @@ def parse_gmail_message_raw(raw_bytes: bytes) -> Optional[Dict[str, Any]]:
         "sender": sender,
         "subject": subject,
         "date": email_date,
-        "content": f"{subject}\n{body}".strip(),
+        "content": f"{subject}\n{body_text}".strip(),
+        "html_content": body_html if body_html else body_text,
         "attachments": attachment_files
     }
 
@@ -83,12 +87,17 @@ def parse_gmail_message_json(msg_json: Dict[str, Any]) -> Dict[str, Any]:
     Parses a Gmail 'full' format JSON response into our internal dictionary.
     Optimized to avoid re-fetching raw bytes if possible.
     """
+    from utils.email_utils import normalize_email_address
+    
     headers = {h["name"].lower(): h["value"] for h in msg_json.get("payload", {}).get("headers", [])}
     
     internal_id = msg_json.get("id")
     thread_id = msg_json.get("threadId")
     subject = headers.get("subject", "")
     sender = headers.get("from", "")
+    to_header = headers.get("to", "")
+    cc_header = headers.get("cc", "")
+    bcc_header = headers.get("bcc", "")
     raw_date = headers.get("date", "")
     message_id = headers.get("message-id", internal_id)
     in_reply_to = headers.get("in-reply-to", "")
@@ -96,12 +105,14 @@ def parse_gmail_message_json(msg_json: Dict[str, Any]) -> Dict[str, Any]:
     email_date = None
     if raw_date:
         try:
-            email_date = parsedate_to_datetime(raw_date).date().isoformat()
+            email_date = parsedate_to_datetime(raw_date).isoformat()
         except Exception:
             pass
 
-    # Basic content extraction from Parts
-    body = _extract_body_from_payload(msg_json.get("payload", {}))
+    # Dual content extraction (Text & HTML)
+    extracted = _extract_body_from_payload(msg_json.get("payload", {}))
+    body_text = extracted.get("text", "")
+    body_html = extracted.get("html", "")
     
     # Attachment metadata (IDs, filenames)
     attachments = []
@@ -113,9 +124,15 @@ def parse_gmail_message_json(msg_json: Dict[str, Any]) -> Dict[str, Any]:
         "thread_id": thread_id,
         "parent_email_id": in_reply_to,
         "sender": sender,
+        "sender_email": normalize_email_address(sender),
+        "recipient_email": normalize_email_address(to_header),
+        "to": to_header,
+        "cc": cc_header,
+        "bcc": bcc_header,
         "subject": subject,
         "date": email_date,
-        "content": f"{subject}\n{body}".strip(),
+        "content": f"{subject}\n{body_text}".strip(),
+        "html_content": body_html if body_html else None, # Do NOT fallback to body_text to preserve line breaks
         "attachments_metadata": attachments, # Needs explicit download later
         "has_attachment": len(attachments) > 0
     }
@@ -140,23 +157,29 @@ def _save_attachment(filename: str, payload: bytes) -> Optional[str]:
         logger.error(f"⚠️ Failed to save attachment {filename}: {e}")
         return None
 
-def _extract_body_from_payload(payload: Dict[str, Any]) -> str:
-    """Recursively extracts text body from Gmail payload parts."""
-    body = ""
+def _extract_body_from_payload(payload: Dict[str, Any]) -> Dict[str, str]:
+    """Recursively extracts both text and HTML bodies from Gmail payload parts."""
+    results = {"text": "", "html": ""}
     mime_type = payload.get("mimeType")
     data = payload.get("body", {}).get("data")
 
-    if data and mime_type == "text/plain":
+    if data:
         try:
-            body += base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+            decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+            if mime_type == "text/plain":
+                results["text"] += decoded
+            elif mime_type == "text/html":
+                results["html"] += decoded
         except Exception:
             pass
     
     if "parts" in payload:
         for part in payload["parts"]:
-            body += _extract_body_from_payload(part)
+            sub_results = _extract_body_from_payload(part)
+            results["text"] += sub_results["text"]
+            results["html"] += sub_results["html"]
     
-    return body
+    return results
 
 def _collect_attachments_metadata(payload: Dict[str, Any], attachments: List[Dict[str, Any]]):
     """Recursively collects attachment information from Gmail payload parts."""
@@ -167,9 +190,14 @@ def _collect_attachments_metadata(payload: Dict[str, Any], attachments: List[Dic
     filename = payload.get("filename")
     attachment_id = payload.get("body", {}).get("attachmentId")
     if filename and attachment_id:
+        # Extract CID from headers if available
+        headers = {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
+        cid = headers.get("content-id", "").strip("<>")
+        
         attachments.append({
             "filename": filename,
             "attachment_id": attachment_id,
             "mime_type": payload.get("mimeType"),
-            "size": payload.get("body", {}).get("size")
+            "size": payload.get("body", {}).get("size"),
+            "content_id": cid
         })

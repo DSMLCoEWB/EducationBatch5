@@ -10,93 +10,11 @@ import base64
 from google.genai import Client, types
 from ai_utils import generate_content_with_fallback
 
-# Directory to store extracted attachments
-ATTACHMENTS_DIR = "./attachments"
-os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
+from config import ATTACHMENTS_DIR
+from services.ocr_service import extract_attachment_text
 
-# ---------------- ATTACHMENT TEXT EXTRACTION ----------------
-def extract_text_from_attachment_ai(path: str) -> str:
-    """Uses Gemini Vision to extract text from images and scanned PDFs."""
-    try:
-        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return ""
-
-        client = Client(api_key=api_key)
-        
-        # Read file as bytes
-        with open(path, "rb") as f:
-            file_data = f.read()
-
-        mime_type = "image/jpeg"
-        if path.lower().endswith(".pdf"):
-            mime_type = "application/pdf"
-        elif path.lower().endswith(".png"):
-            mime_type = "image/png"
-
-        contents = [
-            types.Part.from_bytes(data=file_data, mime_type=mime_type),
-            "Extract all legible text from this document for archival purposes. If it is an official document (like a scholarship letter or grievance), preserve the core facts like names, dates, and decision status."
-        ]
-
-        response = generate_content_with_fallback(
-            client=client,
-            contents=contents,
-            label="OCR Service"
-        )
-
-        if response and response.text:
-            return f"\n--- [Extracted from Attachment: {os.path.basename(path)}] ---\n{response.text}\n"
-    except Exception as e:
-        print(f"⚠️ AI OCR failed for {path}: {e}")
-    return ""
-
-
-def extract_attachment_text(path):
-    try:
-        if path.lower().endswith(".pdf"):
-            try:
-                with pdfplumber.open(path) as pdf:
-                    text = " ".join(
-                        (page.extract_text() or "")
-                        for page in pdf.pages[:5]
-                    ).strip()
-                    if text:
-                        return text
-            except Exception:
-                print(f"⚠️ Error reading PDF with pdfplumber: {path}")
-            # If no text found or error occurred, proceed to AI OCR fallback
-
-        if path.lower().endswith(".docx"):
-            try:
-                doc = Document(path)
-                return " ".join(p.text for p in doc.paragraphs)
-            except Exception:
-                print(f"⚠️ Skipping unreadable DOCX: {path}")
-                return ""
-
-        if path.lower().endswith(".xlsx"):
-            try:
-                df = pd.read_excel(path)
-                return df.astype(str).head(10).to_string()
-            except Exception:
-                print(f"⚠️ Skipping unreadable XLSX: {path}")
-                return ""
-
-        if path.lower().endswith(".txt"):
-            try:
-                return open(path, errors="ignore").read()
-            except Exception:
-                return ""
-
-        # AI Fallback for Images and Scanned PDFs
-        if path.lower().endswith((".png", ".jpg", ".jpeg", ".pdf")):
-            return extract_text_from_attachment_ai(path)
-
-    except Exception:
-        print(f"⚠️ Failed to extract attachment: {path}")
-
-    return ""
+# Ensure directory exists
+ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------- EML PARSER ----------------
@@ -161,17 +79,17 @@ def parse_eml(file_path):
                     try:
                         with open(attachment_path, "wb") as f:
                             f.write(payload)
-                        attachment_files.append(unique_fname)
+                        attachment_files.append({
+                            "filename": unique_fname,
+                            "original_name": fname,
+                            "size": len(payload)
+                        })
                     except Exception as e:
                         print(f"⚠️ Failed to save attachment {fname}: {e}")
                         continue
-
-                    # Extract text from attachment for content indexing
-                    tmp_path = os.path.join(ATTACHMENTS_DIR, unique_fname)
-                    try:
-                        attachment_text += extract_attachment_text(tmp_path)
-                    except Exception:
-                        print(f"⚠️ Attachment text extraction failed: {fname}")
+                    
+                    # NOTE: OCR is now handled by the background worker in coordination.py
+                    # to prevent blocking the sync engine.
 
         else:
             try:

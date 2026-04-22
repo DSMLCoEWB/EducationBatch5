@@ -55,35 +55,65 @@ def calculate_priority_heuristic(content: str, subject: str) -> int:
 
 # --- THREAD AWARENESS ---
 
+from utils.email_utils import normalize_email_address
+
 def detect_followup(email: Dict[str, Any], df: Optional[pd.DataFrame], user_email: Optional[str] = None) -> Tuple[str, Optional[str], int]:
     """
-    Determines if an email is Fresh, a Follow-up, or a Reply based on thread history.
+    Determines if an email is Fresh, a Follow-up, or a Reply based on interaction history.
+    New Model (Interaction-First): 
+    - The first external inbound in any thread is always 'Fresh'.
+    - Proactive outbound before any inbound is 'Action'.
     """
-    is_sent = email.get("is_sent_by_me") or email.get("is_sent")
-    is_in_inbox = email.get("is_inbox")
-    sender_email = (email.get("sender_email") or "").strip().lower()
-    recipient_email = (email.get("recipient_email") or "").strip().lower()
-    user_email_norm = user_email.strip().lower() if user_email else None
+    is_sent = bool(email.get("is_sent_by_me") or email.get("is_sent"))
     
-    # Logic for Outbound
-    if is_sent and not is_in_inbox:
-        if user_email_norm and recipient_email != user_email_norm:
-             return "Reply", None, 0
+    user_norm = normalize_email_address(user_email)
+    sender_norm = normalize_email_address(email.get("sender_email") or email.get("sender"))
+    recipient_norm = normalize_email_address(email.get("recipient_email"))
 
     tid = email.get("thread_id")
     eid = email.get("email_id")
     
+    # 1. STANDALONE CASE
     if not tid or df is None or df.empty:
+        if is_sent and recipient_norm != user_norm:
+            return "Action", None, 0
         return "Fresh", None, 0
 
+    # 2. THREAD CASE: Analyze interaction history
     same_thread = df[(df["thread_id"] == tid) & (df["email_id"] != eid)]
     if same_thread.empty:
+        if is_sent and recipient_norm != user_norm:
+            return "Action", None, 0
         return "Fresh", None, 0
 
-    # Thread found: Mark as follow-up and increment count
-    parent = same_thread.iloc[-1]
-    f_count = int(parent.get("followup_count", 0)) + 1
-    return "Follow-up", str(parent.get("email_id")), f_count
+    # Identify if there were previous external inbounds in this thread
+    # (Matches current inbound/outbound logic: not is_sent and sender != me)
+    # Note: Normalize df sender_email for comparison
+    df_is_sent = same_thread['is_sent'].astype(bool)
+    previous_external_inbounds = same_thread[~df_is_sent]
+    
+    inbound_count = len(previous_external_inbounds)
+
+    if is_sent:
+        # OUTBOUND LOGIC
+        if recipient_norm == user_norm:
+            if same_thread.empty:
+                return "Fresh", None, 0
+            return "Follow-up", str(same_thread.iloc[-1].get("email_id")), int(same_thread.iloc[-1].get("followup_count", 0)) + 1
+        
+        if inbound_count > 0:
+            return "Reply", str(same_thread.iloc[-1].get("email_id")), int(same_thread.iloc[-1].get("followup_count", 0)) + 1
+        else:
+            return "Action", str(same_thread.iloc[-1].get("email_id")), int(same_thread.iloc[-1].get("followup_count", 0)) + 1
+    else:
+        # INBOUND LOGIC
+        if inbound_count == 0:
+            # First time the external party has replied!
+            return "Fresh", str(same_thread.iloc[-1].get("email_id")), 0
+        else:
+            # Subsequent inbounds
+            f_count = int(same_thread.iloc[-1].get("followup_count", 0)) + 1
+            return "Follow-up", str(same_thread.iloc[-1].get("email_id")), f_count
 
 # --- AI REFINEMENT (Delegated) ---
 

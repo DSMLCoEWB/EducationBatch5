@@ -1,5 +1,6 @@
 import time
 import re
+import os
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Set, Tuple
@@ -16,7 +17,7 @@ from gmail.parser import parse_gmail_message_json
 from db.repository import (
     get_user_sync_history, update_user_sync_history, 
     log_sync_audit, increment_sync_error, get_existing_gmail_ids,
-    save_emails_batch
+    save_emails_batch, get_emails_from_db, reconcile_user_thread_tags
 )
 from cache.manager import (
     get_user_lock, dynamic_cache_df_by_user, dynamic_cache_at_by_user
@@ -53,12 +54,31 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
 
     try:
         # 1. Fetch History Updates
-        history_response = service.users().history().list(
+        request = service.users().history().list(
             userId="me", startHistoryId=last_history_id, historyTypes=["messageAdded", "labelAdded", "labelRemoved"]
-        ).execute()
+        )
         
-        new_history_id = history_response.get("historyId")
-        changes = history_response.get("history", [])
+        changes = []
+        new_history_id = None
+        pages_fetched = 0
+        max_pages = 5  # Anti-Ban API Cap (max ~500 events per background cycle)
+        
+        while request is not None and pages_fetched < max_pages:
+            history_response = request.execute()
+            pages_fetched += 1
+            
+            if "history" in history_response:
+                changes.extend(history_response["history"])
+                
+            request = service.users().history().list_next(request, history_response)
+            
+        if request is not None and changes:
+            # Break early to protect limits. Cursor anchors to the LAST processed event.
+            new_history_id = str(changes[-1]["id"])
+            logger.info(f"⏳ [Sync] API Cap reached. Backlog remains. Anchor: {new_history_id}")
+        else:
+            # Stream exhausted completely. Anchor to the absolute latest snapshot.
+            new_history_id = history_response.get("historyId", last_history_id)
         
         new_messages = []
         deleted_count = 0
@@ -68,7 +88,7 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
         for h in changes:
             for added in h.get("messagesAdded", []):
                 mids_to_fetch.add(added["message"]["id"])
-            for label in h.get("labelAdded", []):
+            for label in h.get("labelsAdded", []):
                 # We specifically look for things moving into INBOX or TRASH
                 label_ids = label.get("labelIds", [])
                 if "INBOX" in label_ids or "TRASH" in label_ids:
@@ -96,8 +116,11 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
             # Context for thread detection
             existing_df = build_dynamic_dataframe(user_email)
             
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(_process_single_message_optimized, user_email, mid, service, existing_df) for mid in to_fetch]
+            from gmail.client import load_google_credentials
+            thread_creds = load_google_credentials(user_email)
+            workers = 3
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [executor.submit(_process_single_message_optimized, user_email, mid, thread_creds, existing_df) for mid in to_fetch]
                 for f in as_completed(futures):
                     res = f.result()
                     if res:
@@ -131,7 +154,8 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
 
 def _guarded_full_sync(service: Any, user_email: str) -> Tuple[int, str]:
     """Performs a limited-scope full sync to populate the database safely."""
-    query = "newer_than:14d"
+    from config import GMAIL_FULL_SYNC_DAYS
+    query = f"newer_than:{GMAIL_FULL_SYNC_DAYS}d in:anywhere -in:spam"
     results = service.users().messages().list(userId="me", q=query, maxResults=500).execute()
     messages = results.get("messages", [])
     
@@ -140,9 +164,11 @@ def _guarded_full_sync(service: Any, user_email: str) -> Tuple[int, str]:
     existing_df = build_dynamic_dataframe(user_email)
     
     ingested = []
+    from gmail.client import load_google_credentials
+    thread_creds = load_google_credentials(user_email)
     # Use pool for speed but keep concurrency low to stay below user quotas
     with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(_process_single_message_optimized, user_email, mid, service, existing_df) for mid in new_ids]
+        futures = [executor.submit(_process_single_message_optimized, user_email, mid, thread_creds, existing_df) for mid in new_ids]
         for f in as_completed(futures):
             res = f.result()
             if res:
@@ -150,19 +176,44 @@ def _guarded_full_sync(service: Any, user_email: str) -> Tuple[int, str]:
                 
     if ingested:
         save_emails_batch(user_email, ingested)
+        reconcile_user_thread_tags(user_email)
         
+    profile = service.users().getProfile(userId="me").execute()
     profile = service.users().getProfile(userId="me").execute()
     return len(ingested), profile.get("historyId")
 
-def _process_single_message_optimized(user_email: str, msg_id: str, service: Optional[Any] = None, context_df: Optional[pd.DataFrame] = None) -> Optional[Dict[str, Any]]:
+def _rewrite_html_cids(html: str, cid_map: Dict[str, str]) -> str:
+    """Replaces src='cid:...' references in HTML with local backend download URLs."""
+    if not html: return html
+    import re
+    # Pattern to match cid: references in src or other attributes
+    # Examples: src="cid:ii_12345" or src='cid:logo.png'
+    for cid, unique_filename in cid_map.items():
+        # Escape special regex chars in cid if any
+        escaped_cid = re.escape(cid)
+        pattern = rf'src=["\']cid:{escaped_cid}["\']'
+        # Point to our new attachment download route
+        # Note: We use relative path which the frontend will resolve or we use a token
+        replacement = f'src="__API_BASE_URL__/emails/download/attachment/{unique_filename}"'
+        html = re.sub(pattern, replacement, html)
+    return html
+
+def _process_single_message_optimized(user_email: str, msg_id: str, creds: Optional[Any] = None, context_df: Optional[pd.DataFrame] = None) -> Optional[Dict[str, Any]]:
     """
     SINGLE-FETCH STRATEGY: Fetches 'full' JSON which contains metadata, headers, AND part structure.
     Parses body and attachment metadata without needing a second 'raw' call.
     """
     try:
-        svc = service or get_gmail_api_service(user_email)
-        if not svc:
+        from googleapiclient.discovery import build
+        from gmail.client import load_google_credentials, get_hardened_http
+        import google_auth_httplib2
+        
+        credentials = creds or load_google_credentials(user_email)
+        if not credentials:
             return None
+            
+        auth_http = google_auth_httplib2.AuthorizedHttp(credentials, http=get_hardened_http())
+        svc = build("gmail", "v1", http=auth_http, cache_discovery=False)
             
         # 1. Fetch Full JSON (Contains labels, headers, and body parts)
         # This is the "One Fetch Strategy"
@@ -196,8 +247,36 @@ def _process_single_message_optimized(user_email: str, msg_id: str, service: Opt
             raw_prio = email_data["priority"]
             email_data["priority"] = apply_thread_escalation(raw_prio, f_count)
         
-        # 7. Map ID to our internal scheme
-        # Note: 'id' from parser already standardized
+        # 7. Download Attachments & Remap Inline Images
+        if email_data.get("has_attachment") and not email_data.get("is_demo"):
+            atts_meta = email_data.get("attachments_metadata", [])
+            downloaded_atts = []
+            cid_map = {} # Map of CID -> unique_filename
+            
+            for att_meta in atts_meta:
+                local_path = _fetch_and_save_attachment_locally(
+                    svc, msg_id, att_meta, user_email
+                )
+                if local_path:
+                    unique_fname = os.path.basename(local_path)
+                    # Update metadata with local path for the database
+                    att_meta["local_path"] = local_path
+                    downloaded_atts.append(att_meta)
+                    
+                    # If this attachment has a CID, add to map for HTML rewriting
+                    cid = att_meta.get("content_id")
+                    if cid:
+                        cid_map[cid] = unique_fname
+            
+            # Re-map to the standard 'attachments' list used by repository
+            email_data["attachments"] = downloaded_atts
+            
+            # 8. High-Fidelity Rendering: Rewrite HTML CIDs
+            if email_data.get("html_content") and cid_map:
+                email_data["html_content"] = _rewrite_html_cids(
+                    email_data["html_content"], cid_map
+                )
+
         return email_data
 
     except Exception as e:
@@ -210,6 +289,47 @@ def build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
     Also handles flag reconciliation for moved/deleted items.
     """
     # This will be refined as we move reconcile_email_flags to db/repository
-    from db.repository import get_emails_from_db
     emails = get_emails_from_db(user_email, category='all')
     return pd.DataFrame(emails)
+
+def _fetch_and_save_attachment_locally(service: Any, msg_id: str, att_meta: Dict[str, Any], user_email: str, limit_bytes: int = 10 * 1024 * 1024) -> Optional[str]:
+    """Downloads an attachment from Gmail and saves it to the local attachments directory."""
+    import base64
+    import os
+    import hashlib
+    from config import ATTACHMENTS_DIR
+    
+    filename = att_meta.get("filename", "unnamed_attachment")
+    att_id = att_meta.get("attachment_id")
+    
+    if not att_id:
+        return None
+        
+    try:
+        # Safety Check: Skip if too large
+        size = att_meta.get("size", 0)
+        if size > limit_bytes:
+            logger.warning(f"⚠️ [Sync] Skipping large attachment for {user_email}: {filename} ({size} bytes). Limit: {limit_bytes}")
+            return None
+
+        # Fetch bytes
+        att_data = service.users().messages().attachments().get(
+            userId="me", messageId=msg_id, id=att_id
+        ).execute()
+
+        payload = base64.urlsafe_b64decode(att_data.get("data", "").encode("UTF-8"))
+        
+        # Save to disk with unique naming
+        file_hash = hashlib.md5(payload).hexdigest()[:8]
+        safe_fname = filename.replace(" ", "_").replace("/", "_")
+        unique_fname = f"{file_hash}_{safe_fname}"
+        path = os.path.join(ATTACHMENTS_DIR, unique_fname)
+        
+        if not os.path.exists(path):
+            with open(path, "wb") as f:
+                f.write(payload)
+                
+        return path
+    except Exception as e:
+        logger.error(f"❌ [Sync] Failed to download attachment {filename} for {user_email}: {e}")
+        return None

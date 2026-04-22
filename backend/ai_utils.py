@@ -39,6 +39,11 @@ else:
     ULTIMATE_FALLBACK_LIST = _DEFAULT_FALLBACK_LIST
 
 
+# --- SPECIALIZED VISION FALLBACK (Vision-Capable Only) ---
+# Deduplicated list of models that explicitly support Part.from_bytes (Images/PDFs)
+VISION_FALLBACK_LIST = [m for m in ULTIMATE_FALLBACK_LIST if "gemini" in m.lower()]
+
+
 def generate_content_with_fallback(
     client, 
     contents: Any, 

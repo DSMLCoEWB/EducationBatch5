@@ -5,18 +5,13 @@ import numpy as np
 import re
 from sentence_transformers import SentenceTransformer
 
-# ---------- CONFIG ----------
-BASE_DIR = os.path.dirname(__file__)
-DATA_DIR = os.path.join(BASE_DIR, "data")
+from config import (
+    INDEX_PATH, CHUNKS_PATH, RAG_TOP_K as TOP_K, 
+    RAG_MIN_SCORE as MIN_SCORE, RAG_FINAL_LIMIT
+)
 
-INDEX_PATH = os.path.join(DATA_DIR, "faiss.index")
-CHUNKS_PATH = os.path.join(DATA_DIR, "policy_chunks.json")
-
-# Operational Parameters (Linked to Environment)
-TOP_K = int(os.getenv("RAG_TOP_K", "5"))
-SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", "0.40"))
-MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.40"))
-RAG_FINAL_LIMIT = int(os.getenv("RAG_FINAL_RESULT_LIMIT", "3"))
+# Operational Parameters aliasing for internal consistency
+SIMILARITY_THRESHOLD = MIN_SCORE
 
 
 # ---------- EMBEDDING ----------
@@ -77,7 +72,7 @@ def reload_retriever_data(force: bool = False) -> None:
             _last_chunks_mtime = chunks_mtime
             return
 
-        index = faiss.read_index(INDEX_PATH)
+        index = faiss.read_index(str(INDEX_PATH))
         with open(chunks_path, "r", encoding="utf-8") as f:
             policy_chunks = json.load(f)
 

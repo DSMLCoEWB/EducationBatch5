@@ -75,7 +75,8 @@ def auth_callback(request: Request, code: str, state: str):
             value=token,
             httponly=True,
             secure=GOOGLE_OAUTH_COOKIE_SECURE,
-            samesite="lax"
+            samesite="lax",
+            max_age=7 * 24 * 60 * 60 # 7 Days memory
         )
         return response
     except Exception as e:
