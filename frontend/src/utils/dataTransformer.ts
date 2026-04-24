@@ -404,6 +404,8 @@ export function transformBackendEmail(backendEmail: any): Email {
     bcc: backendEmail.bcc,
     is_ocr_processed: !!backendEmail.is_ocr_processed,
     is_priority_refined: !!backendEmail.is_priority_refined,
+    is_resolved: !!(backendEmail.is_resolved || backendEmail.isResolved),
+    manual_override: !!(backendEmail.manual_override || backendEmail.manualOverride),
   };
 }
 

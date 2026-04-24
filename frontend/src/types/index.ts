@@ -54,6 +54,8 @@ export interface Email {
   is_demo?: boolean;
   is_ocr_processed?: boolean;
   is_priority_refined?: boolean;
+  is_resolved?: boolean;
+  manual_override?: boolean;
 }
 
 export interface CategoryInfo {
@@ -69,4 +71,5 @@ export interface DashboardStats {
   freshEmails: number;
   followUpEmails: number;
   emailsWithAttachments: number;
+  unresolvedEmails: number;
 }

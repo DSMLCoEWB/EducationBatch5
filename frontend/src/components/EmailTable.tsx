@@ -5,12 +5,13 @@ import {
   Filter,
   X,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  CheckCircle2
 } from 'lucide-react';
 import { Email, MailType } from '@/types';
 import { getCategoryInfo } from '@/data/categories';
 import { ReplyModal, ReplyStatus } from './ReplyModal';
-import { sendReplyEmail } from '@/services/api';
+import { sendReplyEmail, resolveEmail } from '@/services/api';
 
 interface EmailTableProps {
   emails: Email[];
@@ -118,7 +119,8 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
         mailType: absoluteLatest.mailType, // Ensure 'Reply' tag propagates if latest is a reply
         threadCount: group.length,
         followUpCount: threadFollowUps,
-        replied: absoluteLatest.replied
+        replied: absoluteLatest.replied,
+        is_resolved: absoluteLatest.is_resolved
       });
     });
 
@@ -527,8 +529,19 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
     onUpdateEmail(email.id, { replied: true, replyText });
   };
 
+  const handleResolve = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const newState = !email.is_resolved;
+      await resolveEmail(email.id, newState);
+      onUpdateEmail(email.id, { is_resolved: newState });
+    } catch (err) {
+      console.error("Failed to toggle resolution:", err);
+    }
+  };
+
   const getDaysPending = () => {
-    if (email.replied) return null;
+    if (email.replied || email.is_resolved) return null;
     const now = new Date();
     const emailDate = new Date(email.emailDate);
     const diffTime = Math.abs(now.getTime() - emailDate.getTime());
@@ -647,6 +660,17 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
               </button>
             ) : (
               <>
+                <button
+                  onClick={handleResolve}
+                  className={`p-1.5 rounded-md transition-all ${
+                    email.is_resolved 
+                      ? 'text-gov-green bg-gov-green-light' 
+                      : 'text-muted-foreground hover:text-gov-green hover:bg-gov-green-light'
+                  }`}
+                  title={email.is_resolved ? "Mark as Unresolved" : "Mark as Resolved"}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                </button>
                 <ReplyStatus replied={email.replied} onReply={handleReplyClick} />
                 <button
                   onClick={() => { if (window.confirm("Move to trash?")) onDeleteEmail(email.id); }}

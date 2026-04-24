@@ -412,7 +412,11 @@ export default function App() {
         </main>
       </div>
       {selectedEmail && (
-        <EmailThreadPanel email={selectedEmail} onClose={() => setSelectedEmail(null)} />
+        <EmailThreadPanel 
+          email={selectedEmail} 
+          onClose={() => setSelectedEmail(null)} 
+          onUpdateEmail={handleUpdateEmail}
+        />
       )}
       <Chatbot emails={filteredEmails} />
       {showPolicyManagement && <PolicyManagementModal onClose={() => setShowPolicyManagement(false)} />}

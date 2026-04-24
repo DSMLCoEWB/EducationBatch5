@@ -24,8 +24,20 @@ from core.notifier import SSE_NOTIFIER
 from core.coordination import trigger_intelligence_suite, run_background_sync_loop
 from core.context import worker_manager
 from config import FILES_DIR, MANUAL_SYNC_COOLDOWN_SECONDS
+from db.repository import toggle_resolution_status
 
 router = APIRouter(prefix="/emails", tags=["Emails"])
+
+@router.post("/{email_id}/resolve")
+def resolve_email(
+    email_id: str, 
+    resolved: bool = Query(True),
+    user_email: str = Depends(get_authenticated_user)
+):
+    """Manually marks a grievance thread as resolved/unresolved."""
+    toggle_resolution_status(user_email, email_id, resolved)
+    SSE_NOTIFIER.notify(user_email)
+    return {"status": "success", "resolved": resolved}
 
 @router.get("/")
 def list_emails(

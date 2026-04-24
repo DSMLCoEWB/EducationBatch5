@@ -42,14 +42,14 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
       const sorted = [...group].sort((a, b) => new Date(b.emailDate).getTime() - new Date(a.emailDate).getTime());
       const absoluteLatest = sorted[0];
       const latestCitizen = sorted.find(e => !e.isSent) || absoluteLatest;
-    return { ...latestCitizen, replied: absoluteLatest.replied };
+      return { ...latestCitizen, replied: absoluteLatest.replied, is_resolved: absoluteLatest.is_resolved, manual_override: absoluteLatest.manual_override };
     });
 
     return [...threadGrievances, ...standalone];
   }, [emails]);
 
   const calculateAveragePendingDuration = () => {
-    const unrepliedGrievances = grievances.filter(g => !g.replied);
+    const unrepliedGrievances = grievances.filter(g => g.manual_override ? !g.is_resolved : (!g.replied && !g.is_resolved));
     if (unrepliedGrievances.length === 0) return '0 days';
     const now = new Date();
     const totalDays = unrepliedGrievances.reduce((sum, g) => {
@@ -65,10 +65,11 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
 
   const stats = {
     total: grievances.length,
-    unreplied: grievances.filter(g => !g.replied).length,
+    unreplied: grievances.filter(g => g.manual_override ? !g.is_resolved : (!g.replied && !g.is_resolved)).length,
+    resolved: grievances.filter(g => g.manual_override ? g.is_resolved : (g.replied || g.is_resolved)).length,
     avgPendingDuration: calculateAveragePendingDuration(),
-    fresh: grievances.filter(g => g.mailType === 'fresh' && !g.replied).length,
-    followUp: grievances.filter(g => g.mailType === 'follow-up' && !g.replied).length,
+    fresh: grievances.filter(g => g.mailType === 'fresh' && (g.manual_override ? !g.is_resolved : (!g.replied && !g.is_resolved))).length,
+    followUp: grievances.filter(g => g.mailType === 'follow-up' && (g.manual_override ? !g.is_resolved : (!g.replied && !g.is_resolved))).length,
     replies: emails.filter(e => (e.mailType || '').toLowerCase() === 'reply').length,
     actions: grievances.filter(g => g.mailType === 'action').length,
     withAttachments: grievances.filter(g => g.hasAttachment).length
@@ -107,7 +108,7 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   const mailTypeData = [
     { name: 'Fresh', value: stats.fresh, fill: 'hsl(180, 100%, 40%)' },
     { name: 'Ongoing', value: stats.followUp, fill: 'hsl(25, 95%, 53%)' },
-    { name: 'Resolved', value: grievances.filter(g => g.replied).length, fill: 'hsl(152, 60%, 40%)' }
+    { name: 'Resolved', value: stats.resolved, fill: 'hsl(152, 60%, 40%)' }
   ];
 
   const getLast7DaysData = () => {
@@ -133,7 +134,7 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   const statCards = [
     { title: 'Total Conversations', value: stats.total, icon: <LayoutList className="w-5 h-5" />, variant: 'blue' as const },
     { title: 'Unresolved', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}` },
-    { title: 'Resolved', value: grievances.filter(g => g.replied).length, icon: <CheckCircle className="w-5 h-5" />, variant: 'green' as const },
+    { title: 'Resolved', value: stats.resolved, icon: <CheckCircle className="w-5 h-5" />, variant: 'green' as const },
     { title: 'Fresh Threads', value: stats.fresh, icon: <Mail className="w-5 h-5" />, variant: 'cyan' as const },
     { title: 'Ongoing Threads', value: stats.followUp, icon: <MessageSquare className="w-5 h-5" />, variant: 'orange' as const },
     { title: 'Attachments', value: stats.withAttachments, icon: <Paperclip className="w-5 h-5" />, variant: 'purple' as const },

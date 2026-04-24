@@ -128,6 +128,9 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
 
         if new_messages:
             save_emails_batch(user_email, new_messages)
+            # Notify frontend to refresh data
+            from core.notifier import SSE_NOTIFIER
+            SSE_NOTIFIER.notify(user_email)
 
         # 4. Success State Update
         update_user_sync_history(user_email, new_history_id)
@@ -177,6 +180,9 @@ def _guarded_full_sync(service: Any, user_email: str) -> Tuple[int, str]:
     if ingested:
         save_emails_batch(user_email, ingested)
         reconcile_user_thread_tags(user_email)
+        # Notify frontend to refresh data
+        from core.notifier import SSE_NOTIFIER
+        SSE_NOTIFIER.notify(user_email)
         
     profile = service.users().getProfile(userId="me").execute()
     profile = service.users().getProfile(userId="me").execute()

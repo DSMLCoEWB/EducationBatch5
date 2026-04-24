@@ -21,6 +21,28 @@ def mark_as_trashed(user_email: str, email_id: str, is_trashed: bool = True):
                 (email_id, user_email)
             )
         conn.commit()
+        
+def toggle_resolution_status(user_email: str, email_id: str, is_resolved: bool = True):
+    """Toggle the manual resolution status for an entire thread."""
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        # Find thread_id first
+        cursor.execute("SELECT thread_id FROM emails WHERE id = ? AND user_email = ?", (email_id, user_email))
+        row = cursor.fetchone()
+        thread_id = row[0] if row else None
+        
+        val = 1 if is_resolved else 0
+        if thread_id:
+            cursor.execute(
+                "UPDATE emails SET is_resolved = ?, manual_override = 1 WHERE thread_id = ? AND user_email = ?", 
+                (val, thread_id, user_email)
+            )
+        else:
+            cursor.execute(
+                "UPDATE emails SET is_resolved = ?, manual_override = 1 WHERE id = ? AND user_email = ?", 
+                (val, email_id, user_email)
+            )
+        conn.commit()
 
 def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional[bool] = None) -> List[Dict[str, Any]]:
     """Retrieve emails from the database with filtering and TypeScript-ready mapping."""
@@ -106,6 +128,8 @@ def map_email_row(row: Any) -> Dict[str, Any]:
     email['hasAttachment'] = bool(email.get('has_attachment'))
     email['is_demo']       = bool(email.get('is_demo'))
     email['replied']       = bool(email.get('replied'))
+    email['is_resolved']   = bool(email.get('is_resolved'))
+    email['manual_override'] = bool(email.get('manual_override'))
     
     # Critical: Ensure attachments is always a real list for frontend .map()
     atts = email.get('attachments')
@@ -169,6 +193,8 @@ def init_db():
                 followup_count INTEGER DEFAULT 0,
                 institute_name TEXT,
                 user_email TEXT,
+                is_resolved BOOLEAN DEFAULT 0,
+                manual_override BOOLEAN DEFAULT 0,
                 last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -240,6 +266,32 @@ def init_db():
         # Migration logic (Ensure columns exist)
         _run_migrations(cursor)
         
+        # [SELF-HEALING]: Thread-Aware Resolution Backfill
+        # Only marks a thread as Resolved if there is a 'Sent' message to an EXTERNAL recipient.
+        cursor.execute("""
+            UPDATE emails 
+            SET replied = 1, is_resolved = 1 
+            WHERE thread_id IN (
+                SELECT DISTINCT thread_id FROM emails 
+                WHERE is_sent = 1 AND is_trashed = 0 
+                AND recipient_email != user_email
+            )
+            AND (replied = 0 OR is_resolved = 0)
+            AND manual_override = 0
+        """)
+
+        # [CORRECTION]: Undo incorrect resolutions for threads that only contain self-sent interactions
+        cursor.execute("""
+            UPDATE emails 
+            SET replied = 0, is_resolved = 0 
+            WHERE thread_id NOT IN (
+                SELECT DISTINCT thread_id FROM emails 
+                WHERE is_sent = 1 AND is_trashed = 0 AND recipient_email != user_email
+            )
+            AND (replied = 1 OR is_resolved = 1)
+            AND manual_override = 0
+        """)
+        
         conn.commit()
 
 def _run_migrations(cursor):
@@ -254,6 +306,8 @@ def _run_migrations(cursor):
         "followup_count": "INTEGER DEFAULT 0",
         "recipient_email": "TEXT",
         "institute_name": "TEXT",
+        "is_resolved": "BOOLEAN DEFAULT 0",
+        "manual_override": "BOOLEAN DEFAULT 0",
         "sync_interval_seconds": "INTEGER DEFAULT 300"
     }
     # Special case for tables other than 'emails'
@@ -374,23 +428,54 @@ def _reconcile_thread_replied_state(cursor, user_email, emails):
     
     tids = {e.get('thread_id') for e in emails if e.get('thread_id')}
     for tid in tids:
-        # Relationship-Aware: Check the ABSOLUTE LATEST interaction in the thread
+        # 1. Get manual override state
         cursor.execute("""
-            SELECT is_sent, recipient_email FROM emails 
-            WHERE thread_id = ? AND user_email = ? AND is_trashed = 0
-            ORDER BY date DESC LIMIT 1
+            SELECT MAX(manual_override) FROM emails 
+            WHERE thread_id = ? AND user_email = ?
         """, (tid, user_email))
-        latest = cursor.fetchone()
+        is_locked = bool(cursor.fetchone()[0])
+
+        # 2. Check if the thread has ANY external reply (marks it as potentially resolved)
+        cursor.execute("""
+            SELECT COUNT(*) FROM emails 
+            WHERE thread_id = ? AND user_email = ? AND is_sent = 1 AND is_trashed = 0
+            AND recipient_email != user_email
+        """, (tid, user_email))
+        has_external_reply = cursor.fetchone()[0] > 0
         
-        if latest:
-            is_sent, recipient_email = latest
-            recipient_norm = normalize_email_address(recipient_email)
+        # 3. Check for new citizen inbounds AFTER the last external reply
+        new_inbounds = 0
+        if has_external_reply:
+            cursor.execute("""
+                SELECT MAX(date) FROM emails 
+                WHERE thread_id = ? AND user_email = ? AND is_sent = 1 AND is_trashed = 0
+                AND recipient_email != user_email
+            """, (tid, user_email))
+            last_reply_date = cursor.fetchone()[0]
             
-            # Rule: Only counts as 'Replied' if you sent to an EXTERNAL recipient.
-            # You -> You tests do NOT resolve a citizen's grievance.
-            is_replied_state = 1 if (is_sent and recipient_norm and recipient_norm != user_norm) else 0
+            cursor.execute("""
+                SELECT COUNT(*) FROM emails 
+                WHERE thread_id = ? AND user_email = ? AND is_sent = 0 AND is_trashed = 0
+                AND date > ?
+            """, (tid, user_email, last_reply_date))
+            new_inbounds = cursor.fetchone()[0]
             
-            cursor.execute("UPDATE emails SET replied = ? WHERE thread_id = ? AND user_email = ?", (is_replied_state, tid, user_email))
+        # 4. SMART RESET LOGIC & APPLY STATE
+        if has_external_reply and new_inbounds > 0:
+            # NEW INBOUND: Reset lock and reopen grievance
+            cursor.execute(
+                "UPDATE emails SET replied = 0, is_resolved = 0, manual_override = 0 WHERE thread_id = ? AND user_email = ?", 
+                (tid, user_email)
+            )
+        elif not is_locked:
+            # NO LOCK: Apply automated logic
+            is_replied_state = 1 if has_external_reply else 0
+            cursor.execute(
+                "UPDATE emails SET replied = ?, is_resolved = ? WHERE thread_id = ? AND user_email = ?", 
+                (is_replied_state, is_replied_state, tid, user_email)
+            )
+        # If is_locked and no new inbounds: DO NOTHING (respect manual override)
+
 
 def reconcile_user_thread_tags(user_email: str):
     """
@@ -518,6 +603,8 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
             email['hasAttachment'] = bool(email['has_attachment'])
             email['is_demo'] = bool(email['is_demo'])
             email['replied'] = bool(email['replied'])
+            email['is_resolved'] = bool(email['is_resolved'])
+            email['manual_override'] = bool(email.get('manual_override'))
             email['emailDate'] = email['date']
             email['parentEmailId'] = email.get('parent_email_id')
             email['mailType'] = email.get('mail_type')
@@ -549,6 +636,8 @@ def get_thread_from_db(user_email: str, thread_id: str) -> List[Dict[str, Any]]:
             email['hasAttachment'] = bool(email['has_attachment'])
             email['is_demo'] = bool(email['is_demo'])
             email['replied'] = bool(email['replied'])
+            email['is_resolved'] = bool(email['is_resolved'])
+            email['manual_override'] = bool(email.get('manual_override'))
             email['emailDate'] = email['date']
             email['parentEmailId'] = email.get('parent_email_id')
             email['mailType'] = email.get('mail_type')
@@ -940,10 +1029,15 @@ def get_dashboard_stats(user_email: str) -> Dict[str, int]:
         cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0 AND followup_count > 0", (user_email,))
         followup = cursor.fetchone()[0] or 0
         
+        # Unresolved (manual or automated)
+        cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0 AND replied = 0 AND is_resolved = 0", (user_email,))
+        unresolved = cursor.fetchone()[0] or 0
+        
         return {
             "total": total,
             "fresh": fresh,
-            "followup": followup
+            "followup": followup,
+            "unresolved": unresolved
         }
 
 def get_all_active_users() -> List[str]:

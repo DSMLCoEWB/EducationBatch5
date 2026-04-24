@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCcw, MailCheck, ShieldCheck, MailSearch, Sparkles, Inbox } from 'lucide-react';
+import { RefreshCw, MailCheck, ShieldCheck, MailSearch, Sparkles, Inbox } from 'lucide-react';
 
 interface SyncStatusViewProps {
   onRefreshNow?: () => void;
@@ -11,7 +11,7 @@ export function InitialSyncingView() {
       <div className="relative mb-8">
         <div className="absolute inset-0 bg-primary/20 rounded-full blur-3xl animate-pulse" />
         <div className="relative bg-card border border-border p-6 rounded-2xl shadow-elevated">
-          <RefreshCcw className="w-12 h-12 text-primary animate-spin" />
+          <RefreshCw className="w-12 h-12 text-primary animate-spin" />
         </div>
       </div>
 
@@ -61,7 +61,7 @@ export function EmptyInboxView({ onRefreshNow }: SyncStatusViewProps) {
             onClick={onRefreshNow}
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-lg font-semibold hover:bg-primary/90 transition-all shadow-card hover:shadow-elevated text-sm"
           >
-            <RefreshCcw className="w-4 h-4" />
+            <RefreshCw className="w-4 h-4" />
             Check Again
           </button>
         </div>

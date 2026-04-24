@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { Email } from '@/types';
 import { getCategoryInfo } from '@/data/categories';
-import { API_BASE_URL, fetchEmailThread, sendReply, reprocessAttachment, trashEmail } from '@/services/api';
+import { API_BASE_URL, fetchEmailThread, sendReply, reprocessAttachment, trashEmail, resolveEmail } from '@/services/api';
 import { transformBackendEmails } from '@/utils/dataTransformer';
 import { ReplyModal } from './ReplyModal';
 import { toast } from 'sonner';
@@ -14,10 +14,12 @@ import { toast } from 'sonner';
 interface EmailThreadPanelProps {
   email: Email;
   onClose: () => void;
+  onUpdateEmail: (emailId: string, updates: Partial<Email>) => void;
 }
 
-export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
+export function EmailThreadPanel({ email, onClose, onUpdateEmail }: EmailThreadPanelProps) {
   const [thread, setThread] = useState<Email[]>([]);
+  const [isResolved, setIsResolved] = useState(email.is_resolved);
   const [loading, setLoading] = useState(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -108,6 +110,18 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
     });
   };
 
+  const handleToggleResolution = async () => {
+    try {
+      const newState = !isResolved;
+      await resolveEmail(email.id, newState);
+      setIsResolved(newState);
+      onUpdateEmail(email.id, { is_resolved: newState });
+      toast.success(newState ? "Grievance marked as resolved" : "Grievance reopened");
+    } catch (err) {
+      toast.error("Failed to update resolution status");
+    }
+  };
+
   const handlePrint = (emailToPrint: Email) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -154,9 +168,25 @@ export function EmailThreadPanel({ email, onClose }: EmailThreadPanelProps) {
             </div>
             <h2 className="text-lg font-bold text-primary-foreground truncate">{email.subject}</h2>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-primary-foreground/10 rounded-lg transition-colors ml-3">
-            <X className="w-5 h-5 text-primary-foreground/70" />
-          </button>
+          
+          <div className="flex items-center gap-2 ml-3">
+            <button 
+              onClick={handleToggleResolution}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs transition-all shadow-sm ${
+                isResolved 
+                  ? 'bg-gov-green text-white shadow-glow' 
+                  : 'bg-primary-foreground/10 text-primary-foreground/80 hover:bg-primary-foreground/20'
+              }`}
+              title={isResolved ? "Grievance is Resolved" : "Mark as Resolved"}
+            >
+              <CheckCircle2 className={`w-3.5 h-3.5 ${isResolved ? 'animate-bounce' : ''}`} />
+              <span>{isResolved ? "Resolved" : "Resolve"}</span>
+            </button>
+            
+            <button onClick={onClose} className="p-2 hover:bg-primary-foreground/10 rounded-lg transition-colors">
+              <X className="w-5 h-5 text-primary-foreground/70" />
+            </button>
+          </div>
         </div>
 
         <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
@@ -631,7 +661,7 @@ function EmailCard({
                         }`}
                         title="Re-run AI Analysis"
                       >
-                        <RefreshCcw className="w-3.5 h-3.5" />
+                        <RefreshCw className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   );

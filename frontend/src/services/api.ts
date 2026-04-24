@@ -248,6 +248,15 @@ export async function trashEmail(emailId: string): Promise<void> {
   }
 }
 
+export async function resolveEmail(emailId: string, resolved: boolean = true): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/emails/${encodeURIComponent(emailId)}/resolve?resolved=${resolved}`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to update resolution status");
+  }
+}
+
 export async function composeEmail(to: string, subject: string, body: string): Promise<{ success: boolean; message: string }> {
   const response = await apiFetch(`${API_BASE_URL}/emails/compose`, {
     method: "POST",
