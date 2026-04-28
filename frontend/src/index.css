@@ -156,6 +156,9 @@
   .gradient-surface {
     background: var(--gradient-surface);
   }
+  .shadow-glow-sm {
+    filter: drop-shadow(0 0 8px currentColor);
+  }
 }
 
 /* Global Select Options Visibility Fix */

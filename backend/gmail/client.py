@@ -131,12 +131,40 @@ def get_gmail_api_service(user_email: str) -> Any:
             GMAIL_SERVICE_MAP.pop(user_email, None)
         return None
 
-def extract_email_from_credentials(creds: Credentials) -> str:
-    """Resolves the Gmail address for a given set of credentials."""
-    auth_http = google_auth_httplib2.AuthorizedHttp(creds, http=get_hardened_http())
-    service = build("gmail", "v1", http=auth_http, cache_discovery=False)
-    profile = service.users().getProfile(userId="me").execute()
-    email_addr = str(profile.get("emailAddress", "")).strip().lower()
-    if not email_addr:
-        raise ValueError("Unable to resolve Google account email from credentials")
-    return email_addr
+def get_user_display_name(user_email: str):
+    """
+    Retrieves the user's display name and official email.
+    Only returns a display name if it is officially configured in Gmail 'Send As' settings
+    to ensure recipients don't see 'unauthenticated' security warnings.
+    """
+    service = get_gmail_api_service(user_email)
+    if not service:
+        return "", user_email
+    
+    try:
+        # 1. Get official profile email for consistency
+        profile = service.users().getProfile(userId='me').execute()
+        official_email = profile.get('emailAddress', user_email)
+        
+        # 2. Get Gmail 'Send As' settings (The only source for 'Authenticated' names)
+        results = service.users().settings().sendAs().list(userId='me').execute()
+        send_as = results.get('sendAs', [])
+        official_email_lower = official_email.lower()
+        
+        # Priority 1: Match the specific email
+        for alias in send_as:
+            if alias.get('sendAsEmail', '').lower() == official_email_lower and alias.get('displayName'):
+                return alias.get('displayName'), official_email
+                
+        # Priority 2: Use the primary alias name
+        for alias in send_as:
+            if alias.get('isPrimary') and alias.get('displayName'):
+                return alias.get('displayName'), official_email
+
+        # If no verified display name is found, return empty string for the name.
+        # This prevents the 'unauthenticated' warning by letting Gmail use its own default.
+        return "", official_email
+
+    except Exception as e:
+        logger.error(f"❌ [Gmail API] Error in get_user_display_name for {user_email}: {e}")
+        return "", user_email

@@ -17,7 +17,9 @@ from gmail.parser import parse_gmail_message_json
 from db.repository import (
     get_user_sync_history, update_user_sync_history, 
     log_sync_audit, increment_sync_error, get_existing_gmail_ids,
-    save_emails_batch, get_emails_from_db, reconcile_user_thread_tags
+    save_emails_batch, get_emails_from_db, reconcile_user_thread_tags,
+    ensure_user_categories, permanently_delete_email_locally, get_gmail_ids_by_status,
+    auto_purge_stale_trash
 )
 from cache.manager import (
     get_user_lock, dynamic_cache_df_by_user, dynamic_cache_at_by_user
@@ -37,6 +39,9 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
     if not SYNC_ENABLED:
         return {"status": "disabled", "sync_type": "NONE"}
 
+    # --- Multi-Tenant Safety: Provision Categories ---
+    ensure_user_categories(user_email)
+
     start_time = time.time()
     service = get_gmail_api_service(user_email)
     if not service:
@@ -55,7 +60,9 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
     try:
         # 1. Fetch History Updates
         request = service.users().history().list(
-            userId="me", startHistoryId=last_history_id, historyTypes=["messageAdded", "labelAdded", "labelRemoved"]
+            userId="me", 
+            startHistoryId=last_history_id, 
+            historyTypes=["messageAdded", "labelAdded", "labelRemoved", "messageDeleted"]
         )
         
         changes = []
@@ -106,6 +113,12 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
             for added in h_record.get("labelsAdded", []):
                 if "TRASH" in added.get("labelIds", []):
                     update_email_labels_locally(user_email, added["message"]["id"], is_trashed=True)
+            
+            # Handle permanent deletions
+            for deleted in h_record.get("messagesDeleted", []):
+                logger.info(f"🗑️ [Sync] Permanent deletion detected for {deleted['message']['id']}")
+                permanently_delete_email_locally(user_email, deleted["message"]["id"])
+                deleted_count += 1
 
         # 3. Process New/Updated Messages
         if mids_to_fetch:
@@ -128,11 +141,13 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
 
         if new_messages:
             save_emails_batch(user_email, new_messages)
+            reconcile_user_thread_tags(user_email)
             # Notify frontend to refresh data
             from core.notifier import SSE_NOTIFIER
             SSE_NOTIFIER.notify(user_email)
 
         # 4. Success State Update
+        auto_purge_stale_trash(user_email) # 30-day local cleanup
         update_user_sync_history(user_email, new_history_id)
         duration_ms = int((time.time() - start_time) * 1000)
         log_sync_audit(user_email, "INCREMENTAL", "SUCCESS", duration_ms, added=len(new_messages))
@@ -141,6 +156,7 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
             "status": "success",
             "sync_type": "INCREMENTAL",
             "added": len(new_messages),
+            "deleted": deleted_count,
             "new_history_id": new_history_id
         }
 
@@ -199,7 +215,7 @@ def _rewrite_html_cids(html: str, cid_map: Dict[str, str]) -> str:
         escaped_cid = re.escape(cid)
         pattern = rf'src=["\']cid:{escaped_cid}["\']'
         # Point to our new attachment download route
-        # Note: We use relative path which the frontend will resolve or we use a token
+        # Note: Frontend handles absolute URL if needed; we provide the relative path
         replacement = f'src="__API_BASE_URL__/emails/download/attachment/{unique_filename}"'
         html = re.sub(pattern, replacement, html)
     return html
@@ -238,7 +254,7 @@ def _process_single_message_optimized(user_email: str, msg_id: str, creds: Optio
         content = email_data.get("content", "")
         subject = email_data.get("subject", "")
         
-        email_data["category"] = classify_grievance_heuristic(content, subject)
+        email_data["category"] = classify_grievance_heuristic(content, subject, user_email=user_email)
         email_data["priority"] = calculate_priority_heuristic(content, subject)
         
         # 5. Thread Awareness (Instant logic)
@@ -298,6 +314,7 @@ def build_dynamic_dataframe(user_email: str) -> pd.DataFrame:
     emails = get_emails_from_db(user_email, category='all')
     return pd.DataFrame(emails)
 
+
 def _fetch_and_save_attachment_locally(service: Any, msg_id: str, att_meta: Dict[str, Any], user_email: str, limit_bytes: int = 10 * 1024 * 1024) -> Optional[str]:
     """Downloads an attachment from Gmail and saves it to the local attachments directory."""
     import base64
@@ -325,16 +342,26 @@ def _fetch_and_save_attachment_locally(service: Any, msg_id: str, att_meta: Dict
 
         payload = base64.urlsafe_b64decode(att_data.get("data", "").encode("UTF-8"))
         
-        # Save to disk with unique naming
+        # Save to disk with unique naming and user isolation
+        from utils.email_utils import normalize_email_address
+        slug = re.sub(r'[^a-z0-9]', '_', normalize_email_address(user_email).lower())
+        user_att_dir = os.path.join(ATTACHMENTS_DIR, slug)
+        os.makedirs(user_att_dir, exist_ok=True)
+
         file_hash = hashlib.md5(payload).hexdigest()[:8]
         safe_fname = filename.replace(" ", "_").replace("/", "_")
         unique_fname = f"{file_hash}_{safe_fname}"
-        path = os.path.join(ATTACHMENTS_DIR, unique_fname)
+        path = os.path.join(user_att_dir, unique_fname)
         
         if not os.path.exists(path):
             with open(path, "wb") as f:
                 f.write(payload)
                 
+        return path
+    except Exception as e:
+        logger.error(f"❌ [Sync] Failed to download attachment {filename} for {user_email}: {e}")
+        return None
+
         return path
     except Exception as e:
         logger.error(f"❌ [Sync] Failed to download attachment {filename} for {user_email}: {e}")

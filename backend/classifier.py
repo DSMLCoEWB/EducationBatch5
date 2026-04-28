@@ -12,7 +12,7 @@ CATEGORIES = {
         "punishment", "penalty", "penal action",
         "misconduct", "violation", "breach",
         "show cause", "show-cause", "showcause",
-        "inquiry", "enquiry", "investigation",
+        "investigation",
         "suspended employee", "suspended staff",
         "suspended official", "suspended officer",
         "suspension status", "suspension order"

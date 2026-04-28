@@ -3,19 +3,23 @@ import {
   GraduationCap, Folder, FileText, Send, Trash2, Banknote,
   HelpCircle, Landmark, ShoppingCart, DollarSign, Users,
   Award, Briefcase, UserPlus, ArrowLeftRight, ClipboardCheck, Table,
-  Layers
+  Layers, Settings
 } from 'lucide-react';
 import React from 'react';
+import { SafeIcon } from '@/components/SafeIcon';
 
 interface SidebarProps {
   activeView: string;
   onViewChange: (view: string) => void;
   onOpenPolicyManagement: () => void;
   onCompose: () => void;
-  isCollapsed: boolean;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  onOpenSettings: () => void;
+  categories?: { id: string; name: string; color: string; icon?: string }[];
 }
+
+
 
 const iconMap: Record<string, React.ReactNode> = {
   dashboard: <LayoutDashboard className="w-[18px] h-[18px]" />,
@@ -41,30 +45,21 @@ const iconMap: Record<string, React.ReactNode> = {
   layers: <Layers className="w-[18px] h-[18px]" />,
 };
 
-export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCompose, isCollapsed, isMobileOpen, onCloseMobile }: SidebarProps) {
+export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCompose, isCollapsed, isMobileOpen, onCloseMobile, onOpenSettings, categories = [] }: SidebarProps) {
   const mainItems = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'all', label: 'Inbox', icon: 'inbox' },
   ];
 
-  const categoryItems = [
-    { id: 'Suspension / Disciplinary', label: 'Suspension / Disciplinary', icon: 'alert-circle' },
-    { id: 'Legal Issues', label: 'Legal Issues', icon: 'shield-alert' },
-    { id: 'RTI Matters', label: 'RTI Matters', icon: 'help-circle' },
-    { id: 'CMO Issues', label: 'CMO Issues', icon: 'landmark' },
-    { id: 'Semester / Examination', label: 'Semester / Examination', icon: 'graduation-cap' },
-    { id: 'Scholarship & Fee Concession', label: 'Scholarship & Fee Concession', icon: 'banknote' },
-    { id: 'Purchase / Procurement Issues', label: 'Purchase / Procurement Issues', icon: 'shopping-cart' },
-    { id: 'Cash Issues', label: 'Cash Issues', icon: 'dollar-sign' },
-    { id: 'Anti-Ragging Complaints', label: 'Anti-Ragging Complaints', icon: 'users' },
-    { id: 'Accreditation & Ranking', label: 'Accreditation & Ranking', icon: 'award' },
-    { id: 'Service Matters', label: 'Service Matters', icon: 'briefcase' },
-    { id: 'Appointment Issues', label: 'Appointment Issues', icon: 'user-plus' },
-    { id: 'Transfer Cases', label: 'Transfer Cases', icon: 'arrow-left-right' },
-    { id: 'Inspection Matters', label: 'Inspection Matters', icon: 'clipboard-check' },
-    { id: 'Seat Matrix Issues', label: 'Seat Matrix Issues', icon: 'table' },
-    { id: 'Miscellaneous', label: 'Miscellaneous', icon: 'folder' },
-  ];
+  // Dynamically map database categories
+  const categoryItems = categories.map(c => ({
+    id: c.name,
+    label: c.name,
+    icon: c.icon || 'Folder', 
+    color: c.color
+  }));
+
+  // Redundant fallback removed as Miscellaneous is now a first-class DB citizen
 
   const systemItems = [
     { id: 'Sent', label: 'Sent', icon: 'send' },
@@ -86,7 +81,13 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
           : 'text-muted-foreground hover:bg-accent hover:text-foreground'
       }`}
     >
-      <span className="flex-shrink-0">{iconMap[item.icon]}</span>
+      <span className="flex-shrink-0 flex items-center justify-center">
+        {item.color ? (
+          <SafeIcon iconName={item.icon} className="w-[18px] h-[18px] shadow-glow-sm" style={{ color: item.color }} />
+        ) : (
+          iconMap[item.icon]
+        )}
+      </span>
       {(!isCollapsed || isMobileOpen) && <span className="truncate">{item.label}</span>}
     </button>
   );
@@ -120,9 +121,18 @@ export function Sidebar({ activeView, onViewChange, onOpenPolicyManagement, onCo
       {/* Categories Section - Scrollable */}
       <div className="flex-1 flex flex-col min-h-0">
         {(!isCollapsed || isMobileOpen) && (
-          <div className="px-4 mb-2 flex items-center gap-2">
-            <Layers className="w-3 h-3 text-muted-foreground" />
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Grievance Categories</span>
+          <div className="px-4 mb-2 flex items-center justify-between group">
+            <div className="flex items-center gap-2">
+              <Layers className="w-3 h-3 text-muted-foreground group-hover:text-foreground transition-colors" />
+              <span className="text-[10px] font-bold text-muted-foreground group-hover:text-foreground uppercase tracking-wider transition-colors">Grievance Categories</span>
+            </div>
+            <button
+              onClick={() => { onOpenSettings(); onCloseMobile?.(); }}
+              className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md transition-colors"
+              title="Manage Categories"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
         <nav className="flex-1 overflow-y-auto px-2 space-y-0.5 custom-scrollbar">

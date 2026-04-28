@@ -49,8 +49,8 @@ async def lifespan(app: FastAPI):
     # 1. Warmup AI models
     try:
         get_embedder()
-        reload_retriever_data()
-        logger.info("✅ Database initialized and AI models warmed up.")
+        # Note: retriever data is now loaded per-user on demand
+        logger.info("✅ Database initialized and AI embedder warmed up.")
         
         # 2. Resume background intelligence work
         asyncio.create_task(startup_resumer())

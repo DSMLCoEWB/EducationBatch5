@@ -255,6 +255,21 @@ def init_db():
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_audit_user ON sync_audit(user_email, timestamp)")
         
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS categories (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                color TEXT,
+                icon TEXT DEFAULT 'Hash',
+                is_active BOOLEAN DEFAULT 1,
+                user_email TEXT,
+                UNIQUE(user_email, name)
+            )
+        """)
+
+        # NOTE: Category seeding is now handled per-user in ensure_user_categories()
+
+        
         # [SELF-HEALING]: Ensure 'has_attachment' is correctly set
         cursor.execute("""
             UPDATE emails 
@@ -326,6 +341,13 @@ def _run_migrations(cursor):
             print(f"[DB Migration] Adding {col} column...")
             cursor.execute(f"ALTER TABLE emails ADD COLUMN {col} {definition}")
 
+    # Migrate categories table
+    try:
+        cursor.execute("SELECT icon FROM categories LIMIT 1")
+    except sqlite3.OperationalError:
+        print("[DB Migration] Adding icon column to categories...")
+        cursor.execute("ALTER TABLE categories ADD COLUMN icon TEXT DEFAULT 'Hash'")
+
 def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
     with get_db_conn() as conn:
         cursor = conn.cursor()
@@ -355,7 +377,10 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
                     ELSE category 
                 END,
                 mail_type=COALESCE(excluded.mail_type, mail_type),
-                priority=COALESCE(excluded.priority, priority),
+                priority=CASE 
+                    WHEN is_priority_refined=1 THEN priority 
+                    ELSE excluded.priority 
+                END,
                 date=COALESCE(excluded.date, date),
                 attachments=COALESCE(excluded.attachments, attachments),
                 replied=MAX(replied, excluded.replied),
@@ -499,7 +524,7 @@ def reconcile_user_thread_tags(user_email: str):
         for tid in thread_ids:
             cursor.execute("""
                 SELECT id, is_sent, sender_email, recipient_email FROM emails 
-                WHERE thread_id = ? AND user_email = ? AND is_trashed = 0 
+                WHERE thread_id = ? AND user_email = ?
                 ORDER BY date ASC
             """, (tid, user_email))
             msgs = cursor.fetchall()
@@ -545,8 +570,8 @@ def reconcile_user_thread_tags(user_email: str):
                         follow_count += 1
                 
                 cursor.execute(
-                    "UPDATE emails SET mail_type = ?, followup_count = ? WHERE id = ?",
-                    (new_type, follow_count, eid)
+                    "UPDATE emails SET mail_type = ?, followup_count = ? WHERE id = ? AND user_email = ?",
+                    (new_type, follow_count, eid, user_email)
                 )
         
         conn.commit()
@@ -617,7 +642,8 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
         return result
 
 def get_thread_from_db(user_email: str, thread_id: str) -> List[Dict[str, Any]]:
-    """Retrieves all emails in a conversation thread, sorted by date."""
+    """Retrieves all emails in a conversation thread, sorted by date.
+    Matches Gmail behavior: trashed messages are hidden but available for 'View message'."""
     with get_db_conn() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -627,6 +653,8 @@ def get_thread_from_db(user_email: str, thread_id: str) -> List[Dict[str, Any]]:
             ORDER BY date ASC
         """, (user_email, thread_id))
         rows = cursor.fetchall()
+        
+        deleted_count = sum(1 for row in rows if row['is_trashed'])
         
         result = []
         for row in rows:
@@ -646,6 +674,8 @@ def get_thread_from_db(user_email: str, thread_id: str) -> List[Dict[str, Any]]:
             email['instituteName'] = email.get('institute_name')
             email['emlFile'] = f"{email['id']}.eml"
             email['attachments'] = json.loads(email['attachments'] or '[]')
+            email['deleted_in_thread'] = deleted_count
+            email['is_trashed_msg'] = bool(email.get('is_trashed'))
             result.append(email)
         return result
 
@@ -683,8 +713,10 @@ def is_user_revoked(user_email: str) -> bool:
         return cursor.fetchone() is not None
 
 def get_refinement_stats(user_email: str) -> Dict[str, int]:
+    """Returns AI refinement coverage statistics (Email-level precision)."""
     with get_db_conn() as conn:
         cursor = conn.cursor()
+        # Count individual messages for higher precision
         cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0", (user_email,))
         total = cursor.fetchone()[0] or 0
         cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_priority_refined = 1 AND is_inbox = 1 AND is_trashed = 0", (user_email,))
@@ -893,6 +925,88 @@ def update_email_refinement(user_email: str, email_id: str, priority: int, categ
         return cursor.rowcount
 
 def reset_refinement_status(user_email: str, email_id: str):
+    """Resets the refinement status of an email to trigger AI re-processing."""
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE emails 
+            SET is_priority_refined = 0 
+            WHERE id = ? AND user_email = ?
+        """, (email_id, user_email))
+        conn.commit()
+        return cursor.rowcount
+
+def get_active_categories(user_email: str):
+    with get_db_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, color, icon FROM categories WHERE is_active = 1 AND user_email = ?", (user_email,))
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_all_categories(user_email: str):
+    with get_db_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, color, icon, is_active FROM categories WHERE user_email = ?", (user_email,))
+        return [dict(row) for row in cursor.fetchall()]
+
+def add_category(user_email: str, name: str, color: str, icon: str):
+    import uuid
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, is_active FROM categories WHERE name = ? AND user_email = ?", (name, user_email))
+        row = cursor.fetchone()
+        if row:
+            if not row[1]: 
+                cursor.execute("UPDATE categories SET is_active = 1, color = ?, icon = ? WHERE id = ?", (color, icon, row[0]))
+                cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ?", (user_email,))
+                conn.commit()
+                return row[0]
+            else:
+                raise ValueError("Category already exists.")
+        
+        new_id = str(uuid.uuid4())
+        cursor.execute("INSERT INTO categories (id, name, color, icon, is_active, user_email) VALUES (?, ?, ?, ?, 1, ?)", (new_id, name, color, icon, user_email))
+        cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ?", (user_email,))
+        conn.commit()
+        return new_id
+
+def update_category(user_email: str, cat_id: str, name: str, color: str, icon: str):
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        # Fetch current name to see if it actually changed
+        cursor.execute("SELECT name FROM categories WHERE id = ? AND user_email = ?", (cat_id, user_email))
+        row = cursor.fetchone()
+        old_name = row[0] if row else None
+        
+        cursor.execute("UPDATE categories SET name = ?, color = ?, icon = ? WHERE id = ? AND user_email = ?", (name, color, icon, cat_id, user_email))
+        
+        # Only reset refinement and migrate emails if the semantic name changed
+        if old_name and old_name.lower() != name.lower():
+            # 1. Migrate existing emails to the new name immediately
+            cursor.execute("UPDATE emails SET category = ? WHERE category = ? AND user_email = ?", (name, old_name, user_email))
+            # 2. Reset refinement so AI can double-check the logic
+            cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ?", (user_email,))
+            
+        conn.commit()
+
+def delete_category(user_email: str, cat_id: str):
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM categories WHERE id = ? AND user_email = ?", (cat_id, user_email))
+        row = cursor.fetchone()
+        if not row:
+            return
+        cat_name = row[0]
+        
+        cursor.execute("UPDATE categories SET is_active = 0 WHERE id = ? AND user_email = ?", (cat_id, user_email))
+        
+        cursor.execute("""
+            UPDATE emails 
+            SET category = 'Miscellaneous', is_priority_refined = 0 
+            WHERE category = ? AND user_email = ?
+        """, (cat_name, user_email))
+        conn.commit()
     """Resets the refinement flag to trigger a fresh AI triage run."""
     with get_db_conn() as conn:
         cursor = conn.cursor()
@@ -901,6 +1015,43 @@ def reset_refinement_status(user_email: str, email_id: str):
             WHERE id = ? AND user_email = ?
         """, (email_id, user_email))
         conn.commit()
+
+def ensure_user_categories(user_email: str):
+    """Provisions default administrative categories for a new user if none exist."""
+    from core.logging import get_logger
+    logger = get_logger("db.repository")
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM categories WHERE user_email = ?", (user_email,))
+        if cursor.fetchone()[0] == 0:
+            logger.info(f"🌱 Provisioning default categories for {user_email}")
+            default_categories = [
+                ("Suspension / Disciplinary", "hsl(25, 95%, 53%)", "Gavel"),
+                ("Legal Issues", "hsl(0, 72%, 51%)", "Scale"),
+                ("RTI Matters", "hsl(210, 100%, 50%)", "FileSearch"),
+                ("CMO Issues", "hsl(260, 100%, 50%)", "Building"),
+                ("Semester / Examination", "hsl(234, 89%, 54%)", "ClipboardList"),
+                ("Scholarship & Fee Concession", "hsl(40, 95%, 38%)", "GraduationCap"),
+                ("Purchase / Procurement Issues", "hsl(160, 100%, 40%)", "ShoppingCart"),
+                ("Cash Issues", "hsl(340, 80%, 50%)", "Banknote"),
+                ("Anti-Ragging Complaints", "hsl(15, 90%, 50%)", "ShieldAlert"),
+                ("Accreditation & Ranking", "hsl(280, 100%, 60%)", "Award"),
+                ("Service Matters", "hsl(180, 100%, 40%)", "Briefcase"),
+                ("Appointment Issues", "hsl(130, 70%, 45%)", "UserPlus"),
+                ("Transfer Cases", "hsl(200, 90%, 45%)", "ArrowLeftRight"),
+                ("Inspection Matters", "hsl(250, 80%, 55%)", "Search"),
+                ("Seat Matrix Issues", "hsl(310, 80%, 50%)", "Table"),
+                ("Miscellaneous", "hsl(0, 0%, 45%)", "Archive")
+            ]
+            import uuid
+            for cat_name, cat_color, cat_icon in default_categories:
+                try:
+                    cursor.execute(
+                        "INSERT INTO categories (id, name, color, icon, is_active, user_email) VALUES (?, ?, ?, ?, 1, ?)",
+                        (str(uuid.uuid4()), cat_name, cat_color, cat_icon, user_email)
+                    )
+                except: pass # Race condition safety
+            conn.commit()
 
 def get_unprocessed_attachments(user_email: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Returns attachments that exist locally but haven't been OCR-processed yet."""
@@ -941,8 +1092,9 @@ def get_unprocessed_attachments(user_email: str, limit: int = 10) -> List[Dict[s
                         else:
                             # 2. Fuzzy Recovery: Look for {any_prefix}_{filename}
                             # Useful for legacy data where the DB only has the original name
+                            # Use recursive glob to find in user subdirectories
                             safe_name = filename.replace(" ", "_").replace("/", "_")
-                            for candidate in ATTACHMENTS_DIR.glob(f"*_{safe_name}"):
+                            for candidate in ATTACHMENTS_DIR.glob(f"**/*_{safe_name}"):
                                 results.append({
                                     "email_id": row['email_id'],
                                     "filename": candidate.name,
@@ -1047,3 +1199,34 @@ def get_all_active_users() -> List[str]:
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT user_email FROM user_sync_history")
         return [row[0] for row in cursor.fetchall()]
+
+def permanently_delete_email_locally(user_email: str, gmail_id: str):
+    """Deletes an email record from the local database when it's permanently removed from Gmail."""
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM emails WHERE gmail_id = ? AND user_email = ?", (gmail_id, user_email))
+        conn.commit()
+
+def get_gmail_ids_by_status(user_email: str, is_trashed: bool) -> List[str]:
+    """Returns all Gmail IDs in the local DB for a specific trash status."""
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        val = 1 if is_trashed else 0
+        cursor.execute("SELECT gmail_id FROM emails WHERE user_email = ? AND is_trashed = ?", (user_email, val))
+        return [row[0] for row in cursor.fetchall() if row[0]]
+
+def auto_purge_stale_trash(user_email: str, days: int = 30) -> int:
+    """Permanently removes emails from local DB that have been in Trash for more than X days."""
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        # Gmail date format is ISO or similar; we calculate the cutoff
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        
+        cursor.execute("""
+            DELETE FROM emails 
+            WHERE user_email = ? AND is_trashed = 1 AND date < ?
+        """, (user_email, cutoff))
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted

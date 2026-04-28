@@ -43,7 +43,12 @@ def _score_with_llm(prompt: str) -> str | None:
             model_list=ULTIMATE_FALLBACK_LIST,
             label="Priority-LLM"
         )
-        return getattr(response, "text", "") if response else None
+        if response:
+            try:
+                return response.text
+            except:
+                return str(response)
+        return None
     except Exception as exc:
         print(f"Priority LLM call failed: {exc}")
         return None
@@ -83,7 +88,7 @@ Content: {email_text}
     match = re.search(r"\d+", result)
     return int(match.group()) if match else None
 
-def get_batch_triage(emails):
+def get_batch_triage(emails, user_email: str = None):
     """Sends a batch of emails to the LLM for high-precision triage using numeric mapping."""
     if not emails or client is None: return {}
     
@@ -103,12 +108,12 @@ def get_batch_triage(emails):
             emails_block += f"ATTACHMENT_TEXT: {att_snippet}...\n"
         emails_block += "---\n"
 
-    categories_list = [
-        "Suspension / Disciplinary", "Legal Issues", "RTI Matters", "CMO Issues",
-        "Semester / Examination", "Scholarship & Fee Concession", "Purchase / Procurement Issues",
-        "Cash Issues", "Anti-Ragging Complaints", "Accreditation & Ranking", "Service Matters",
-        "Appointment Issues", "Transfer Cases", "Inspection Matters", "Seat Matrix Issues", "Miscellaneous"
-    ]
+    from db.repository import get_active_categories
+    active_cats = get_active_categories(user_email) if user_email else []
+    if not active_cats:
+        categories_list = ["Miscellaneous"]
+    else:
+        categories_list = [cat['name'] for cat in active_cats]
 
     prompt = f"""
 You are an expert triage assistant for a government education department. 
@@ -124,6 +129,8 @@ Rules:
 - Return YOUR RESPONSE AS A VALID JSON OBJECT ONLY.
 - Format: {{ "INDEX": {{ "priority": 0-6, "category": "One of the listed categories" }}, ... }}
 - Use the numeric INDEX provided for each email.
+- DO NOT classify general student "inquiries" or "enquiries" as Suspension/Disciplinary unless there is explicit mention of misconduct or penalties.
+- "SVMCMS", "Oasis", and "K3" are strictly Scholarship & Fee Concession matters.
 
 EMAILS TO PROCESS:
 {emails_block}
@@ -145,12 +152,13 @@ EMAILS TO PROCESS:
             if not actual_id:
                 continue
             
+            # Case-insensitive matching for robustness
             cat = v.get("category", "Miscellaneous")
-            if cat not in categories_list: cat = "Miscellaneous"
+            matched_cat = next((c for c in categories_list if c.lower() == cat.lower()), "Miscellaneous")
             
             final_results[actual_id] = {
                 "priority": int(v.get("priority", 6)),
-                "category": cat
+                "category": matched_cat
             }
         return final_results
     except Exception as e:

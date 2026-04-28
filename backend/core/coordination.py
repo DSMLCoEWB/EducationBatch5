@@ -173,7 +173,7 @@ def process_intelligence_backlog(user_email: str):
                     break
                     
                 logger.info(f"🧠 [Enrichment] Batch AI Triage: {len(unrefined)} emails.")
-                results = get_batch_triage_ai(unrefined)
+                results = get_batch_triage_ai(unrefined, user_email)
                 
                 if results:
                     refined_count = 0

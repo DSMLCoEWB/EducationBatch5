@@ -126,6 +126,58 @@ export async function fetchCategories(): Promise<BackendCategory[]> {
   return response.json();
 }
 
+export interface SettingsCategory {
+  id: string;
+  name: string;
+  color: string;
+  icon?: string;
+  is_active?: boolean;
+}
+
+export async function fetchSettingsCategories(all: boolean = false): Promise<SettingsCategory[]> {
+  const endpoint = all ? '/settings/categories/all' : '/settings/categories';
+  const response = await apiFetch(`${API_BASE_URL}${endpoint}`);
+  if (!response.ok) throw new Error("Failed to fetch settings categories");
+  const data = await response.json();
+  return data.categories;
+}
+
+export async function addCategory(name: string, color: string, icon: string = 'Hash'): Promise<SettingsCategory> {
+  const response = await apiFetch(`${API_BASE_URL}/settings/categories`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, color, icon })
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Failed to add category" }));
+    throw new Error(err.detail || "Failed to add category");
+  }
+  return response.json();
+}
+
+export async function updateCategory(id: string, name: string, color: string, icon: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/settings/categories/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, color, icon })
+  });
+  if (!response.ok) throw new Error("Failed to update category");
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/settings/categories/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+  if (!response.ok) throw new Error("Failed to delete category");
+}
+
+export async function applySettingsCategories(): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/settings/categories/apply`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error("Failed to trigger AI re-categorization");
+}
+
 export async function triggerManualSync(): Promise<{ status: string }> {
   const response = await apiFetch(`${API_BASE_URL}/emails/sync`, {
     method: 'POST',

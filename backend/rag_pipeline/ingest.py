@@ -318,44 +318,38 @@ def split_numbered_clause_chunks(text: str) -> List[str]:
     return chunks
 
 
-def update_faiss_index(new_embeddings: np.ndarray, existing_index_path: Path = INDEX_PATH) -> None:
+def update_faiss_index(new_embeddings: np.ndarray, user_email: str) -> None:
     """
-    Update FAISS index by appending new embeddings to existing index.
-    
-    Args:
-        new_embeddings: New embeddings to add (shape: [N, 384] for MiniLM)
-        existing_index_path: Path to existing FAISS index
+    Update user-specific FAISS index by appending new embeddings.
     """
     if new_embeddings.size == 0:
         return
     
+    from services.policy_service import get_user_policy_paths
+    paths = get_user_policy_paths(user_email)
+    index_path = paths["index_path"]
+    
     new_embeddings = np.asarray(new_embeddings).astype("float32")
     
-    if existing_index_path.exists():
-        # Load existing index and append new embeddings
-        index = faiss.read_index(str(existing_index_path))
+    if index_path.exists():
+        index = faiss.read_index(str(index_path))
         index.add(new_embeddings)
     else:
-        # Create new index
         dim = new_embeddings.shape[1]
         index = faiss.IndexFlatIP(dim)
         index.add(new_embeddings)
     
-    # Save updated index
-    faiss.write_index(index, str(existing_index_path))
+    faiss.write_index(index, str(index_path))
 
 
-def ingest_policy_document(file_path: str, policy_id: Optional[str] = None, section_title: str = "General") -> Dict[str, Any]:
+def ingest_policy_document(
+    file_path: str, 
+    user_email: str,
+    policy_id: Optional[str] = None, 
+    section_title: str = "General"
+) -> Dict[str, Any]:
     """
-    Ingest a policy document (PDF or TXT), chunk it, generate embeddings, and update index.
-    
-    Args:
-        file_path: Path to the policy document
-        policy_id: Optional policy identifier; defaults to filename
-        section_title: Section title for metadata
-    
-    Returns:
-        Dictionary with ingestion statistics
+    Ingest a policy document into a USER'S private RAG index.
     """
     file_path = Path(file_path)
     if not file_path.exists():
@@ -402,9 +396,14 @@ def ingest_policy_document(file_path: str, policy_id: Optional[str] = None, sect
     if not chunks:
         raise ValueError(f"No chunks generated from: {file_path}")
     
-    # Load or initialize policy_chunks.json
-    if CHUNKS_PATH.exists():
-        with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
+    # Load or initialize user-specific policy_chunks.json
+    from services.policy_service import get_user_policy_paths
+    paths = get_user_policy_paths(user_email)
+    index_path = paths["index_path"]
+    chunks_path = paths["chunks_path"]
+
+    if chunks_path.exists():
+        with open(chunks_path, "r", encoding="utf-8") as f:
             existing_chunks = json.load(f)
     else:
         existing_chunks = []
@@ -440,12 +439,12 @@ def ingest_policy_document(file_path: str, policy_id: Optional[str] = None, sect
     embeddings = np.asarray(embeddings).astype("float32")
     
     # Update FAISS index
-    update_faiss_index(embeddings)
+    update_faiss_index(embeddings, user_email)
     
     # Append new chunks to policy_chunks.json
     all_chunks = existing_chunks + new_chunks
-    CHUNKS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(CHUNKS_PATH, "w", encoding="utf-8") as f:
+    chunks_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(chunks_path, "w", encoding="utf-8") as f:
         json.dump(all_chunks, f, indent=2, ensure_ascii=False)
     
     return {
@@ -454,8 +453,8 @@ def ingest_policy_document(file_path: str, policy_id: Optional[str] = None, sect
         "chunks_added": len(new_chunks),
         "total_chunks": len(all_chunks),
         "embeddings_generated": embeddings.shape[0],
-        "index_path": str(INDEX_PATH),
-        "chunks_path": str(CHUNKS_PATH),
+        "index_path": str(index_path),
+        "chunks_path": str(chunks_path),
     }
 
 

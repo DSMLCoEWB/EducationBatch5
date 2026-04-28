@@ -8,12 +8,13 @@ from config import (
 )
 from core.logging import get_logger
 from priority_llm import get_batch_triage, apply_thread_escalation
+from utils.email_utils import normalize_email_address
 
 logger = get_logger("services.triage")
 
 # --- HEURISTIC ENGINE (Instant) ---
 
-def classify_grievance_heuristic(text: str, subject: str = "", attachment_content: str = "") -> str:
+def classify_grievance_heuristic(text: str, subject: str = "", attachment_content: str = "", user_email: str = None) -> str:
     """Keyword-based classification for instant categorization in the sync path."""
     if not text and not subject and not attachment_content:
         return "Miscellaneous"
@@ -22,21 +23,52 @@ def classify_grievance_heuristic(text: str, subject: str = "", attachment_conten
     composite_text = f"{subject} {subject}\n{clean_text}\n{attachment_content or ''}".lower()
     text_normalized = re.sub(r'\s+', ' ', composite_text).strip()
     
+    # --- DYNAMIC OVERRIDE ---
     category_scores = defaultdict(float)
-    for category, keywords in CATEGORIES.items():
-        score = 0
-        for keyword in keywords:
-            pattern = r'\b' + re.escape(keyword.lower()) + r'\b'
-            matches = len(re.findall(pattern, text_normalized))
-            score += matches * (2 if ' ' in keyword else 1)
-        category_scores[category] = float(score)
+    try:
+        from db.repository import get_active_categories
+        active_cats = get_active_categories(user_email) if user_email else []
+        active_names = {c['name'] for c in active_cats}
+        
+        # 1. Expert Heuristics (from config/classifier)
+        for category, keywords in CATEGORIES.items():
+            if category not in active_names: continue
+            score = 0
+            for keyword in keywords:
+                pattern = r'\b' + re.escape(keyword.lower()) + r'\b'
+                matches = len(re.findall(pattern, text_normalized))
+                score += matches * (2 if ' ' in keyword else 1)
+            category_scores[category] = float(score)
+
+        # 2. Exact Name Matching for Dynamic Categories
+        for cat in active_cats:
+            c_name = cat['name']
+            if c_name not in CATEGORIES:
+                pattern = r'\b' + re.escape(c_name.lower()) + r'\b'
+                matches = len(re.findall(pattern, text_normalized))
+                category_scores[c_name] += matches * 3.0 # High weight for explicit name match
+                
+    except Exception as e:
+        logger.error(f"⚠️ [Heuristic] Dynamic lookup failed: {e}")
+        # Fallback to pure static
+        for category, keywords in CATEGORIES.items():
+            score = 0
+            for keyword in keywords:
+                pattern = r'\b' + re.escape(keyword.lower()) + r'\b'
+                matches = len(re.findall(pattern, text_normalized))
+                score += matches * (2 if ' ' in keyword else 1)
+            category_scores[category] = float(score)
 
     if category_scores:
         max_score = max(category_scores.values())
         if max_score > 0:
-            for category in CATEGORIES: # Preservation of insertion order for ties
-                if category_scores[category] == max_score:
+            # Tie-breaking logic (favor expert categories over dynamic if tied)
+            for category in CATEGORIES: 
+                if category_scores.get(category) == max_score:
                     return category
+            for cat_name, score in category_scores.items():
+                if score == max_score:
+                    return cat_name
 
     return "Miscellaneous"
 
@@ -117,9 +149,9 @@ def detect_followup(email: Dict[str, Any], df: Optional[pd.DataFrame], user_emai
 
 # --- AI REFINEMENT (Delegated) ---
 
-def get_batch_triage_ai(emails: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+def get_batch_triage_ai(emails: List[Dict[str, Any]], user_email: str = None) -> Dict[str, Dict[str, Any]]:
     """
     Delegates to priority_llm.py for official batch processing and rate-limiting.
     """
     # Simply reuse the well-tested logic from priority_llm
-    return get_batch_triage(emails)
+    return get_batch_triage(emails, user_email)

@@ -359,7 +359,7 @@ function extractSenderName(sender: string): string {
 export function transformBackendEmail(backendEmail: any): Email {
   // Support both snake_case (backend) and camelCase (frontend types)
   const categoryStr = backendEmail.category || '';
-  const category = categoryMap[categoryStr] || 'Miscellaneous';
+  const category = categoryMap[categoryStr] || categoryStr || 'Miscellaneous';
   
   const rawMailType = (backendEmail.mail_type || backendEmail.mailType || '').toLowerCase();
   let mailType: MailType = 'follow-up';
@@ -406,6 +406,8 @@ export function transformBackendEmail(backendEmail: any): Email {
     is_priority_refined: !!backendEmail.is_priority_refined,
     is_resolved: !!(backendEmail.is_resolved || backendEmail.isResolved),
     manual_override: !!(backendEmail.manual_override || backendEmail.manualOverride),
+    deleted_in_thread: backendEmail.deleted_in_thread || 0,
+    is_trashed_msg: !!backendEmail.is_trashed_msg,
   };
 }
 

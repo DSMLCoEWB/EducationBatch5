@@ -39,6 +39,7 @@ def get_suggested_reply(
     try:
         reply_bundle = generate_suggested_reply_with_evidence(
             email_content=request.email_content,
+            user_email=user_email,
             email_subject=request.email_subject,
             sender=request.sender,
             category=request.category,

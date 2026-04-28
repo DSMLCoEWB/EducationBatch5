@@ -10,6 +10,7 @@ import { PolicyManagementModal } from '@/components/PolicyManagementModal';
 import { LoginPage } from '@/components/LoginPage';
 import { ComposeModal } from '@/components/ComposeModal';
 import { InitialSyncingView, EmptyInboxView } from '@/components/SyncStatusViews';
+import GmailSettingsBanner from '@/components/GmailSettingsBanner';
 import { Email } from '@/types';
 import {
   disconnectGoogleAuth,
@@ -24,8 +25,11 @@ import {
   fetchSyncStatus,
   triggerManualSync,
   RefinementStats,
+  SettingsCategory,
+  fetchSettingsCategories
 } from '@/services/api';
 import { transformBackendEmails, initializeCollegeDatabase } from '@/utils/dataTransformer';
+import { SettingsModal } from '@/components/SettingsModal';
 
 export default function App() {
   const [activeView, setActiveView] = useState('dashboard');
@@ -44,8 +48,10 @@ export default function App() {
   const [gmailAuthMode, setGmailAuthMode] = useState<string>('none');
   const [error, setError] = useState<string | null>(null);
   const [showPolicyManagement, setShowPolicyManagement] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showComposeModal, setShowComposeModal] = useState(false);
   const [refinementStats, setRefinementStats] = useState<RefinementStats>({ refined: 0, total: 0 });
+  const [categories, setCategories] = useState<SettingsCategory[]>([]);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('theme');
     if (saved) return saved === 'dark';
@@ -136,6 +142,14 @@ export default function App() {
         setGmailIdentity(status.email || null);
         setGmailAuthMode(status.auth_mode || 'none');
         await refreshRefinementStats();
+        
+        try {
+          const cats = await fetchSettingsCategories(false);
+          setCategories(cats);
+        } catch (e) {
+          console.warn("Failed to load custom categories:", e);
+        }
+
         if (status.connected) await loadEmails(false);
         else { setEmails([]); setLastSyncedAt(null); }
       } catch (err) {
@@ -265,15 +279,6 @@ export default function App() {
     
     // For specific categories, filter directly by the category name
     // Since IDs now match labels for categories, it's straightforward.
-    if (activeView === 'Miscellaneous') {
-      const mainCategories = [
-        'Suspension / Disciplinary', 'Legal Issues', 'RTI Matters', 'CMO Issues',
-        'Semester / Examination', 'Scholarship & Fee Concession', 'Purchase / Procurement Issues',
-        'Cash Issues', 'Anti-Ragging Complaints', 'Accreditation & Ranking', 'Service Matters',
-        'Appointment Issues', 'Transfer Cases', 'Inspection Matters', 'Seat Matrix Issues'
-      ];
-      return filteredEmails.filter(email => !mainCategories.includes(email.category) && email.category !== 'Sent' && email.category !== 'trash');
-    }
     
     return filteredEmails.filter(email => email.category === activeView);
   }, [filteredEmails, activeView]);
@@ -372,12 +377,15 @@ export default function App() {
           activeView={activeView} 
           onViewChange={setActiveView} 
           onOpenPolicyManagement={() => setShowPolicyManagement(true)}
+          onOpenSettings={() => setShowSettingsModal(true)}
           onCompose={() => setShowComposeModal(true)}
           isCollapsed={isSidebarCollapsed}
           isMobileOpen={isMobileSidebarOpen}
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
+          categories={categories}
         />
         <main className="flex-1 overflow-y-auto bg-background flex flex-col">
+          <GmailSettingsBanner />
           {emails.length === 0 ? (
             // Priority 1: Backend or Frontend says we are syncing right now
             isRefreshing ? (
@@ -396,7 +404,7 @@ export default function App() {
             )
           ) : (
             activeView === 'dashboard' ? (
-              <Dashboard emails={filteredEmails} onViewChange={setActiveView} />
+              <Dashboard emails={filteredEmails} onViewChange={setActiveView} customCategories={categories} />
             ) : (
               <EmailTable 
                 emails={categoryEmails} 
@@ -416,10 +424,28 @@ export default function App() {
           email={selectedEmail} 
           onClose={() => setSelectedEmail(null)} 
           onUpdateEmail={handleUpdateEmail}
+          isTrashView={activeView === 'trash'}
         />
       )}
       <Chatbot emails={filteredEmails} />
       {showPolicyManagement && <PolicyManagementModal onClose={() => setShowPolicyManagement(false)} />}
+      {showSettingsModal && (
+        <SettingsModal 
+          isOpen={showSettingsModal} 
+          onClose={() => setShowSettingsModal(false)} 
+          onCategoriesChanged={async () => {
+            const cats = await fetchSettingsCategories(false);
+            setCategories(cats);
+            
+            // EDGE CASE: If current view is a category that was renamed or deleted, fallback to dashboard
+            const mainViews = ['dashboard', 'all', 'Sent', 'trash', 'Miscellaneous'];
+            if (!mainViews.includes(activeView) && !cats.some(c => c.name === activeView)) {
+              console.log(`🔄 Redirecting from stale view "${activeView}" to Dashboard`);
+              setActiveView('dashboard');
+            }
+          }} 
+        />
+      )}
       {showComposeModal && <ComposeModal onClose={() => setShowComposeModal(false)} />}
     </div>
   );

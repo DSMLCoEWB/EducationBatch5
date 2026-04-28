@@ -6,9 +6,10 @@ import { Email } from '@/types';
 interface DashboardProps { 
   emails: Email[]; 
   onViewChange: (view: string) => void;
+  customCategories?: { id: string; name: string; color: string }[];
 }
 
-export function Dashboard({ emails, onViewChange }: DashboardProps) {
+export function Dashboard({ emails, onViewChange, customCategories = [] }: DashboardProps) {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -75,34 +76,16 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
     withAttachments: grievances.filter(g => g.hasAttachment).length
   };
 
-  const categories = [
-    { id: 'Suspension / Disciplinary' }, { id: 'Legal Issues' }, { id: 'RTI Matters' }, 
-    { id: 'CMO Issues' }, { id: 'Semester / Examination' }, { id: 'Scholarship & Fee Concession' }, 
-    { id: 'Purchase / Procurement Issues' }, { id: 'Cash Issues' }, { id: 'Anti-Ragging Complaints' }, 
-    { id: 'Accreditation & Ranking' }, { id: 'Service Matters' }, { id: 'Appointment Issues' }, 
-    { id: 'Transfer Cases' }, { id: 'Inspection Matters' }, { id: 'Seat Matrix Issues' }
+  const activeCats = customCategories.length > 0 ? customCategories : [
+    { id: 'dummy', name: 'Loading...', color: 'hsl(224, 15%, 50%)' }
   ];
 
-  const categoryData = [
-    { name: 'Suspension', id: 'Suspension / Disciplinary', count: grievances.filter(e => e.category === 'Suspension / Disciplinary').length, fill: 'hsl(25, 95%, 53%)' },
-    { name: 'Legal', id: 'Legal Issues', count: grievances.filter(e => e.category === 'Legal Issues').length, fill: 'hsl(0, 72%, 51%)' },
-    { name: 'RTI', id: 'RTI Matters', count: grievances.filter(e => e.category === 'RTI Matters').length, fill: 'hsl(210, 100%, 50%)' },
-    { name: 'CMO', id: 'CMO Issues', count: grievances.filter(e => e.category === 'CMO Issues').length, fill: 'hsl(260, 100%, 50%)' },
-    { name: 'Semester', id: 'Semester / Examination', count: grievances.filter(e => e.category === 'Semester / Examination').length, fill: 'hsl(234, 89%, 54%)' },
-    { name: 'Scholarship', id: 'Scholarship & Fee Concession', count: grievances.filter(e => e.category === 'Scholarship & Fee Concession').length, fill: 'hsl(40, 95%, 38%)' },
-    { name: 'Purchase', id: 'Purchase / Procurement Issues', count: grievances.filter(e => e.category === 'Purchase / Procurement Issues').length, fill: 'hsl(160, 100%, 40%)' },
-    { name: 'Cash', id: 'Cash Issues', count: grievances.filter(e => e.category === 'Cash Issues').length, fill: 'hsl(340, 80%, 50%)' },
-    { name: 'Ragging', id: 'Anti-Ragging Complaints', count: grievances.filter(e => e.category === 'Anti-Ragging Complaints').length, fill: 'hsl(15, 90%, 50%)' },
-    { name: 'Accreditation', id: 'Accreditation & Ranking', count: grievances.filter(e => e.category === 'Accreditation & Ranking').length, fill: 'hsl(280, 100%, 60%)' },
-    { name: 'Service', id: 'Service Matters', count: grievances.filter(e => e.category === 'Service Matters').length, fill: 'hsl(180, 100%, 40%)' },
-    { name: 'Appointment', id: 'Appointment Issues', count: grievances.filter(e => e.category === 'Appointment Issues').length, fill: 'hsl(130, 70%, 45%)' },
-    { name: 'Transfer', id: 'Transfer Cases', count: grievances.filter(e => e.category === 'Transfer Cases').length, fill: 'hsl(200, 90%, 45%)' },
-    { name: 'Inspection', id: 'Inspection Matters', count: grievances.filter(e => e.category === 'Inspection Matters').length, fill: 'hsl(250, 80%, 55%)' },
-    { name: 'Seat Matrix', id: 'Seat Matrix Issues', count: grievances.filter(e => e.category === 'Seat Matrix Issues').length, fill: 'hsl(310, 80%, 50%)' },
-    { name: 'Misc', id: 'Miscellaneous', count: grievances.filter(e => !categories.some(c => c.id === e.category) && e.category !== 'Sent' && e.category !== 'trash').length, fill: 'hsl(224, 15%, 50%)' }
-  ].filter(c => c.count > 0 || [
-    'Suspension', 'Legal', 'Semester', 'Scholarship', 'RTI', 'CMO', 'Service'
-  ].includes(c.name))
+  const categoryData = activeCats.map(cat => ({
+    name: cat.name,
+    id: cat.name,
+    count: grievances.filter(e => e.category === cat.name).length,
+    fill: cat.color
+  })).filter(c => c.count > 0 && c.name !== 'Misc' || activeCats.length > 0)
   .sort((a, b) => b.count - a.count);
 
   const mailTypeData = [
@@ -188,7 +171,8 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
   return (
     <div className="flex-1 p-4 sm:p-6 gradient-surface overflow-y-auto custom-scrollbar">
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 mb-8 mt-6">
+
         {statCards.map((card) => {
           const style = cardStyles[card.variant];
           return (
@@ -225,7 +209,7 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
             </div>
             <div>
               <h3 className="text-base font-bold text-foreground">Grievance Distribution by Category</h3>
-              <p className="text-xs text-muted-foreground">Comprehensive overview of all 15 classification types</p>
+              <p className="text-xs text-muted-foreground">Comprehensive overview of all 16 classification types</p>
             </div>
           </div>
           <div className="hidden sm:flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -244,8 +228,8 @@ export function Dashboard({ emails, onViewChange }: DashboardProps) {
             <YAxis 
               dataKey="name" 
               type="category"
-              tick={{ fontSize: isMobile ? 9 : 11, fontWeight: 600, fill: 'hsl(var(--foreground))' }} 
-              width={isMobile ? 70 : 100}
+              tick={{ dx: isMobile ? -14 : -8, fontSize: isMobile ? 9 : 11, fontWeight: 600, fill: 'hsl(var(--foreground))' }} 
+              width={isMobile ? 120 : 180}
               axisLine={false}
               tickLine={false}
             />

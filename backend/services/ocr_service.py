@@ -42,8 +42,11 @@ def extract_text_from_attachment_ai(path: str) -> str:
             model_list=VISION_FALLBACK_LIST
         )
 
-        if response and response.text:
-            return response.text.strip()
+        if response:
+            try:
+                return response.text.strip()
+            except:
+                return str(response).strip()
     except Exception as e:
         logger.error(f"⚠️ AI OCR failed for {path}: {e}")
     return ""

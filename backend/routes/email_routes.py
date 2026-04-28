@@ -12,7 +12,8 @@ from core.dependencies import get_authenticated_user
 from db.repository import (
     get_db_conn, update_sync_interval, get_user_sync_history,
     mark_as_trashed, get_emails_from_db, get_refinement_stats,
-    get_categories_from_db, get_dashboard_stats, get_thread_from_db
+    get_categories_from_db, get_dashboard_stats, get_thread_from_db,
+    permanently_delete_email_locally
 )
 from utils.seeding import (
     send_demo_emails_to_gmail_inbox, cleanup_seeded_emails,
@@ -78,11 +79,17 @@ def trash_email(email_id: str, user_email: str = Depends(get_authenticated_user)
             cursor.execute("SELECT gmail_id FROM emails WHERE id = ?", (email_id,))
             row = cursor.fetchone()
             if row and row[0]:
+                gmail_id = row[0]
                 try:
-                    service.users().messages().trash(userId="me", id=row[0]).execute()
+                    service.users().messages().trash(userId="me", id=gmail_id).execute()
                     # Notify UI to refresh local view
                     SSE_NOTIFIER.notify(user_email)
-                except Exception: pass
+                except Exception as e:
+                    # If it's already gone from Gmail, purge it locally too
+                    if hasattr(e, 'resp') and e.resp.status == 404:
+                        permanently_delete_email_locally(user_email, gmail_id)
+                        SSE_NOTIFIER.notify(user_email)
+                    pass
     return {"status": "trashed"}
 
 @router.post("/{email_id}/untrash")
@@ -97,11 +104,17 @@ def untrash_email(email_id: str, user_email: str = Depends(get_authenticated_use
             cursor.execute("SELECT gmail_id FROM emails WHERE id = ?", (email_id,))
             row = cursor.fetchone()
             if row and row[0]:
+                gmail_id = row[0]
                 try:
-                    service.users().messages().untrash(userId="me", id=row[0]).execute()
+                    service.users().messages().untrash(userId="me", id=gmail_id).execute()
                     # Notify UI to refresh local view
                     SSE_NOTIFIER.notify(user_email)
-                except Exception: pass
+                except Exception as e:
+                    # If it's already gone from Gmail, purge it locally too
+                    if hasattr(e, 'resp') and e.resp.status == 404:
+                        permanently_delete_email_locally(user_email, gmail_id)
+                        SSE_NOTIFIER.notify(user_email)
+                    pass
     return {"status": "restored"}
 
 @router.post("/sync")
@@ -125,6 +138,7 @@ def trigger_sync_manual(user_email: str = Depends(get_authenticated_user)):
     # Immediate incremental sync in foreground for responsiveness
     SSE_NOTIFIER.notify(user_email, "sync_started")
     sync_gmail_incremental(user_email)
+    
     trigger_intelligence_suite(user_email)
     # Notify UI that sync is complete
     SSE_NOTIFIER.notify(user_email)
@@ -190,7 +204,8 @@ class ComposeRequest(BaseModel):
 @router.post("/compose")
 def compose_email(payload: ComposeRequest, user_email: str = Depends(get_authenticated_user)):
     """Composes and sends a new standalone Gmail message."""
-    from gmail.client import get_gmail_api_service
+    from gmail.client import get_gmail_api_service, get_user_display_name
+    from email.utils import formataddr
     import base64
     from email.mime.text import MIMEText
     
@@ -198,8 +213,11 @@ def compose_email(payload: ComposeRequest, user_email: str = Depends(get_authent
     if not service:
         raise HTTPException(status_code=401)
         
+    display_name, official_email = get_user_display_name(user_email)
     message = MIMEText(payload.body)
     message['to'] = payload.to_email
+    if display_name:
+        message['From'] = formataddr((display_name, official_email))
     message['subject'] = payload.subject
     raw_msg = base64.urlsafe_b64encode(message.as_bytes()).decode()
     
@@ -222,7 +240,8 @@ def send_reply(
     user_email: str = Depends(get_authenticated_user)
 ):
     """Sends a reply via Gmail and marks the local thread as replied."""
-    from gmail.client import get_gmail_api_service
+    from gmail.client import get_gmail_api_service, get_user_display_name
+    from email.utils import formataddr
     import base64
     from email.mime.text import MIMEText
     
@@ -230,6 +249,7 @@ def send_reply(
     if not service:
         raise HTTPException(status_code=401)
         
+    display_name, official_email = get_user_display_name(user_email)
     to_email = payload.get("to_email")
     subject = payload.get("original_subject", "")
     body = payload.get("reply_text", "")
@@ -238,15 +258,17 @@ def send_reply(
     # 1. Thread Reconciliation: Look up actual thread data from DB
     with get_db_conn() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT gmail_id, thread_id FROM emails WHERE id = ?", (email_id,))
+        cursor.execute("SELECT gmail_id, thread_id FROM emails WHERE id = ? AND user_email = ?", (email_id, user_email))
         row = cursor.fetchone()
         
     actual_gmail_id = row[0] if row else None
     actual_thread_id = row[1] if row else None
-
+ 
     # 2. Construct MIME message
     message = MIMEText(body)
     message['to'] = to_email
+    if display_name:
+        message['From'] = formataddr((display_name, official_email))
     message['subject'] = subject if (subject.startswith("Re:") or subject.startswith("Fwd:")) else f"Re: {subject}"
     
     # Standard Threading Headers
@@ -326,17 +348,23 @@ def download_eml(eml_filename: str):
     return FileResponse(path, media_type="message/rfc822")
 
 @router.get("/download/attachment/{filename}")
-def download_attachment(filename: str):
-    """Provides direct access to stored email attachments and inline images."""
+def download_attachment(
+    filename: str,
+    user_email: str = Depends(get_authenticated_user)
+):
+    """Provides direct access to stored email attachments and inline images with user isolation."""
     from config import ATTACHMENTS_DIR
     import mimetypes
+    import re
+    from utils.email_utils import normalize_email_address
     
-    # Path Traversal Protection
+    # Path Traversal Protection & User Isolation
     safe_filename = os.path.basename(filename)
-    path = os.path.join(ATTACHMENTS_DIR, safe_filename)
+    slug = re.sub(r'[^a-z0-9]', '_', normalize_email_address(user_email).lower())
+    path = os.path.join(ATTACHMENTS_DIR, slug, safe_filename)
     
     if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Attachment not found on server")
+        raise HTTPException(status_code=404, detail="Attachment not found or access denied")
         
     mime_type, _ = mimetypes.guess_type(path)
     return FileResponse(

@@ -96,13 +96,20 @@ else:
         "models/gemini-robotics-er-1.5-preview"
     ]
 
+VISION_FALLBACK_LIST = [
+    "models/gemini-3.1-flash-lite-preview",
+    "models/gemini-flash-latest",
+    "models/gemini-3-flash-preview", 
+    "models/gemini-2.5-flash-lite"
+]
+
 # --- GRIEVANCE TAXONOMY ---
 from classifier import CATEGORIES
 
 PRIORITY_KEYWORDS = {
     "0": ["urgent", "critical", "cmo", "emergency", "immediate", "legal", "court"],
     "1": ["salary", "pension", "arrear", "fixation", "seniority"],
-    "2": ["suspension", "disciplinary", "chargesheet", "misconduct"],
+    "2": ["suspension", "disciplinary", "chargesheet", "misconduct", "ragging", "anti-ragging", "anti ragging"],
     "3": ["transfer", "posting", "deputation"],
     "4": ["exam", "semester", "result", "marksheet", "admit"],
     "5": ["scholarship", "svmcm", "oasis", "fee"],

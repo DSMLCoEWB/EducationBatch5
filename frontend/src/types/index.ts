@@ -56,6 +56,8 @@ export interface Email {
   is_priority_refined?: boolean;
   is_resolved?: boolean;
   manual_override?: boolean;
+  deleted_in_thread?: number;
+  is_trashed_msg?: boolean;
 }
 
 export interface CategoryInfo {

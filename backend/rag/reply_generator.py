@@ -136,8 +136,11 @@ def generate_reply(subject: str, sender: str, email: str, chunks: List[Dict[str,
         return ""
 
     reply = ""
-    if response and response.text:
-        reply = response.text.strip()
+    if response:
+        try:
+            reply = response.text.strip()
+        except:
+            reply = str(response).strip()
         
     # Task 2: Safety & Length checks
     if not reply or len(reply) < 30:

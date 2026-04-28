@@ -15,9 +15,10 @@ interface EmailThreadPanelProps {
   email: Email;
   onClose: () => void;
   onUpdateEmail: (emailId: string, updates: Partial<Email>) => void;
+  isTrashView?: boolean;
 }
 
-export function EmailThreadPanel({ email, onClose, onUpdateEmail }: EmailThreadPanelProps) {
+export function EmailThreadPanel({ email, onClose, onUpdateEmail, isTrashView = false }: EmailThreadPanelProps) {
   const [thread, setThread] = useState<Email[]>([]);
   const [isResolved, setIsResolved] = useState(email.is_resolved);
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,7 @@ export function EmailThreadPanel({ email, onClose, onUpdateEmail }: EmailThreadP
   } | null>(null);
 
   const [showMetadata, setShowMetadata] = useState<Email | null>(null);
+  const [showDeletedMessages, setShowDeletedMessages] = useState(false);
 
   const loadFullThread = async () => {
     if (!email.threadId) {
@@ -197,20 +199,55 @@ export function EmailThreadPanel({ email, onClose, onUpdateEmail }: EmailThreadP
             </div>
           ) : (
             <>
-              {thread.map((threadEmail, index) => (
-                <EmailCard 
-                  key={threadEmail.id} 
-                  email={threadEmail} 
-                  isParent={index === 0}
-                  isCurrentEmail={threadEmail.id === email.id}
-                  history={thread}
-                  onReply={(target) => setModalConfig({ email: target })}
-                  onForward={handleForward}
-                  onPrint={handlePrint}
-                  onViewMetadata={setShowMetadata}
-                  onRefreshThread={loadFullThread}
-                />
-              ))}
+              {(() => {
+                const deletedCount = thread[0]?.deleted_in_thread || 0;
+                const visibleEmails = (isTrashView || showDeletedMessages) ? thread : thread.filter(e => !e.is_trashed_msg);
+                const visibleIndex = { current: 0 };
+                return (
+                  <>
+                    {visibleEmails.map((threadEmail) => {
+                      const idx = visibleIndex.current++;
+                      return (
+                        <div key={threadEmail.id} className={threadEmail.is_trashed_msg ? 'relative' : ''}>
+                          {threadEmail.is_trashed_msg && (
+                            <div className="absolute top-2 right-2 z-10 px-2 py-0.5 bg-destructive/10 text-destructive text-[9px] font-bold uppercase tracking-wider rounded-md border border-destructive/20">
+                              Deleted
+                            </div>
+                          )}
+                          <EmailCard 
+                            email={threadEmail} 
+                            isParent={idx === 0}
+                            isCurrentEmail={threadEmail.id === email.id}
+                            history={thread}
+                            onReply={(target) => setModalConfig({ email: target })}
+                            onForward={handleForward}
+                            onPrint={handlePrint}
+                            onViewMetadata={setShowMetadata}
+                            onRefreshThread={loadFullThread}
+                          />
+                        </div>
+                      );
+                    })}
+                    {/* Gmail-style deleted message notice */}
+                    {!isTrashView && deletedCount > 0 && (
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50/50 dark:bg-amber-950/20 border border-dashed border-amber-200 dark:border-amber-800/40 rounded-lg text-xs text-amber-700 dark:text-amber-400">
+                        <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="italic">
+                          {deletedCount} deleted message{deletedCount > 1 ? 's' : ''} in this conversation.
+                        </span>
+                        <span className="ml-auto font-semibold not-italic">
+                          <button 
+                            onClick={() => setShowDeletedMessages(!showDeletedMessages)}
+                            className="text-primary hover:underline"
+                          >
+                            {showDeletedMessages ? 'Hide' : 'View'} message{deletedCount > 1 ? 's' : ''}
+                          </button>
+                        </span>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
               {showScrollButton && (
                 <button onClick={() => scrollToBottom()} className="fixed bottom-24 right-10 p-3 bg-primary text-primary-foreground rounded-full shadow-elevated animate-bounce hover:bg-primary/90 z-20">
                   <ChevronDown className="w-5 h-5" />

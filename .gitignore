@@ -44,6 +44,7 @@ backend/data/
 backend/backend_data/
 backend/attachments/
 backend/files/
+backend/policies/
 *.sqlite3
 *.db
 *.enc

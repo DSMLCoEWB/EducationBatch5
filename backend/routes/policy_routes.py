@@ -37,7 +37,11 @@ async def upload_policy(
     new_hash = hashlib.sha256(content).hexdigest()
     
     policy_id = slugify_policy_id(file.filename)
-    path = POLICY_DIR / f"{policy_id}.pdf"
+    
+    # User-Specific Path Resolution
+    from services.policy_service import get_user_policy_paths
+    paths = get_user_policy_paths(user_email)
+    path = paths["policy_dir"] / f"{policy_id}.pdf"
     
     is_update = False
     
@@ -69,9 +73,9 @@ async def upload_policy(
         await file.close()
 
     # 4. Critical Logic: Purge old memory and teach the AI the new content
-    remove_policy_chunks(policy_id)
-    stats = ingest_policy_document(str(path), policy_id)
-    reload_retriever_data()
+    remove_policy_chunks(policy_id, user_email)
+    stats = ingest_policy_document(str(path), user_email, policy_id)
+    reload_retriever_data(user_email)
     
     return {
         "success": True, 
@@ -84,15 +88,19 @@ async def upload_policy(
 def list_policies(user_email: str = Depends(get_authenticated_user)):
     """Lists all discovered policies on disk and their RAG index status."""
     
-    chunks = load_policy_chunks()
+    chunks = load_policy_chunks(user_email)
     counts = {}
     for c in chunks:
         pid = c.get("policy_id")
         if pid: counts[pid] = counts.get(pid, 0) + 1
         
-    # Global Filesystem Sweep
+    # Local Filesystem Sweep
     discovered_pids = set()
-    for d in [POLICY_DIR, DEMO_POLICY_DIR]:
+    from services.policy_service import get_user_policy_paths
+    paths = get_user_policy_paths(user_email)
+    
+    dirs = [paths["policy_dir"], DEMO_POLICY_DIR]
+    for d in dirs:
         if d.exists():
             for f in d.glob("*.pdf"): discovered_pids.add(f.stem)
             for f in d.glob("*.PDF"): discovered_pids.add(f.stem)
@@ -102,7 +110,7 @@ def list_policies(user_email: str = Depends(get_authenticated_user)):
     
     policies = []
     for pid in sorted(list(all_pids)):
-        exists = resolve_policy_file_path(pid) is not None
+        exists = resolve_policy_file_path(pid, user_email) is not None
         chunk_count = counts.get(pid, 0)
         
         if exists and chunk_count > 0:
@@ -125,7 +133,7 @@ def download_policy(
     user_email: str = Depends(get_authenticated_user)
 ):
     """Downloads the original PDF for a policy."""
-    path = resolve_policy_file_path(policy_id)
+    path = resolve_policy_file_path(policy_id, user_email)
     if not path:
         raise HTTPException(status_code=404)
     return FileResponse(str(path), media_type="application/pdf")
@@ -136,13 +144,13 @@ def activate_policy(
     user_email: str = Depends(get_authenticated_user)
 ):
     """Surgically indexes (teaches) a specific policy to the AI."""
-    path = resolve_policy_file_path(policy_id)
+    path = resolve_policy_file_path(policy_id, user_email)
     if not path:
         raise HTTPException(status_code=404, detail="Physical file missing. Cannot activate.")
         
-    remove_policy_chunks(policy_id)
-    stats = ingest_policy_document(str(path), policy_id)
-    reload_retriever_data()
+    remove_policy_chunks(policy_id, user_email)
+    stats = ingest_policy_document(str(path), user_email, policy_id)
+    reload_retriever_data(user_email)
     
     return {"success": True, "stats": stats}
 
@@ -152,13 +160,17 @@ def delete_policy(
     user_email: str = Depends(get_authenticated_user)
 ):
     """Removes a policy and its index entries (Atomic Cleanup)."""
-    path = resolve_policy_file_path(policy_id)
-    if path and path.exists():
+    path = resolve_policy_file_path(policy_id, user_email)
+    
+    # Only allow deletion of user-uploaded files, not demo files
+    from services.policy_service import get_user_policy_paths
+    paths = get_user_policy_paths(user_email)
+    if path and path.parent == paths["policy_dir"] and path.exists():
         path.unlink()
     
     # Always try to remove chunks, even if file is already gone (Orphan/Stale cleanup)
-    _, removed = remove_policy_chunks(policy_id)
-    reload_retriever_data()
+    _, removed = remove_policy_chunks(policy_id, user_email)
+    reload_retriever_data(user_email)
     return {"status": "success", "removed_chunks": removed}
 
 @router.post("/load-demo")
@@ -175,25 +187,25 @@ def load_demo_policies(user_email: str = Depends(get_authenticated_user)):
     demo_ids = [p.stem for p in pdfs]
 
     # 1. Surgical Purge: Remove only demo chunks to preserve custom guidelines
-    chunks = load_policy_chunks()
+    chunks = load_policy_chunks(user_email)
     retained_chunks = [c for c in chunks if c.get("policy_id") not in demo_ids]
     
     if len(retained_chunks) < len(chunks):
-        save_policy_chunks(retained_chunks)
-        rebuild_index_from_chunks(retained_chunks)
-        print(f"[Policy Sync] Purged {len(chunks) - len(retained_chunks)} demo chunks.")
+        save_policy_chunks(retained_chunks, user_email)
+        rebuild_index_from_chunks(retained_chunks, user_email)
+        print(f"[Policy Sync] Purged {len(chunks) - len(retained_chunks)} demo chunks for {user_email}.")
 
     # 2. Ingest sequentially (append mode)
     ingested_count = 0
     for p in pdfs:
         try:
-            ingest_policy_document(str(p), policy_id=p.stem)
+            ingest_policy_document(str(p), user_email, policy_id=p.stem)
             ingested_count += 1
         except Exception as e:
-            print(f"[Policy Sync Error] Failed to ingest {p.name}: {e}")
+            print(f"[Policy Sync Error] Failed to ingest {p.name} for {user_email}: {e}")
             
     # 3. Final State Refresh
-    reload_retriever_data()
+    reload_retriever_data(user_email)
     
     return {
         "success": True, 

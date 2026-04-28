@@ -36,30 +36,41 @@ def strip_html(text: str) -> str:
     clean = clean.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
     return " ".join(clean.split()).strip()
 
-# --- RETRIEVER ---
-_index = None
-_policy_chunks = []
+# --- RETRIEVER (Multi-Tenant Cache) ---
+_user_indices: Dict[str, Any] = {} # user_email -> faiss_index
+_user_chunks: Dict[str, List[Dict[str, Any]]] = {} # user_email -> chunks_list
 
-def reload_retriever_data():
-    global _index, _policy_chunks
-    if not os.path.exists(INDEX_PATH) or not os.path.exists(CHUNKS_PATH):
-        logger.warning("⚠️ RAG Index or Chunks missing from disk.")
+def reload_retriever_data(user_email: str):
+    global _user_indices, _user_chunks
+    
+    from services.policy_service import get_user_policy_paths
+    paths = get_user_policy_paths(user_email)
+    index_path = paths["index_path"]
+    chunks_path = paths["chunks_path"]
+
+    if not os.path.exists(index_path) or not os.path.exists(chunks_path):
+        logger.warning(f"⚠️ RAG Index or Chunks missing for {user_email}.")
+        _user_indices[user_email] = None
+        _user_chunks[user_email] = []
         return
         
     try:
-        _index = faiss.read_index(str(INDEX_PATH))
-        with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
-            _policy_chunks = json.load(f)
-        logger.info(f"📚 RAG Index Loaded: {_index.ntotal} chunks.")
+        _user_indices[user_email] = faiss.read_index(str(index_path))
+        with open(chunks_path, "r", encoding="utf-8") as f:
+            _user_chunks[user_email] = json.load(f)
+        logger.info(f"📚 RAG Index Loaded for {user_email}: {_user_indices[user_email].ntotal} chunks.")
     except Exception as e:
-        logger.error(f"❌ Failed to load RAG index: {e}")
+        logger.error(f"❌ Failed to load RAG index for {user_email}: {e}")
 
-def retrieve_policy_chunks(query: str) -> List[Dict[str, Any]]:
-    """Performs semantic search against policy documents via FAISS."""
-    if _index is None:
-        reload_retriever_data()
+def retrieve_policy_chunks(query: str, user_email: str) -> List[Dict[str, Any]]:
+    """Performs semantic search against user-specific policy documents via FAISS."""
+    if user_email not in _user_indices or _user_indices[user_email] is None:
+        reload_retriever_data(user_email)
     
-    if _index is None or not _policy_chunks:
+    index = _user_indices.get(user_email)
+    chunks = _user_chunks.get(user_email, [])
+    
+    if index is None or not chunks:
         return []
 
     model = get_embedder()
@@ -69,13 +80,13 @@ def retrieve_policy_chunks(query: str) -> List[Dict[str, Any]]:
     query_emb = np.asarray(query_emb).astype("float32")
 
     # 1. Search FAISS for candidates
-    scores_faiss, indices = _index.search(query_emb, RAG_TOP_K)
+    scores_faiss, indices = index.search(query_emb, RAG_TOP_K)
     
     candidate_idxs = [int(idx) for idx in indices[0] if idx != -1]
     if not candidate_idxs:
         return []
         
-    candidate_chunks = [_policy_chunks[idx] for idx in candidate_idxs]
+    candidate_chunks = [chunks[idx] for idx in candidate_idxs]
     
     # 2. Batch Re-ranking (Surgical Parity)
     # Manual Cosine Similarity overrides raw FAISS distances for better precision
@@ -134,6 +145,7 @@ If context is insufficient, state that no relevant policy clause is available.
 
 def generate_suggested_reply_with_evidence(
     email_content: str,
+    user_email: str,
     email_subject: str = "",
     sender: str = "",
     category: str = "",
@@ -191,7 +203,7 @@ def generate_suggested_reply_with_evidence(
             retrieval_query_parts.append(m.get('content', ''))
             
     search_query = f"Category: {category} | " + " ".join([p for p in retrieval_query_parts if p]).strip()
-    chunks = retrieve_policy_chunks(search_query[:1000])
+    chunks = retrieve_policy_chunks(search_query[:1000], user_email)
     
     if not chunks:
         return {
@@ -252,7 +264,13 @@ def generate_suggested_reply_with_evidence(
         label="RAG-Service"
     )
 
-    reply = response.text if response else "Error generating reply."
+    if response:
+        try:
+            reply = response.text
+        except:
+            reply = str(response)
+    else:
+        reply = "Error generating reply."
     
     # Strip LLM-injected "Subject:" tags
     if "subject:" in reply.lower():
