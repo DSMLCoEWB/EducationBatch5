@@ -258,9 +258,11 @@ def generate_suggested_reply_with_evidence(
     if not client:
         return {"suggested_reply": "AI Service currently unavailable.", "status": "error"}
 
+    from config import ULTIMATE_FALLBACK_LIST
     response = generate_content_with_fallback(
         client=client,
         contents=prompt,
+        model_list=ULTIMATE_FALLBACK_LIST,
         label="RAG-Service"
     )
 

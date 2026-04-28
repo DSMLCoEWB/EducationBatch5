@@ -53,10 +53,13 @@ export interface BackendCategory {
 
 
 export interface RAGEvidenceItem {
-  clause_id: string;
-  section: string;
-  score: number;
   text: string;
+  score: number;
+  metadata: {
+    clause_id: string;
+    section: string;
+    policy_id: string;
+  };
 }
 
 export interface GenerateReplyResult {

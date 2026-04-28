@@ -5,7 +5,7 @@ from config import ULTIMATE_FALLBACK_LIST, VISION_FALLBACK_LIST
 
 logger = get_logger("ai_utils")
 
-def generate_content_with_fallback(client, contents, model_list, label="AI-Task", **kwargs):
+def generate_content_with_fallback(client, contents, model_list=ULTIMATE_FALLBACK_LIST, label="AI-Task", **kwargs):
     """
     Robust wrapper that tries multiple models in sequence to handle rate limits or failures.
     """

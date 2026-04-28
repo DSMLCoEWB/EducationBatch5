@@ -202,14 +202,14 @@ export function ReplyModal({
               {showPolicyEvidence && ragEvidence.evidence && ragEvidence.evidence.length > 0 && (
                 <div className="space-y-2 mt-2">
                   {ragEvidence.evidence.map((m, idx) => (
-                    <div key={`${m.clause_id}-${idx}`} className="rounded-lg border border-border bg-card p-3">
+                    <div key={`${m.metadata?.clause_id || idx}-${idx}`} className="rounded-lg border border-border bg-card p-3">
                       <div className="flex justify-between items-start mb-1">
-                        <span className="font-bold text-foreground text-xs">Clause {m.clause_id}</span>
+                        <span className="font-bold text-foreground text-xs">Clause {m.metadata?.clause_id || 'N/A'}</span>
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-primary/10 text-primary rounded">
                           {(m.score * 100).toFixed(0)}%
                         </span>
                       </div>
-                      <p className="text-[10px] text-primary font-semibold mb-1 uppercase tracking-tight">{m.section}</p>
+                      <p className="text-[10px] text-primary font-semibold mb-1 uppercase tracking-tight">{m.metadata?.section || 'General'}</p>
                       <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">{m.text}</p>
                     </div>
                   ))}

@@ -303,13 +303,14 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
                               <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-tight text-primary bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10">
                                 {getPolicyCategory(policy.id)}
                               </span>
-                              <span className={`text-[9px] uppercase font-black tracking-widest px-1.5 py-0.5 rounded border ${
-                                policy.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                              <span className={`text-[9px] uppercase font-black tracking-widest px-1.5 py-0.5 rounded border flex items-center gap-1 ${
+                                policy.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100 shadow-sm' :
                                 policy.status === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-100' :
                                 'bg-rose-50 text-rose-700 border-rose-100'
                               }`}>
+                                {policy.status === 'active' && <CheckCircle2 className="w-2.5 h-2.5" />}
                                 {policy.status === 'pending' ? 'Awaiting Activation' : 
-                                 policy.status === 'active' ? 'Official' : 'System Cleanup Required'}
+                                 policy.status === 'active' ? 'Active' : 'System Cleanup Required'}
                               </span>
                             </div>
                           </div>
