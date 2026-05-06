@@ -1007,14 +1007,6 @@ def delete_category(user_email: str, cat_id: str):
             WHERE category = ? AND user_email = ?
         """, (cat_name, user_email))
         conn.commit()
-    """Resets the refinement flag to trigger a fresh AI triage run."""
-    with get_db_conn() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE emails SET is_priority_refined = 0, last_synced = CURRENT_TIMESTAMP
-            WHERE id = ? AND user_email = ?
-        """, (email_id, user_email))
-        conn.commit()
 
 def ensure_user_categories(user_email: str):
     """Provisions default administrative categories for a new user if none exist."""
