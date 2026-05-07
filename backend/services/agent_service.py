@@ -1,9 +1,17 @@
 import os
 import json
-from datetime import datetime
+import math
+import re
+from datetime import datetime, timedelta
 from google import genai
 from google.genai import types
 from typing import List, Dict, Any, Optional, Tuple
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.prebuilt import create_react_agent
+from langgraph.errors import GraphRecursionError
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage
 
 from config import (
     GOOGLE_API_KEY, CHATBOT_GEMINI_API_KEY, ULTIMATE_FALLBACK_LIST
@@ -47,11 +55,14 @@ def query_emails_sql(sql_query: str, user_email: str) -> str:
     - CATEGORY: Use 'category' (e.g., 'Anti-Ragging Complaints')
     
     COLUMNS:
-    - Text Search: [subject, content, attachment_content]
-    - Status/Flags: [category, priority, is_resolved, is_trashed, is_sent, followup_count]
-    - Identifiers: [id, thread_id, sender_email, user_email, date]
-    - user_sync_history: columns [user_email, last_history_id, last_sync_completed, consecutive_errors]
+    - emails (Text Search): [subject, content, attachment_content, institute_name, html_content]
+    - emails (Status/Flags): [category, priority, is_resolved, is_trashed, is_inbox, is_sent, replied, has_attachment, is_ocr_processed, manual_override, is_priority_refined, is_demo]
+    - emails (Identifiers): [id, thread_id, gmail_id, parent_email_id, sender, sender_email, recipient_email, user_email, date, last_synced, followup_count, mail_type, attachments, sync_interval_seconds]
+    - user_sync_history: columns [user_email, last_history_id, last_sync_completed, consecutive_errors, sync_interval_seconds, interval_updated_at]
     - sync_audit: columns [id, user_email, sync_type, status, duration_ms, messages_added, messages_deleted, error_message, timestamp]
+    - categories: columns [id, name, color, icon, is_active, user_email]
+    - chat_history: columns [id, user_email, session_id, role, message, timestamp]
+    - revoked_sessions: columns [user_email, revoked_at, reason]
     
     DATA DICTIONARY:
     - `replied`: 1 if conversation has an Outbound response. 0 if Pending.
@@ -65,35 +76,50 @@ def query_emails_sql(sql_query: str, user_email: str) -> str:
     DYNAMIC CATEGORIES:
     The department uses a custom taxonomy. Query the `categories` table to see currently active folders.
     
-    SQL RECIPES:
-    - Total Active Threads: `SELECT COUNT(DISTINCT thread_id) FROM emails WHERE is_inbox = 1 AND is_trashed = 0 AND user_email = ?`.
-    - Pending Administrative Action: `SELECT COUNT(DISTINCT thread_id) FROM emails WHERE replied = 0 AND is_resolved = 0 AND is_inbox = 1 AND is_trashed = 0 AND user_email = ?`.
-    - Recent Critical Issues: `SELECT subject, sender, date FROM emails WHERE priority <= 1 AND is_resolved = 0 AND is_inbox = 1 AND is_trashed = 0 AND user_email = ? GROUP BY thread_id ORDER BY date DESC LIMIT 10`.
+    CRITICAL RULE: FOR ALL STATUS COUNTS AND DASHBOARD STATS, YOU MUST USE `v_threads`.
+    
+    SCHEMA:
+    1. `v_threads` (View) [PRIMARY FOR STATS]: Unified grievance data (LATEST email per thread). 
+       - Columns: status ('fresh', 'ongoing', or 'resolved'), thread_id, mail_type, category, priority, subject, content, is_trashed, last_message_date.
+    2. `emails` (Table) [AUDIT ONLY]: Raw email data. Use for deep message-level audits, finding specific IDs, or verifying metadata.
+       - Columns: id, thread_id, gmail_id, sender_email, recipient_email, subject, content, date, category, mail_type, priority, is_resolved, replied, manual_override, is_trashed, is_inbox, is_sent, has_attachment, institute_name.
+    
+    GOLDEN SQL EXAMPLES:
+    - Count Statuses (Keyword): `SELECT COALESCE(SUM(CASE WHEN status = 'fresh' THEN 1 ELSE 0 END), 0) as fresh, COALESCE(SUM(CASE WHEN status = 'ongoing' THEN 1 ELSE 0 END), 0) as ongoing FROM v_threads WHERE user_email = ? AND (subject LIKE '%SVMCM%' OR content LIKE '%SVMCM%') AND is_trashed = 0`
+    - Breakdown by status: `SELECT status, count(*) FROM v_threads WHERE user_email = ? AND is_trashed = 0 GROUP BY status`
     
     RULES:
-    - Always filter by `user_email = ?`.
-    - Limit results to 50 for performance.
-    - Exclude `is_trashed = 1` unless specifically asked about the Trash folder.
+    - ALWAYS filter by `user_email = ?`.
+    - ALWAYS filter by `is_trashed = 0`.
+    - Use `v_threads` for all dashboard-level counts/stats.
     """
-    # --- AUTOMATIC COLUMN MAPPING (AI Safeguard) ---
-    import re
-    sql_query = re.sub(r'\bbody\b', 'content', sql_query, flags=re.IGNORECASE)
-    sql_query = re.sub(r'\bdescription\b', 'content', sql_query, flags=re.IGNORECASE)
-    sql_query = re.sub(r'\bmsg_body\b', 'content', sql_query, flags=re.IGNORECASE)
-    sql_query = re.sub(r'\btext\b', 'content', sql_query, flags=re.IGNORECASE)
-    
     sql_low = sql_query.lower()
-    if "is_trashed" not in sql_low and "from emails" in sql_low:
-        if "where" in sql_low:
-            sql_query = sql_query.replace("WHERE", "WHERE is_trashed = 0 AND", 1)
-        else:
-            sql_query += " WHERE is_trashed = 0"
+    
+    # --- INDUSTRY-STANDARD CORRECTION GUARD ---
+    is_stats_query = any(k in sql_low for k in ["count(", "sum(", "group by"])
+    # Detect any attempt to MANUALLY calculate grievance state on the raw table
+    grievance_raw_cols = ["is_resolved", "replied", "manual_override"]
+    is_raw_stat_attempt = is_stats_query and any(col in sql_low for col in grievance_raw_cols)
+    
+    if is_raw_stat_attempt and "from emails" in sql_low:
+        logger.warning(f"⚠️ [Correction Guard] AI attempted raw status calculation on emails table.")
+        return "ERROR: Do not manually calculate 'Resolved/Ongoing' logic using raw columns on the 'emails' table. You MUST query the 'v_threads' view and use its 'status' column for all grievance-state analytics."
+    
+    if "is_trashed" not in sql_low and ("from emails" in sql_low or "from v_threads" in sql_low):
+        logger.warning(f"⚠️ [Correction Guard] AI forgot is_trashed filter.")
+        return "ERROR: Every query must explicitly include 'is_trashed = 0' (or 1 if searching trash). Please correct your SQL and try again."
 
     # --- READ-ONLY ENFORCEMENT ---
-    forbidden_keywords = ["delete", "drop", "update", "insert", "alter", "truncate", "create"]
-    if any(k in sql_low for k in forbidden_keywords):
-        logger.warning(f"🚫 [Tool] Blocked unauthorized write-attempt by AI: {sql_query}")
-        return "Error: This tool is strictly READ-ONLY. Modification or deletion of data is forbidden."
+    # We strip string literals (anything inside quotes) before checking for keywords to prevent 
+    # false positives. For example, searching for "student drop-out" shouldn't trigger the "DROP" blocker.
+    sql_no_strings = re.sub(r"'.*?'", "", sql_low)
+    sql_no_strings = re.sub(r'".*?"', "", sql_no_strings)
+    
+    forbidden_keywords = [r"\bdelete\b", r"\bdrop\b", r"\bupdate\b", r"\binsert\b", r"\balter\b", r"\btruncate\b", r"\bcreate\b"]
+    for k in forbidden_keywords:
+        if re.search(k, sql_no_strings):
+            logger.warning(f"🚫 [Tool] Blocked unauthorized write-attempt by AI: {sql_query}")
+            return "Error: This tool is strictly READ-ONLY. Modification or deletion of data is forbidden."
     
     try:
         # Move logger here to see the FINAL (possibly corrected) query
@@ -110,21 +136,22 @@ def query_emails_sql(sql_query: str, user_email: str) -> str:
             safe_sql = sql_query
             user_specific_tables = ["emails", "sync_audit", "chat_history", "user_sync_history", "categories"]
             needs_injection = any(t in sql_low for t in user_specific_tables)
+            safe_email = user_email.replace("'", "''")
 
             if needs_injection:
                 if "where" in safe_sql.lower():
                     # We use a regex to find the WHERE keyword (case-insensitive) but only if not in quotes
                     # For simplicity in this internal tool, we target the first occurrence.
-                    safe_sql = re.sub(r"\bWHERE\b", f"WHERE user_email = '{user_email}' AND", safe_sql, count=1, flags=re.IGNORECASE)
+                    safe_sql = re.sub(r"\bWHERE\b", f"WHERE user_email = '{safe_email}' AND", safe_sql, count=1, flags=re.IGNORECASE)
                 else:
                     # Append WHERE before control keywords
                     for keyword in ["GROUP BY", "ORDER BY", "LIMIT"]:
                         if keyword.lower() in safe_sql.lower():
-                            safe_sql = re.sub(rf"\b{keyword}\b", f"WHERE user_email = '{user_email}' {keyword}", safe_sql, count=1, flags=re.IGNORECASE)
+                            safe_sql = re.sub(rf"\b{keyword}\b", f"WHERE user_email = '{safe_email}' {keyword}", safe_sql, count=1, flags=re.IGNORECASE)
                             break
                     else:
                         if "WHERE" not in safe_sql.upper():
-                            safe_sql += f" WHERE user_email = '{user_email}'"
+                            safe_sql += f" WHERE user_email = '{safe_email}'"
 
             cursor.execute(safe_sql)
             rows = cursor.fetchall()
@@ -151,6 +178,19 @@ def query_system_health(user_email: str) -> str:
             
             cursor.execute("SELECT MAX(last_synced) FROM emails WHERE user_email = ?", (user_email,))
             last_sync = cursor.fetchone()[0]
+            sync_string = "Never"
+            if last_sync:
+                try:
+                    # Robust ISO parsing
+                    sync_dt = datetime.fromisoformat(last_sync.replace('Z', '+00:00'))
+                    now_tz = datetime.now(sync_dt.tzinfo)
+                    diff = now_tz - sync_dt
+                    mins = int(diff.total_seconds() / 60)
+                    if mins < 1: sync_string = "Just now"
+                    elif mins < 60: sync_string = f"{mins} minutes ago"
+                    else: sync_string = f"{mins // 60} hours ago"
+                except:
+                    sync_string = last_sync
             
             cursor.execute("""
                 SELECT category, COUNT(*) FROM emails 
@@ -166,41 +206,122 @@ def query_system_health(user_email: str) -> str:
             """, (user_email,))
             institutes = {row[0]: row[1] for row in cursor.fetchall()}
             
-            cursor.execute("SELECT COUNT(DISTINCT thread_id) FROM emails WHERE user_email = ? AND is_resolved = 1 AND is_inbox = 1 AND is_trashed = 0", (user_email,))
-            resolved_count = cursor.fetchone()[0] or 0
+            # --- DASHBOARD KPI ENGINE (Synchronized with v_threads) ---
+            # 1. Total Unique Conversations
+            cursor.execute("SELECT COUNT(*) FROM v_threads WHERE user_email = ?", (user_email,))
+            total_convs = cursor.fetchone()[0] or 0
 
-            cursor.execute("SELECT COUNT(DISTINCT thread_id) FROM emails WHERE user_email = ? AND is_resolved = 0 AND is_inbox = 1 AND is_trashed = 0", (user_email,))
-            open_count = cursor.fetchone()[0] or 0
-            
+            # 2. Unresolved Threads
+            cursor.execute("""
+                SELECT COUNT(*) FROM v_threads
+                WHERE user_email = ? AND
+                ((manual_override = 1 AND is_resolved = 0) 
+                 OR (COALESCE(manual_override, 0) = 0 AND replied = 0 AND is_resolved = 0))
+            """, (user_email,))
+            unresolved_count = cursor.fetchone()[0] or 0
+
+            # 3. Resolved/Actioned Threads
+            resolved_count = total_convs - unresolved_count
+
+            # 4. Fresh Threads
+            cursor.execute("""
+                SELECT COUNT(*) FROM v_threads
+                WHERE user_email = ? AND mail_type = 'fresh'
+                AND ((manual_override = 1 AND is_resolved = 0) 
+                  OR (COALESCE(manual_override, 0) = 0 AND replied = 0 AND is_resolved = 0))
+            """, (user_email,))
+            fresh_threads = cursor.fetchone()[0] or 0
+
+            # 5. Ongoing Threads
+            cursor.execute("""
+                SELECT COUNT(*) FROM v_threads
+                WHERE user_email = ? AND mail_type = 'follow-up'
+                AND ((manual_override = 1 AND is_resolved = 0) 
+                  OR (COALESCE(manual_override, 0) = 0 AND replied = 0 AND is_resolved = 0))
+            """, (user_email,))
+            ongoing_threads = cursor.fetchone()[0] or 0
+
+            # 6. Avg Pending Duration
+            cursor.execute("""
+                SELECT last_message_date FROM v_threads
+                WHERE user_email = ? AND
+                ((manual_override = 1 AND is_resolved = 0) 
+                  OR (COALESCE(manual_override, 0) = 0 AND replied = 0 AND is_resolved = 0))
+            """, (user_email,))
+            pending_dates = cursor.fetchall()
+            avg_days_str = "0 days"
+            if pending_dates:
+                total_days = 0
+                now = datetime.now() # Use local now if tz-naive, or handle tz
+                for row in pending_dates:
+                    try:
+                        # Try ISO first, fallback to old format
+                        date_str = row[0]
+                        try:
+                            d = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                        except:
+                            d = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+                        
+                        # Match frontend: Math.ceil(diffTime / day)
+                        # We must ensure both are tz-aware or both tz-naive
+                        if d.tzinfo:
+                            now_tz = datetime.now(d.tzinfo)
+                            diff_sec = (now_tz - d).total_seconds()
+                        else:
+                            diff_sec = (datetime.now() - d).total_seconds()
+                            
+                        days = math.ceil(diff_sec / (24 * 3600))
+                        total_days += max(0, days)
+                    except: pass
+                
+                avg_days = round(total_days / len(pending_dates))
+                if avg_days == 0: avg_days_str = "< 1 day"
+                elif avg_days == 1: avg_days_str = "1 day"
+                else: avg_days_str = f"{avg_days} days"
+
+            # 7. Attachments Count (Threads with attachments)
+            cursor.execute("SELECT COUNT(DISTINCT thread_id) FROM emails WHERE user_email = ? AND has_attachment = 1 AND is_inbox = 1 AND is_trashed = 0", (user_email,))
+            attachment_threads = cursor.fetchone()[0] or 0
+
+            # 8. Activity Volume (Last 7 Days)
+            activity_volume = []
+            for i in range(6, -1, -1):
+                day = (datetime.utcnow() - timedelta(days=i)).strftime("%Y-%m-%d")
+                cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND date LIKE ?", (user_email, f"{day}%"))
+                activity_volume.append({"date": day, "count": cursor.fetchone()[0] or 0})
+
             # Sync Audit
             cursor.execute("SELECT status, timestamp FROM sync_audit WHERE user_email = ? ORDER BY timestamp DESC LIMIT 1", (user_email,))
             audit = cursor.fetchone()
             sync_health = audit[0] if audit else "Unknown"
 
-            # Relative time calculation
-            sync_string = "Unknown"
-            if last_sync:
-                try:
-                    last_sync_dt = datetime.strptime(last_sync, "%Y-%m-%d %H:%M:%S")
-                    seconds_ago = (datetime.utcnow() - last_sync_dt).total_seconds()
-                    if seconds_ago < 60: sync_string = "Just now"
-                    elif seconds_ago < 3600: sync_string = f"{int(seconds_ago // 60)} minutes ago"
-                    else: sync_string = f"{int(seconds_ago // 3600)} hours ago"
-                except: sync_string = last_sync
+            logger.info(f"📊 [Health] Results: Total={total_convs} Unresolved={unresolved_count} Resolved={resolved_count} Fresh={fresh_threads} Ongoing={ongoing_threads}")
 
-            resolution_rate = round((resolved_count / (resolved_count + open_count)) * 100, 1) if (resolved_count + open_count) > 0 else 0
+            # Build category summary (top 5)
+            top_cats = sorted(categories.items(), key=lambda x: x[1], reverse=True)[:5]
+            logger.info(f"📊 [Health] Results: Total={total_convs} Unresolved={unresolved_count} Resolved={resolved_count} Fresh={fresh_threads} Ongoing={ongoing_threads}")
 
             return json.dumps({
-                "last_sync_relative": sync_string,
-                "sync_health_status": sync_health,
-                "total_active_grievances": resolved_count + open_count,
-                "resolution_rate": f"{resolution_rate}%",
-                "open_cases": open_count,
-                "top_categories": categories,
-                "most_active_institutes": institutes,
+                "dashboard_kpis": {
+                    "total_conversations": total_convs,
+                    "unresolved": unresolved_count,
+                    "resolved": resolved_count,
+                    "avg_pending_duration": avg_days_str,
+                    "fresh_threads": fresh_threads,
+                    "ongoing_threads": ongoing_threads,
+                    "threads_with_attachments": attachment_threads
+                },
+                "category_distribution": categories,
+                "top_institutes": institutes,
+                "activity_volume_7d": activity_volume,
+                "sync_status": {
+                    "last_sync": sync_string,
+                    "health": sync_health
+                },
                 "status": "Operational"
             }, indent=2)
     except Exception as e:
+        logger.error(f"❌ [Health] System health query FAILED: {str(e)}", exc_info=True)
         return f"System Health Error: {str(e)}"
 
 def list_available_categories(user_email: str) -> str:
@@ -216,11 +337,69 @@ def list_available_categories(user_email: str) -> str:
     except Exception as e:
         return f"Error listing categories: {str(e)}"
 
+def get_thread_narrative(user_email: str, thread_id: str) -> str:
+    """Fetches the full chronological history of a conversation thread."""
+    logger.info(f"🧵 [Tool] Fetching thread narrative: {thread_id} for {user_email}")
+    try:
+        with get_db_conn() as conn:
+            import sqlite3
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT date, sender, sender_email, content, is_sent, mail_type 
+                FROM emails 
+                WHERE user_email = ? AND thread_id = ? AND is_trashed = 0
+                ORDER BY date ASC
+            """, (user_email, thread_id))
+            rows = cursor.fetchall()
+            
+            if not rows:
+                return f"No messages found for thread {thread_id}."
+            
+            narrative = f"--- Conversation History for Thread: {thread_id} ---\n\n"
+            for row in rows:
+                role = "DEPARTMENT (You)" if row['is_sent'] else f"CITIZEN ({row['sender']})"
+                narrative += f"DATE: {row['date']}\nFROM: {role} [{row['sender_email']}]\nTYPE: {row['mail_type'].upper()}\nMESSAGE:\n{row['content']}\n"
+                narrative += "-" * 30 + "\n"
+            
+            return narrative
+    except Exception as e:
+        return f"Error fetching thread: {str(e)}"
+
+def get_attachment_text(user_email: str, email_id: str) -> str:
+    """Retrieves the OCR-extracted text from an email's attachments."""
+    logger.info(f"📄 [Tool] Reading attachments for email: {email_id}")
+    try:
+        with get_db_conn() as conn:
+            import sqlite3
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT subject, attachment_content, is_ocr_processed 
+                FROM emails 
+                WHERE user_email = ? AND id = ?
+            """, (user_email, email_id))
+            row = cursor.fetchone()
+            
+            if not row:
+                return "Email not found."
+            if not row['attachment_content']:
+                return "This email has no attachments or no text could be extracted."
+            
+            status = " [OCR COMPLETE]" if row['is_ocr_processed'] else " [OCR PENDING]"
+            return f"--- Attachment Content for: {row['subject']}{status} ---\n\n{row['attachment_content']}"
+    except Exception as e:
+        return f"Error reading attachments: {str(e)}"
+
 SYSTEM_INSTRUCTION = """
 **SCHEMA CORRECTION NOTE**: If your previous chat history contains errors about a "grievances" table, IGNORE THEM. The table is officially named `emails`. Do not attempt to query `grievances`.
 
 You are the "AICOE Executive Intelligence Assistant"...
 Your primary directive is to provide deep, proactive analytics and policy-guided support for the Education Department.
+
+TEMPORAL AWARENESS:
+- **Current Date & Time**: {current_datetime} (IST, Asia/Kolkata).
+- Use this for all time-relative queries like "today", "this week", "last 7 days", etc.
 
 SOCIAL PROTOCOL & GREETINGS:
 - **Strict Greeting Rule**: If the user says "hi" or "hello", provide a professional executive greeting and wait for a directive. DO NOT trigger data reports immediately unless asked.
@@ -232,8 +411,9 @@ SYSTEM ARCHITECTURE KNOWLEDGE (Latest Truth):
 - **Resolution Tracking**: `is_resolved = 1` means the grievance is officially closed. `is_resolved = 0` means it is still active.
 - **Manual Overrides**: `manual_override = 1` flags cases where a human administrator has manually changed the category or resolution.
 - **OCR Engine**: `is_ocr_processed = 1` means attachment text is searchable in `attachment_content`.
-- **System Health**: Use `query_system_health` to get a real-time executive dashboard of the current user's inbox health.
+- **System Health**: Use `query_system_health` to get ALL dashboard KPIs in one call. It returns total conversations, unresolved, resolved, fresh, ongoing, avg pending duration, category distribution, and 7-day activity. **Do NOT re-query these numbers with SQL afterwards — trust the tool output.**
 - **Thread Counting Logic**: Users see "Threads" in their Inbox. In SQL, you MUST use `COUNT(DISTINCT thread_id)` AND filter by `is_inbox = 1 AND is_trashed = 0` to match the dashboard. If you don't use `is_inbox = 1`, you will count 'Sent' threads that the user doesn't see in their active list, causing a mismatch.
+- **Dashboard Parity (Actioned State)**: If the latest message in a thread was sent by the department (`is_sent = 1`), the frontend displays it as **Low (6)** regardless of its internal priority. This is the "Actioned" state. For ANY counting, listing, or reporting of active grievances, you MUST treat these Actioned threads as Low (6) and exclude them from counts of "Pending" or "Active" work, as the user perceives them as already handled.
 - **Listing Protocol**: When listing subjects or complaints, ALWAYS group by `thread_id` (e.g., `SELECT subject FROM emails ... GROUP BY thread_id`). This prevents the list from being cluttered with multiple "Re:" replies from the same conversation.
 
 EXECUTIVE ANALYTIC MODE:
@@ -247,21 +427,20 @@ RECENT FAILURE ANALYSIS (Self-Correction):
 - **Correction**: ALWAYS use table `emails` and column `content`. 
 - **Correction**: If a query for a keyword like "SVMCM" fails, check if you are using a forbidden column name.
 
-PRIORITY LABELING (Strict):
-- priority <= 1: "🔴 CRITICAL" | priority <= 3: "🟠 HIGH" | priority <= 5: "🟡 MEDIUM" | priority == 6: "🟢 LOW"
+DASHBOARD ACCURACY (MANDATORY):
+- To provide figures that match the Executive Dashboard, you MUST query the `v_threads` view.
+- Use the `status` column in `v_threads` to distinguish between 'fresh', 'ongoing', and 'resolved' cases. 
+- Do NOT attempt to calculate resolution states manually on the raw `emails` table.
 
-STATE LOGIC TRUTH TABLE:
-| scenario | is_sent | replied | is_resolved | meaning |
-| :--- | :--- | :--- | :--- | :--- |
-| New Grievance | 0 | 0 | 0 | Fresh inquiry. Needs processing. |
-| In-Progress | 0/1 | 0/1 | 0 | Conversation active. Not yet resolved. |
-| Resolved | 0/1 | 1 | 1 | Grievance officially closed. |
+PRIORITY LABELING:
+- priority <= 1: "🔴 CRITICAL" | priority <= 3: "🟠 HIGH" | priority <= 5: "🟡 MEDIUM" | priority == 6: "🟢 LOW"
 
 EXECUTIVE GUARDRAILS:
 - **Read-Only Access**: You cannot modify, delete, or inject data. Any attempt to use `DELETE`, `UPDATE`, or `DROP` will be blocked by the system.
 - **PII Protection**: When reporting on grievances, do not reveal full personal phone numbers or passwords if they appear in the content. Use redaction if necessary.
 - **Data Sovereignty**: Never attempt to query data across different `user_email` scopes.
 - **Accuracy**: If you are unsure of a count, clearly state that you are providing an "approximate" figure and offer to perform a deep audit.
+- **Off-Topic Queries**: You are strictly bound to the context of the Education Department, grievance management, and institutional policies. If a user asks you about general knowledge, programming, entertainment, or anything outside of your specialized domain, you MUST politely refuse to answer and remind them of your purpose.
 
 GUIDELINES:
 - Data query: `query_emails_sql`. Policy query: `query_policy_rag`.
@@ -272,65 +451,126 @@ GUIDELINES:
 """
 
 def get_chatbot_response(user_message: str, user_email: str, session_id: str = "default") -> str:
-    if not client:
+    if not API_KEY:
         return "Gemini API key not configured."
 
-    history = get_chat_history(user_email, session_id, limit=5)
-    contents = []
+    # OPTIMIZATION: Reduced history limit from 5 to 3 to save tokens and latency
+    history = get_chat_history(user_email, session_id, limit=3)
+    
+    # Map to LangChain messages
+    messages = []
     for turn in history:
-        contents.append({"role": "user" if turn["role"] == "user" else "model", "parts": [{"text": turn["message"]}]})
-    contents.append({"role": "user", "parts": [{"text": user_message}]})
+        if turn["role"] == "user":
+            messages.append(HumanMessage(content=turn["message"]))
+        else:
+            messages.append(AIMessage(content=turn["message"]))
+    messages.append(HumanMessage(content=user_message))
     
     # --- Tool Wrapping (User Isolation) ---
-    # We wrap the tools to automatically inject the user_email context.
-    # This prevents the LLM from having to guess or provide the email, 
-    # and ensures that the backend enforcement logic has the correct identity.
-    def query_policy_rag_tool(user_query: str) -> str:
+    # We inject user_email automatically to prevent hallucination and maintain absolute multi-tenant security
+    @tool
+    def policy_rag_tool(user_query: str) -> str:
+        """Search the educational department policy manuals for rules, regulations, and guidelines. Use this for questions about 'how to', 'rules', 'eligibility', 'suspension policy', etc."""
         return query_policy_rag(user_query, user_email)
 
-    def query_emails_sql_tool(sql_query: str) -> str:
+    @tool
+    def emails_sql_tool(sql_query: str) -> str:
+        """Execute a SQL query on the 'emails' table. MUST use table 'emails' and column 'content'."""
         return query_emails_sql(sql_query, user_email)
-    
-    def query_system_health_tool() -> str:
+
+    @tool
+    def system_health_tool() -> str:
+        """Returns ALL dashboard KPIs in a single call: total conversations, unresolved, resolved, fresh threads, ongoing threads, avg pending duration, category distribution, and 7-day activity volume. Use this FIRST for any dashboard or stats question. Do NOT run additional SQL to re-verify these numbers."""
         return query_system_health(user_email)
-    
-    def list_available_categories_tool() -> str:
+
+    @tool
+    def available_categories_tool() -> str:
+        """Returns the list of all currently active grievance categories/folders."""
         return list_available_categories(user_email)
 
+    @tool
+    def thread_narrative_tool(thread_id: str) -> str:
+        """
+        Fetches the full chronological conversation history of a specific thread. 
+        Use this when you need to understand the context of a long-running grievance or dispute.
+        """
+        return get_thread_narrative(user_email, thread_id)
+
+    @tool
+    def attachment_explorer_tool(email_id: str) -> str:
+        """
+        Retrieves the extracted OCR text from an email's attachments (PDFs/Images).
+        Use this when the user asks about specific details inside an attached document.
+        """
+        return get_attachment_text(user_email, email_id)
+
     tools = [
-        query_policy_rag_tool, 
-        query_emails_sql_tool, 
-        query_system_health_tool, 
-        list_available_categories_tool
+        policy_rag_tool, 
+        emails_sql_tool, 
+        system_health_tool, 
+        available_categories_tool,
+        thread_narrative_tool,
+        attachment_explorer_tool
     ]
     
-    try:
-        response = generate_content_with_fallback(
-            client=client,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION.format(user_email=user_email),
-                tools=tools,
-            ),
-            model_list=ULTIMATE_FALLBACK_LIST,
-            label="Agent"
-        )
+    # Iterate through the fallback list to ensure high availability
+    if not ULTIMATE_FALLBACK_LIST:
+        return "System configuration error: No AI models defined."
         
-        reply_text = ""
+    for raw_model_name in ULTIMATE_FALLBACK_LIST:
+        model_name = raw_model_name.replace("models/", "")
         try:
-            reply_text = response.text
-        except:
-            if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                    reply_text = " ".join([p.text for p in candidate.content.parts if hasattr(p, 'text') and p.text])
-
-        reply_text = reply_text.strip() if reply_text else "Analysis complete. How can I facilitate your administrative decision-making further?"
-        
-        save_chat_message(user_email, session_id, "user", user_message)
-        save_chat_message(user_email, session_id, "assistant", reply_text)
-        
-        return reply_text
-    except Exception as e:
-        logger.error(f"❌ Agent Error: {e}")
-        return f"Error: {str(e)}"
+            # Initialize LangChain LLM
+            llm = ChatGoogleGenerativeAI(
+                model=model_name,
+                google_api_key=API_KEY,
+                temperature=0.2
+            )
+            
+            # Create LangGraph ReAct Agent Loop
+            agent = create_react_agent(
+                model=llm,
+                tools=tools,
+                prompt=SYSTEM_INSTRUCTION.format(
+                    user_email=user_email,
+                    current_datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S %A")
+                )
+            )
+            
+            # Invoke the stateful graph. Limit allows up to ~6 tool calls + final answer.
+            result = agent.invoke(
+                {"messages": messages}, 
+                config={"recursion_limit": 15}
+            )
+            
+            # Extract the final answer
+            final_message = result["messages"][-1]
+            raw_content = final_message.content
+            
+            if isinstance(raw_content, list):
+                # Handle multimodal/structured outputs where content is a list of blocks
+                text_parts = [str(block.get("text", block)) if isinstance(block, dict) else str(block) for block in raw_content]
+                reply_text = " ".join(text_parts).strip()
+            else:
+                reply_text = str(raw_content).strip() if raw_content else "Analysis complete."
+            
+            # Persist to database
+            save_chat_message(user_email, session_id, "user", user_message)
+            save_chat_message(user_email, session_id, "assistant", reply_text)
+            
+            return reply_text
+            
+        except GraphRecursionError:
+            logger.error(f"❌ [Agent] Model {model_name} got stuck in a reasoning loop.")
+            return "I am having trouble processing this complex request right now. Could you please rephrase it or be more specific?"
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "429" in err_msg or "quota" in err_msg or "not found" in err_msg or "obsolete" in err_msg or "400" in err_msg:
+                logger.warning(f"🕒 [Agent] Model {model_name} failed ({e}). Trying next...")
+                continue
+            else:
+                logger.warning(f"⚠️ [Agent] Model {model_name} encountered an error: {e}")
+                continue
+                
+    logger.error("❌ Agent Error: All models in fallback list failed.")
+    return "Error: All configured AI models failed to respond. Please check your API quotas."

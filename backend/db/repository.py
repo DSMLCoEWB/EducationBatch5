@@ -210,6 +210,48 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_emails_gmail_id ON emails(gmail_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_category ON emails (user_email, is_inbox, is_sent, is_trashed)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_thread ON emails (user_email, thread_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_emails_view_opt ON emails (user_email, is_inbox, is_trashed, date DESC)")
+
+        # Create Unified Grievance View (Synchronized with Dashboard.tsx logic)
+        cursor.execute("DROP VIEW IF EXISTS v_threads")
+        cursor.execute("""
+            CREATE VIEW v_threads AS
+            WITH            abs_latest AS (
+                SELECT thread_id, replied, is_resolved, manual_override, mail_type, date, user_email, category, priority, subject, institute_name, has_attachment, content, is_trashed,
+                       ROW_NUMBER() OVER (PARTITION BY user_email, thread_id, is_trashed ORDER BY date DESC) as rn
+                FROM emails
+                WHERE is_inbox = 1
+            ),
+            citizen_latest AS (
+                SELECT thread_id, mail_type, user_email, category, priority, subject, institute_name, content, is_trashed,
+                       ROW_NUMBER() OVER (PARTITION BY user_email, thread_id, is_trashed ORDER BY date DESC) as rn
+                FROM emails
+                WHERE is_inbox = 1 AND is_sent = 0
+            ),
+            thread_state AS (
+                SELECT 
+                    a.thread_id, a.user_email, a.replied, a.is_resolved, a.manual_override, a.is_trashed,
+                    COALESCE(c.mail_type, a.mail_type) as mail_type,
+                    COALESCE(c.category, a.category) as category,
+                    COALESCE(c.priority, a.priority) as priority,
+                    COALESCE(c.subject, a.subject) as subject,
+                    COALESCE(c.institute_name, a.institute_name) as institute_name,
+                    COALESCE(c.content, a.content) as content,
+                    a.has_attachment,
+                    a.date as last_message_date,
+                    CASE 
+                        WHEN (a.manual_override = 1 AND a.is_resolved = 1) 
+                          OR (COALESCE(a.manual_override, 0) = 0 AND (a.replied = 1 OR a.is_resolved = 1)) 
+                        THEN 'resolved'
+                        WHEN COALESCE(c.mail_type, a.mail_type) = 'fresh' THEN 'fresh'
+                        ELSE 'ongoing'
+                    END as status
+                FROM abs_latest a
+                LEFT JOIN citizen_latest c ON a.thread_id = c.thread_id AND a.user_email = c.user_email AND a.is_trashed = c.is_trashed AND c.rn = 1
+                WHERE a.rn = 1
+            )
+            SELECT * FROM thread_state
+        """)
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS revoked_sessions (

@@ -1,11 +1,14 @@
 # AI-ENABLED EMAIL GRIEVANCE MANAGEMENT SYSTEM
+
 ## Deep Technical Solution Document
+
 ### COEDSML Education Grievance Management with AI & Intelligent Prioritization
+
 ---
 
-**Document Version:** 1.0  
-**Submission Date:** April 29, 2026  
-**Organization:** COEDSML / Webel  
+**Document Version:** 1.0
+**Submission Date:** April 29, 2026
+**Organization:** COEDSML / Webel
 **System Name:** AICOE-SEED (AI-Enabled Grievance Orchestration & Expert Documentation)
 
 ---
@@ -31,13 +34,13 @@ The system is currently deployed with a React/TypeScript frontend, FastAPI backe
 
 1. [System Architecture](#1-system-architecture)
 2. [Core Component Details](#2-core-component-details)
-3. [Data Flow & Processing Workflows](#3-data-flow--processing-workflows)
-4. [Security & Privacy Implementation](#4-security--privacy-implementation)
+3. [Data Flow &amp; Processing Workflows](#3-data-flow--processing-workflows)
+4. [Security &amp; Privacy Implementation](#4-security--privacy-implementation)
 5. [Advanced Technical Features](#5-advanced-technical-features)
-6. [Database Schema & Multi-Tenancy](#6-database-schema--multi-tenancy)
+6. [Database Schema &amp; Multi-Tenancy](#6-database-schema--multi-tenancy)
 7. [API Specification](#7-api-specification)
 8. [Functional Requirements Mapping](#8-functional-requirements-mapping)
-9. [Error Handling & Resilience](#9-error-handling--resilience)
+9. [Error Handling &amp; Resilience](#9-error-handling--resilience)
 
 ---
 
@@ -97,19 +100,19 @@ The system is currently deployed with a React/TypeScript frontend, FastAPI backe
 
 ### 1.2 Technology Stack
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Frontend** | React 18 + TypeScript + Vite | Interactive UI with real-time SSE updates |
-| **Backend** | FastAPI (Python 3.9+) + Uvicorn | RESTful API with async/await support |
-| **Database** | SQLite 3 (WAL mode) | Multi-tenant ACID data store with high concurrency |
-| **ML/AI** | Sentence-Transformers + FAISS | Semantic search for policy retrieval |
-| **LLM Integration** | Google Gemini API (fallback models) | Reply generation, classification, priority scoring |
-| **Email** | Gmail API v1 (OAuth 2.0) | Mail sync, attachment retrieval, composition |
-| **OCR/Vision** | Google Gemini Vision | Attachment text extraction (PDF, images, scans) |
-| **Real-Time** | Server-Sent Events (SSE) | Push notifications from background workers |
-| **Caching** | In-Memory + Thread-safe Dicts | User-specific session caching with TTL expiry |
-| **Task Coordination** | Threading + ThreadPoolExecutor | Non-blocking background worker orchestration |
-| **Authentication** | OAuth 2.0 + JWT (in cookies) | Secure user session management |
+| Layer                       | Technology                          | Purpose                                            |
+| --------------------------- | ----------------------------------- | -------------------------------------------------- |
+| **Frontend**          | React 18 + TypeScript + Vite        | Interactive UI with real-time SSE updates          |
+| **Backend**           | FastAPI (Python 3.9+) + Uvicorn     | RESTful API with async/await support               |
+| **Database**          | SQLite 3 (WAL mode)                 | Multi-tenant ACID data store with high concurrency |
+| **ML/AI**             | Sentence-Transformers + FAISS       | Semantic search for policy retrieval               |
+| **LLM Integration**   | Google Gemini API (fallback models) | Reply generation, classification, priority scoring |
+| **Email**             | Gmail API v1 (OAuth 2.0)            | Mail sync, attachment retrieval, composition       |
+| **OCR/Vision**        | Google Gemini Vision                | Attachment text extraction (PDF, images, scans)    |
+| **Real-Time**         | Server-Sent Events (SSE)            | Push notifications from background workers         |
+| **Caching**           | In-Memory + Thread-safe Dicts       | User-specific session caching with TTL expiry      |
+| **Task Coordination** | Threading + ThreadPoolExecutor      | Non-blocking background worker orchestration       |
+| **Authentication**    | OAuth 2.0 + JWT (in cookies)        | Secure user session management                     |
 
 ---
 
@@ -122,6 +125,7 @@ The system is currently deployed with a React/TypeScript frontend, FastAPI backe
 **Key Mechanisms:**
 
 #### 2.1.1 Incremental History Sync
+
 ```python
 # Process:
 1. Fetch last_history_id from DB
@@ -134,17 +138,20 @@ The system is currently deployed with a React/TypeScript frontend, FastAPI backe
 ```
 
 **Anti-Ban Safeguards:**
+
 - Max 5 pages per sync cycle (~500 events) to respect API quotas
 - Implements backoff queue: if we hit cap, anchor at last event, resume next cycle
 - Rate limiting: configurable calls per minute (default 50)
 - Exponential backoff: 2-hour deep sleep on 429/quota exhaustion
 
 **Thread Detection:**
+
 - Matches Gmail thread_id; new emails merged with existing thread
 - Stores parent_email_id + mail_type (Fresh|Reply|Follow-up|Action)
 - Reconciliation: `reconcile_user_thread_tags()` ensures thread state consistency
 
 **Trash/Label Handling:**
+
 - Mirrors Gmail labels to local is_trashed flag
 - Permanent deletion: `messagesDeleted` events trigger local purge
 - 30-day stale trash auto-cleanup: `auto_purge_stale_trash()`
@@ -158,6 +165,7 @@ The system is currently deployed with a React/TypeScript frontend, FastAPI backe
 **Architecture:**
 
 #### 2.2.1 Hybrid Heuristic-AI Approach
+
 ```
 Input: email subject + content + attachment OCR text
                         ↓
@@ -175,6 +183,7 @@ Input: email subject + content + attachment OCR text
 ```
 
 **16 Default Categories:**
+
 1. Suspension / Disciplinary (departmental proceedings, dismissal)
 2. Legal Issues (FIR, court cases, arrests)
 3. RTI Matters (information requests, transparency)
@@ -193,11 +202,13 @@ Input: email subject + content + attachment OCR text
 16. Miscellaneous (catch-all)
 
 **Multi-Tenant Dynamic Categories:**
+
 - Users can add custom categories on-demand via API
 - Stored in `categories` table, isolated by user_email
 - Heuristic engine checks dynamic categories with 3x keyword weight bonus
 
 **Implementation:**
+
 ```python
 # In classify_grievance_heuristic():
 category_scores = defaultdict(float)
@@ -216,7 +227,7 @@ for cat in active_cats:
     if cat['name'] not in CATEGORIES:
         matches = len(re.findall(r'\b' + cat['name'].lower() + r'\b', text_normalized))
         category_scores[cat['name']] += matches * 3.0  # Explicit match bonus
-        
+      
 # Return highest-scoring category
 return max(category_scores, key=category_scores.get)
 ```
@@ -228,6 +239,7 @@ return max(category_scores, key=category_scores.get)
 **Purpose:** Assign 0-6 priority scale based on expertise rubric and escalation rules.
 
 #### 2.3.1 Expert Rubric (0-6 Scale)
+
 ```
 0: Chief Secretary / Cabinet / Highest Authority
    → Mandatory command; immediate action required
@@ -252,11 +264,13 @@ return max(category_scores, key=category_scores.get)
 ```
 
 #### 2.3.2 LLM-Assisted Refinement
+
 - Rate-limited: max 1 LLM call per 60 seconds (configurable)
 - Fallback to heuristic if rate-limited or LLM fails
 - Prompt engineering: "Return ONLY a single digit (0-6). No explanation."
 
 #### 2.3.3 Thread Escalation Logic
+
 ```python
 def apply_thread_escalation(thread_emails: List[Dict]) -> int:
     """
@@ -266,15 +280,15 @@ def apply_thread_escalation(thread_emails: List[Dict]) -> int:
     """
     followup_count = max(e.get('followup_count', 0) for e in thread_emails)
     base_priority = min(e.get('priority', 6) for e in thread_emails)
-    
+  
     if followup_count >= 3 and base_priority > 2:
         return base_priority - 1
-    
+  
     for email in thread_emails:
         sender = email.get('sender_email', '').lower()
         if any(vip in sender for vip in VIP_LIST):  # CM, Chief Secretary, etc.
             return min(base_priority - 1, 0)  # At least Level 0
-            
+          
     return base_priority
 ```
 
@@ -308,7 +322,7 @@ User-Specific Isolation:
 ```
 Query:  "Student claims exam marks were reduced unfairly. 
          What is the appeal procedure?"
-         
+       
 Step 1: Clean query (strip HTML, normalize whitespace)
   Output: "Student claims exam marks were reduced unfairly..."
   
@@ -362,20 +376,20 @@ def generate_suggested_reply_with_evidence(...):
     # 1. Surgical context windowing
     # 2. Retrieve policy chunks
     chunks = retrieve_policy_chunks(query, user_email)
-    
+  
     # 3. Build prompt with chunks as evidence
     context = "\n\n".join(
         f"[Clause {c['metadata']['clause_id']}] {c['text']}"
         for c in chunks
     )
-    
+  
     # 4. Call Gemini with fallback models
     response = generate_content_with_fallback(
         client=client,
         contents=f"{SYSTEM_PROMPT}\n\n{context}\n\nQuery: ...",
         model_list=ULTIMATE_FALLBACK_LIST
     )
-    
+  
     # 5. Return reply + citations
     return {
         "reply": response.text,
@@ -384,6 +398,7 @@ def generate_suggested_reply_with_evidence(...):
 ```
 
 **Fallback Model Chain:**
+
 1. `gemini-2.0-flash` (fastest, most quota-friendly)
 2. `gemini-1.5-pro` (higher accuracy, longer context)
 3. `gemini-1.5-flash` (reliable fallback)
@@ -448,7 +463,7 @@ Step 9: Notify frontend via SSE
 ```
 Scenario: DB says email has attachment "appeal_form.pdf"
           but filesystem only has "8a4f2c1d_appeal_form.pdf"
-          
+        
 Solution:
   1. Try direct lookup: /attachments/{user_slug}/appeal_form.pdf
   2. If not found, fuzzy search: /attachments/{user_slug}/**/*appeal_form.pdf
@@ -467,21 +482,21 @@ def update_email_attachment_content(user_email, email_id, text, filename):
             if "]" in part:
                 fname_key, block_text = part.split("] ---", 1)
                 blocks[fname_key.strip()] = block_text.strip()
-    
+  
     # Remove old content for this file (fuzzy match)
     for k in list(blocks.keys()):
         if k.lower() == filename.lower() or filename in k:
             del blocks[k]
-    
+  
     # Add new content
     blocks[filename] = text.strip()
-    
+  
     # Rebuild and persist
     new_content = "\n\n".join(
         f"--- [Extracted from Attachment: {fname}] ---\n{block_text}"
         for fname, block_text in blocks.items()
     )
-    
+  
     cursor.execute("UPDATE emails SET attachment_content = ? WHERE id = ?", 
                    (new_content, email_id))
     conn.commit()
@@ -503,18 +518,18 @@ def trigger_intelligence_suite(user_email: str):
     # 1. Check if enrichment work exists
     if not has_enrichment_work(user_email):
         return  # Nothing to do
-    
+  
     # 2. Check if already running
     if worker_manager.is_intelligence_busy(user_email):
         return  # Dedup: avoid parallel execution
-    
+  
     # 3. Submit task
     worker_manager.submit_intelligence_task(
         user_email,
         task_type="process_intelligence",
         task_fn=process_intelligence_backlog
     )
-    
+  
 def process_intelligence_backlog(user_email: str):
     """
     Worker function: runs OCR + AI triage in batches.
@@ -525,21 +540,21 @@ def process_intelligence_backlog(user_email: str):
         for att in unprocessed:
             if worker_manager.should_stop_intelligence(user_email):
                 return
-            
+          
             text = extract_attachment_text(att['local_path'])
             update_email_attachment_content(user_email, att['email_id'], text or "")
-            
+          
             # Small sleep between attachments to avoid overwhelming GPU/API
             time.sleep(0.5)
-        
+      
         # Phase B: AI Triage (Priority Refinement)
         # Get emails needing classification (is_priority_refined=0)
         # Call Gemini for each batch
         # Update priority scores with fallback to heuristic
-        
+      
         # Phase C: Notify UI
         SSE_NOTIFIER.notify(user_email, "intelligence_complete")
-        
+      
     except Exception as e:
         logger.error(f"❌ Intelligence processing failed for {user_email}: {e}")
         SSE_NOTIFIER.notify(user_email, "intelligence_error")
@@ -555,17 +570,17 @@ class WorkerManager:
         self.intelligence_stop_events = {}  # user -> threading.Event
         self.executor = ThreadPoolExecutor(max_workers=5)
         self.maintenance_thread = Thread(target=self._background_maintenance_loop)
-    
+  
     def submit_intelligence_task(self, user_email, task_type, task_fn):
         with self._lock:
             # Check for dedup
             if task_type in self.active_tasks.get(user_email, set()):
                 return  # Already running
-            
+          
             # Register task
             tasks = self.active_tasks.setdefault(user_email, set())
             tasks.add(task_type)
-            
+          
         # Submit to thread pool (async)
         def wrapper():
             try:
@@ -573,9 +588,9 @@ class WorkerManager:
             finally:
                 with self._lock:
                     self.active_tasks[user_email].discard(task_type)
-        
+      
         self.executor.submit(wrapper)
-    
+  
     def _background_maintenance_loop(self):
         """Periodically clean up stale caches, expired sessions."""
         while not self.stop_maintenance.wait(timeout=60):
@@ -596,14 +611,14 @@ class SSENotifier:
     def __init__(self):
         self._user_queues = {}  # user_email -> [asyncio.Queue, ...]
         self._lock = threading.Lock()
-    
+  
     def subscribe(self, user_email: str) -> asyncio.Queue:
         """Frontend SSE endpoint calls this to get a broadcast queue."""
         queue = asyncio.Queue()
         with self._lock:
             self._user_queues.setdefault(user_email, []).append(queue)
         return queue
-    
+  
     def notify(self, user_email: str, event_type: str = "refresh"):
         """
         Background workers call this to broadcast.
@@ -627,6 +642,7 @@ async def event_stream(user_email: str = Depends(get_authenticated_user)):
 ```
 
 Events Broadcast:
+
 - `sync_started` – Gmail sync begun
 - `sync_complete` – Gmail sync finished
 - `intelligence_complete` – OCR + AI triage done
@@ -698,17 +714,17 @@ Background Worker Triggered (from process_intelligence_backlog)
     • Call extract_attachment_text(path)
     ↓
 [3] extract_attachment_text() routes by file type:
-    
+  
     if .pdf:
         Try pdfplumber.extract_text() for first 20 pages
         If empty → extract_text_from_attachment_ai()
-    
+  
     if .docx:
         Use Document(path).paragraphs
-    
+  
     if .xlsx:
         Use pd.read_excel().head(10)
-    
+  
     if image:
         extract_text_from_attachment_ai()
             (Gemini Vision: "Extract all text from image")
@@ -812,22 +828,22 @@ User navigates to Policy Manager section
 [3] Backend:
     a) Calculate SHA256(file_content) → compare with existing
        (Collision Guard: if same, skip re-indexing)
-    
+  
     b) Save to: /policies/{user_slug}/institution_grievance_policy_v3.pdf
-    
+  
     c) Remove old chunks for this policy_id from DB
-    
+  
     d) Call ingest_policy_document(path, user_email, policy_id)
        • Parse PDF → extract text + structure
        • Chunk by sections/clauses (e.g., "4.2.1")
        • Assign clause IDs (e.g., "POLICY-01-SECTION-4-2-1")
        • Return list of chunks
-    
+  
     e) Rebuild FAISS index:
        • Encode all chunks using all-MiniLM-L6-v2
        • Create FAISS index
        • Save .faiss + chunks.json
-    
+  
     f) reload_retriever_data(user_email)
        (Reload in-memory indices)
     ↓
@@ -866,7 +882,7 @@ Filesystem Hierarchy:
         index.faiss
         chunks.json
         ...
-        
+      
 /attachments/
     rm_sharma_edu_gov_in/
         8a4f2c1d_appeal.pdf  (User's email attachments)
@@ -906,20 +922,20 @@ def query_emails_sql(sql_query: str, user_email: str) -> str:
     Agent tool: Execute SQL on behalf of AI chatbot.
     CRITICAL SAFEGUARDS:
     """
-    
+  
     # 1. Column Mapping: Auto-convert body→content
     sql_query = re.sub(r'\bbody\b', 'content', sql_query, flags=re.IGNORECASE)
     sql_query = re.sub(r'\bmessage\b', 'content', sql_query, flags=re.IGNORECASE)
-    
+  
     # 2. Forbidden Keywords Check
     forbidden = ["delete", "drop", "update", "insert", "alter", "truncate", "create"]
     if any(kw in sql_query.lower() for kw in forbidden):
         logger.warning(f"🚫 Blocked write attempt: {sql_query}")
         return "Error: This tool is READ-ONLY."
-    
+  
     # 3. Auto-inject user_email filter
     sql_query = inject_user_email_filter(sql_query, user_email)
-    
+  
     # 4. Execute and return results
     with get_db_conn() as conn:
         cursor = conn.cursor()
@@ -966,7 +982,7 @@ def query_emails_sql(sql_query: str, user_email: str) -> str:
    }, APP_SESSION_SECRET)
    
 10. Set cookie: Set-Cookie: session=jwt_token; HttpOnly; Secure; SameSite=Strict
-    
+  
 11. Redirect to frontend home
 ```
 
@@ -981,7 +997,7 @@ def get_authenticated_user(request: Request) -> str:
     token = request.cookies.get("session")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
+  
     try:
         payload = jwt.decode(token, APP_SESSION_SECRET, algorithms=["HS256"])
         user_email = payload.get("user_email")
@@ -1014,17 +1030,17 @@ from cryptography.fernet import Fernet
 def save_oauth_token(user_email: str, access_token: str):
     cipher = Fernet(GOOGLE_OAUTH_ENCRYPTION_KEY.encode())
     encrypted = cipher.encrypt(access_token.encode())
-    
+  
     token_path = GOOGLE_OAUTH_TOKENS_DIR / f"{slugify(user_email)}"
     token_path.write_bytes(encrypted)
 
 def load_oauth_token(user_email: str) -> str:
     cipher = Fernet(GOOGLE_OAUTH_ENCRYPTION_KEY.encode())
     token_path = GOOGLE_OAUTH_TOKENS_DIR / f"{slugify(user_email)}"
-    
+  
     if not token_path.exists():
         return None
-    
+  
     encrypted = token_path.read_bytes()
     decrypted = cipher.decrypt(encrypted).decode()
     return decrypted
@@ -1036,16 +1052,16 @@ def load_oauth_token(user_email: str) -> str:
 
 ### 4.5 Public Data Non-Leakage Guarantees
 
-| Threat Vector | Mitigation |
-|---|---|
-| **One user queries other user's emails** | Row-level filtering: WHERE user_email = current_user ALWAYS |
-| **AI chatbot exfiltrates data** | Read-only SQL sandbox + column mapping |
-| **Backend process crashes, disk exposed** | Tokens encrypted at rest; attachments in user_slug dirs |
-| **Attachment contains PII; AI Vision reads it** | AI Vision prompt is generic; extracted text only used for user's own reply generation |
-| **Admin accesses DB directly** | SQLite encrypted at application level (not DB-level); encryption key stored separately in .env |
-| **Gmail API token leaked** | Tokens encrypted + rotated monthly; API scopes limited to readonly + send |
-| **Frontend XSS injected; steals JWT cookie** | HttpOnly + Secure + SameSite=Strict on cookies |
-| **Attachment uploaded with malware** | Size limit (5MB for sync, 20MB for manual); no execution; only text extraction |
+| Threat Vector                                         | Mitigation                                                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **One user queries other user's emails**        | Row-level filtering: WHERE user_email = current_user ALWAYS                                    |
+| **AI chatbot exfiltrates data**                 | Read-only SQL sandbox + column mapping                                                         |
+| **Backend process crashes, disk exposed**       | Tokens encrypted at rest; attachments in user_slug dirs                                        |
+| **Attachment contains PII; AI Vision reads it** | AI Vision prompt is generic; extracted text only used for user's own reply generation          |
+| **Admin accesses DB directly**                  | SQLite encrypted at application level (not DB-level); encryption key stored separately in .env |
+| **Gmail API token leaked**                      | Tokens encrypted + rotated monthly; API scopes limited to readonly + send                      |
+| **Frontend XSS injected; steals JWT cookie**    | HttpOnly + Secure + SameSite=Strict on cookies                                                 |
+| **Attachment uploaded with malware**            | Size limit (5MB for sync, 20MB for manual); no execution; only text extraction                 |
 
 ---
 
@@ -1059,25 +1075,25 @@ def run_background_sync_loop(user_email: str):
     Perpetual sync with intelligence: jitter, night mode, error recovery.
     """
     consecutive_errors = 0
-    
+  
     while True:
         # 1. Fetch user preferences
         history = get_user_sync_history(user_email)
         base_interval = history.get("sync_interval_seconds", 300)
-        
+      
         # 2. Night Mode Detection (11 PM - 7 AM)
         now_hour = datetime.now().hour
         is_night = now_hour < 7 or now_hour >= 23
-        
+      
         if is_night:
             base_interval = max(base_interval, 3600)  # Min 1 hour
             logger.info(f"🌙 Night Mode: increased interval to {base_interval}s")
-        
+      
         # 3. Randomized Jitter (Avoid thundering herd)
         jitter = random.uniform(-SYNC_JITTER_SECONDS * 2, 
                                  SYNC_JITTER_SECONDS * 2)
         wait_time = max(180, base_interval + jitter)
-        
+      
         # 4. Error Backoff
         if consecutive_errors > 0:
             deep_sleep = 7200  # 2 hours if rate-limited
@@ -1085,28 +1101,29 @@ def run_background_sync_loop(user_email: str):
             if stop_event.wait(timeout=deep_sleep):
                 break
             consecutive_errors = 0
-        
+      
         # 5. Perform Sync
         SSE_NOTIFIER.notify(user_email, "sync_started")
         result = sync_gmail_incremental(user_email)
         SSE_NOTIFIER.notify(user_email, "sync_complete")
-        
+      
         # 6. Error tracking
         if result.get("status") != "success":
             consecutive_errors += 1
         else:
             consecutive_errors = 0
-            
+          
             # Trigger enrichment if new emails added
             if result.get("added", 0) > 0:
                 trigger_intelligence_suite(user_email)
-        
+      
         # 7. Wait for next cycle (interruptible)
         if stop_event.wait(timeout=wait_time):
             break
 ```
 
 **Features:**
+
 - **Jitter:** ±120 sec randomization prevents API thundering herd at :00 :05 :10
 - **Night Mode:** 11 PM - 7 AM auto-floors to 1-hour minimum
 - **Deep Sleep:** 2-hour backoff on 429/rate-limit errors
@@ -1125,20 +1142,20 @@ def detect_followup(email: Dict, df: pd.DataFrame, user_email: str) -> Tuple[str
     sender_norm = normalize_email_address(email.get("sender_email"))
     user_norm = normalize_email_address(user_email)
     thread_id = email.get("thread_id")
-    
+  
     if not thread_id or df is None or df.empty:
         return ("Fresh" if not is_sent else "Action", None, 0)
-    
+  
     # Get thread history (excluding current email)
     same_thread = df[(df["thread_id"] == thread_id) & (df["email_id"] != email["email_id"])]
-    
+  
     if same_thread.empty:
         return ("Fresh" if not is_sent else "Action", None, 0)
-    
+  
     # Count previous external inbounds (citizen messages)
     previous_inbounds = same_thread[~same_thread['is_sent']]
     inbound_count = len(previous_inbounds)
-    
+  
     if is_sent:
         # OUTBOUND LOGIC
         if inbound_count == 0:
@@ -1159,6 +1176,7 @@ def detect_followup(email: Dict, df: pd.DataFrame, user_email: str) -> Tuple[str
 ```
 
 **Model:**
+
 - **Fresh:** First inbound message from external party (citizen/VIP)
 - **Follow-up:** Citizen replied again; department hasn't responded yet
 - **Reply:** Department sending response to citizen
@@ -1175,7 +1193,7 @@ def get_chatbot_response(user_message: str, user_email: str, session_id: str) ->
     """
     # 1. Load conversation history
     history = get_chat_history(user_email, session_id)
-    
+  
     # 2. Build system prompt with tool descriptions
     tools_desc = """
     Available Tools:
@@ -1183,7 +1201,7 @@ def get_chatbot_response(user_message: str, user_email: str, session_id: str) ->
     2. query_emails_sql(sql) - Query email database (READ-ONLY)
     3. query_system_health() - Get grievance system status
     """
-    
+  
     # 3. Call Gemini with few-shot examples
     response = client.models.generate_content(
         model="gemini-2.0-flash",
@@ -1203,17 +1221,17 @@ def get_chatbot_response(user_message: str, user_email: str, session_id: str) ->
             }
         ]
     )
-    
+  
     # 4. Parse response for tool calls
     # (Gemini can return text with [TOOL: query_policy_rag(...)] markers)
     response_text = response.text
-    
+  
     # 5. Execute tools if requested
     # (Recursive: if Gemini calls tools, execute, then feed back)
     while "[TOOL:" in response_text:
         tool_call = extract_tool_call(response_text)
         tool_result = execute_tool(tool_call, user_email)
-        
+      
         # Re-query Gemini with tool output
         response = client.models.generate_content(
             model="gemini-2.0-flash",
@@ -1223,15 +1241,16 @@ def get_chatbot_response(user_message: str, user_email: str, session_id: str) ->
             ]
         )
         response_text = response.text
-    
+  
     # 6. Save to history
     save_chat_message(user_email, session_id, "user", user_message)
     save_chat_message(user_email, session_id, "assistant", response_text)
-    
+  
     return response_text
 ```
 
 **Supported Queries:**
+
 - "What's the exam appeal procedure?" → `query_policy_rag()`
 - "How many grievances are pending?" → `query_emails_sql()`
 - "Show me all RTI matters from last week" → Multi-tool orchestration
@@ -1249,13 +1268,13 @@ dynamic_cache_at_by_user = {}  # user -> timestamp
 
 def get_dynamic_df(user_email: str) -> pd.DataFrame:
     now = datetime.now()
-    
+  
     with get_user_lock(user_email):
         if user_email in dynamic_cache_df_by_user:
             stamp = dynamic_cache_at_by_user.get(user_email)
             if stamp and (now - stamp).total_seconds() < CACHE_TTL_SECONDS:
                 return dynamic_cache_df_by_user[user_email]
-        
+      
         # Cache miss: load from DB
         df = build_dataframe_from_db(user_email)
         dynamic_cache_df_by_user[user_email] = df
@@ -1281,7 +1300,7 @@ def _background_maintenance_loop():
             dynamic_cache_df_by_user.pop(u, None)
             dynamic_cache_at_by_user.pop(u, None)
             GMAIL_SERVICE_MAP.pop(u, None)
-        
+      
         # If cache size exceeds max, evict oldest
         if len(dynamic_cache_df_by_user) > MAX_CACHE_ENTRIES:
             oldest_users = sorted(
@@ -1533,18 +1552,18 @@ GET /events
 
 ### Requirements-to-Implementation Matrix
 
-| FRD Problem | Solution Component | Implementation File | How It Works |
-|---|---|---|---|
-| **1. Inadequate Categorization** | Hybrid Heuristic-LLM Classifier | `triage_service.py`, `classifier.py` | 16 expert categories + dynamic custom categories; heuristic keyword matching with optional LLM refinement |
-| **2. No Structured View** | Dashboard + Thread Viewer | Frontend `/src/pages/Dashboard.tsx`, `/src/components/EmailThreadPanel.tsx` | React components with filtering, sorting, priority badges; SSE live updates |
-| **3. Lack of Priority Assignment** | Expert Rubric (0-6) + Escalation | `priority_llm.py`, `triage_service.py` | LLM-assisted scoring based on expert rubric; thread escalation for VIP/repeat follow-ups |
-| **4. Attachment Handling** | AI Vision OCR + Semantic Extraction | `services/ocr_service.py`, `email_parser.py`, `db/repository.py` | Gemini Vision for images/scans; pdfplumber for PDFs; DOCX/XLSX parsing; transactional de-duplication |
-| **5. Absence of Automated Reply** | RAG + Clause Citation Engine | `services/rag_service.py`, `rag/reply_generator.py` | FAISS semantic search for policies; Gemini generation with mandatory clause citations (e.g., "As per CLAUSE-04...") |
-| **6. No NLU Mailbox Interface** | Conversational AI Chatbot | `services/agent_service.py`, `routes/intelligence_routes.py` | Multi-turn agent with policy + SQL tools; read-only sandbox ensures data security |
-| **7. Custom Categories** | Dynamic Category Management | `routes/policy_routes.py`, `routes/settings_routes.py` | Users add categories via API; heuristic engine checks them with 3x keyword weight |
-| **8. Policy Document Manager** | Policy Upload + FAISS Indexing | `services/policy_service.py`, `rag_pipeline/ingest.py` | Upload PDFs; hash-based collision detection; clause extraction + FAISS indexing |
-| **9. AI Reply Citation Requirement** | Mandatory Clause Metadata | `rag/reply_generator.py` system prompt | Reply must include "As per [CLAUSE-ID]..."; enforced in system prompt + parsing |
-| **10. Security & Privacy** | Multi-tenant Isolation + Encryption | `core/notifier.py`, `db/repository.py`, `services/policy_service.py` | Row-level user_email filtering; filesystem slugification; encrypted OAuth tokens; read-only SQL sandbox |
+| FRD Problem                                | Solution Component                  | Implementation File                                                             | How It Works                                                                                                        |
+| ------------------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **1. Inadequate Categorization**     | Hybrid Heuristic-LLM Classifier     | `triage_service.py`, `classifier.py`                                        | 16 expert categories + dynamic custom categories; heuristic keyword matching with optional LLM refinement           |
+| **2. No Structured View**            | Dashboard + Thread Viewer           | Frontend `/src/pages/Dashboard.tsx`, `/src/components/EmailThreadPanel.tsx` | React components with filtering, sorting, priority badges; SSE live updates                                         |
+| **3. Lack of Priority Assignment**   | Expert Rubric (0-6) + Escalation    | `priority_llm.py`, `triage_service.py`                                      | LLM-assisted scoring based on expert rubric; thread escalation for VIP/repeat follow-ups                            |
+| **4. Attachment Handling**           | AI Vision OCR + Semantic Extraction | `services/ocr_service.py`, `email_parser.py`, `db/repository.py`          | Gemini Vision for images/scans; pdfplumber for PDFs; DOCX/XLSX parsing; transactional de-duplication                |
+| **5. Absence of Automated Reply**    | RAG + Clause Citation Engine        | `services/rag_service.py`, `rag/reply_generator.py`                         | FAISS semantic search for policies; Gemini generation with mandatory clause citations (e.g., "As per CLAUSE-04...") |
+| **6. No NLU Mailbox Interface**      | Conversational AI Chatbot           | `services/agent_service.py`, `routes/intelligence_routes.py`                | Multi-turn agent with policy + SQL tools; read-only sandbox ensures data security                                   |
+| **7. Custom Categories**             | Dynamic Category Management         | `routes/policy_routes.py`, `routes/settings_routes.py`                      | Users add categories via API; heuristic engine checks them with 3x keyword weight                                   |
+| **8. Policy Document Manager**       | Policy Upload + FAISS Indexing      | `services/policy_service.py`, `rag_pipeline/ingest.py`                      | Upload PDFs; hash-based collision detection; clause extraction + FAISS indexing                                     |
+| **9. AI Reply Citation Requirement** | Mandatory Clause Metadata           | `rag/reply_generator.py` system prompt                                        | Reply must include "As per [CLAUSE-ID]..."; enforced in system prompt + parsing                                     |
+| **10. Security & Privacy**           | Multi-tenant Isolation + Encryption | `core/notifier.py`, `db/repository.py`, `services/policy_service.py`      | Row-level user_email filtering; filesystem slugification; encrypted OAuth tokens; read-only SQL sandbox             |
 
 ---
 
@@ -1559,20 +1578,20 @@ def sync_gmail_incremental(user_email: str):
         result = perform_sync()
         consecutive_errors = 0
         return result
-    
+  
     except HttpError as e:
         if e.resp.status == 429:
             # Rate limited → deep sleep 2h
             logger.warning(f"Rate limit (429) detected. Deep sleep triggered.")
             deep_sleep_queue[user_email] = True
             return {"status": "rate_limited"}
-        
+      
         elif e.resp.status == 401:
             # Token expired → re-authenticate
             logger.warning(f"Token expired for {user_email}.")
             revoke_session(user_email)
             return {"status": "auth_failed"}
-        
+      
         else:
             # Generic error
             increment_sync_error(user_email)
@@ -1596,10 +1615,10 @@ def process_intelligence_backlog(user_email):
                 logger.error(f"⚠️ OCR failed for {att['filename']}: {e}")
                 # Continue with next; don't crash
                 continue
-        
+      
         # Phase B: AI Triage
         # Similar try-except pattern...
-        
+      
     except Exception as e:
         logger.error(f"❌ Intelligence backlog failed: {e}")
         # Notify UI but don't crash backend
@@ -1627,7 +1646,7 @@ def generate_content_with_fallback(client, contents, model_list):
         except Exception as e:
             logger.warning(f"Model {model} failed: {e}")
             continue
-    
+  
     logger.error("❌ All models failed. Returning None.")
     return None
 ```
@@ -1639,31 +1658,32 @@ def generate_content_with_fallback(client, contents, model_list):
 ### Why This Architecture Wins
 
 1. **Scalability Through Statelessness**
+
    - No session state on backend (except JWT in cookies)
    - Workers are ephemeral; can be killed/restarted
    - Database is ACID; supports horizontal read replicas
-
 2. **Real-Time Reactivity**
+
    - SSE broadcasts push events to UI immediately
    - No polling overhead; browsers stay subscribed
    - Debouncing prevents UI thrashing
-
 3. **Fault Tolerance**
+
    - Every worker has independent try-except
    - Email sync anchors to last processed event (no loss)
    - Attachment processing marks steps to avoid retrying
-
 4. **Security by Design**
+
    - Multi-tenant at row-level + filesystem level
    - AI tools have read-only SQL sandbox
    - Tokens encrypted at rest; scopes minimal
-
 5. **Cost Efficiency**
+
    - Gmail History API uses incremental sync (not full fetch)
    - FAISS runs locally (no vector DB subscription)
    - Gemini calls rate-limited; fallback to heuristics
-
 6. **Maintainability**
+
    - Clear separation: sync → triage → enrichment → generation
    - Each component has single responsibility
    - Logging at every step for debugging
@@ -1692,11 +1712,11 @@ def generate_content_with_fallback(client, contents, model_list):
 
 The AICOE-SEED system is a **production-grade, government-ready** AI email grievance management platform that:
 
-✅ **Solves all 6 problem statements** through intelligent categorization, prioritization, and policy-grounded automation  
-✅ **Meets all DTE requirements** including custom categories, policy document management, mandatory clause citations, and security isolation  
-✅ **Implements enterprise-class architecture** with multi-tenant data isolation, OAuth 2.0 security, and fault-tolerant background processing  
-✅ **Provides sovereign data protection** through filesystem segregation, encrypted tokens, and read-only AI sandboxes  
-✅ **Scales horizontally** via stateless workers and ACID database guarantees  
-✅ **Delivers real-time experience** through SSE event streaming and intelligent sync algorithms  
+✅ **Solves all 6 problem statements** through intelligent categorization, prioritization, and policy-grounded automation
+✅ **Meets all DTE requirements** including custom categories, policy document management, mandatory clause citations, and security isolation
+✅ **Implements enterprise-class architecture** with multi-tenant data isolation, OAuth 2.0 security, and fault-tolerant background processing
+✅ **Provides sovereign data protection** through filesystem segregation, encrypted tokens, and read-only AI sandboxes
+✅ **Scales horizontally** via stateless workers and ACID database guarantees
+✅ **Delivers real-time experience** through SSE event streaming and intelligent sync algorithms
 
 This system is ready for deployment to production and can handle thousands of concurrent users and millions of grievance emails with enterprise-grade reliability and security.
