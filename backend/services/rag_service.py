@@ -5,6 +5,7 @@ import faiss
 import numpy as np
 import re
 from typing import List, Dict, Any, Optional
+import torch
 from sentence_transformers import SentenceTransformer
 from google import genai
 
@@ -24,8 +25,24 @@ _embedder = None
 def get_embedder():
     global _embedder
     if _embedder is None:
-        logger.info("📡 Loading SentenceTransformer (all-MiniLM-L6-v2)...")
-        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        # STRATEGY: We force CPU for small embeddings (80MB) to:
+        # 1. Prevent Segfaults on AMD/WSL2
+        # 2. Save 100% of VRAM for the Local LLM (Qwen 3.5)
+        # 3. Ensure instant startup (no driver warm-up needed)
+        device = "cpu"
+        
+        # Minimal hardware detection for logging
+        try:
+            if torch.cuda.is_available():
+                logger.info("ℹ️ NVIDIA detected. Using CPU for Embeddings (VRAM Saving Mode)")
+            else:
+                import torch_directml
+                logger.info("ℹ️ AMD/DirectML detected. Using CPU for Embeddings (Stability Mode)")
+        except:
+            logger.info("ℹ️ Using CPU for Embeddings (Standard Mode)")
+
+        # Note: SentenceTransformer handles the device string or object automatically
+        _embedder = SentenceTransformer("all-MiniLM-L6-v2", device=device)
     return _embedder
 
 def strip_html(text: str) -> str:

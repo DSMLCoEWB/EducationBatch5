@@ -1,0 +1,13 @@
+# AMD/Intel GPU Override for Docker Compose
+# Use this for machines with AMD/Intel GPUs (like your Victus Laptop):
+# docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.amd
+    volumes:
+      - /usr/lib/wsl/lib:/usr/lib/wsl/lib
+    devices:
+      - /dev/dxg:/dev/dxg

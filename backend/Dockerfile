@@ -16,13 +16,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Create required directories
+RUN mkdir -p /app/data /app/files /app/policies /app/demo_policies /app/attachments
+
 # Expose port
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5)"
 
-# Run with gunicorn for production (better than uvicorn for stability)
-# For high concurrency: workers = (2 * CPU_COUNT) + 1
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--timeout", "120"]
+# Use Uvicorn directly (single worker) for SQLite + SSE compatibility.
+# Gunicorn multi-worker mode breaks SQLite concurrent writes and SSE streams.
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "120"]

@@ -1,0 +1,36 @@
+# Specialized Dockerfile for AMD/Intel GPUs using DirectML
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Map the WSL2/DirectML driver path
+ENV LD_LIBRARY_PATH=/usr/lib/wsl/lib
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install dependencies with DirectML support (Stable 2.3.1 Suite)
+RUN pip install --no-cache-dir torch==2.3.1 torchvision==0.18.1 transformers==4.41.2 sentence-transformers==2.7.0 accelerate torch-directml && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create required directories
+RUN mkdir -p /app/data /app/files /app/policies /app/demo_policies /app/attachments
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import requests; requests.get('http://127.0.0.1:8000/health', timeout=5)"
+
+# Start with Uvicorn
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "120"]

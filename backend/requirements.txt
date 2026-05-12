@@ -1,10 +1,7 @@
 fastapi
 uvicorn
 gunicorn
-torch
-sentence-transformers
-accelerate
-transformers
+
 faiss-cpu
 numpy
 pandas
@@ -24,3 +21,6 @@ PyJWT
 langgraph
 langchain-google-genai
 langchain-core
+python-multipart
+ollama
+psutil

@@ -6,7 +6,6 @@ __pycache__/
 *.pyd
 *.log
 .env
-.env.*
 .git/
 .gitignore
 .pytest_cache/
@@ -14,4 +13,18 @@ __pycache__/
 ruff_cache/
 attachments/
 files/
-*.ipynb
+data/
+brain/
+scratch/
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.db
+*.log
+service-account-credentials.json
+.env
+.ipynb_checkpoints/
+.pytest_cache/
+.vscode/
+.idea/
