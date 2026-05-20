@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, Query, BackgroundTasks, HTTPException, R
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-import pandas as pd
 import json
 import os
 import asyncio
@@ -13,19 +12,15 @@ from db.repository import (
     get_db_conn, update_sync_interval, get_user_sync_history,
     mark_as_trashed, get_emails_from_db, get_refinement_stats,
     get_categories_from_db, get_dashboard_stats, get_thread_from_db,
-    permanently_delete_email_locally
-)
-from utils.seeding import (
-    send_demo_emails_to_gmail_inbox, cleanup_seeded_emails,
-    send_excel_emails_to_gmail_inbox
+    permanently_delete_email_locally, toggle_resolution_status
 )
 from gmail.sync_engine import sync_gmail_incremental
-from gmail.client import get_gmail_api_service
+
+from gmail.client import get_gmail_api_service, get_user_display_name
 from core.notifier import SSE_NOTIFIER
 from core.coordination import trigger_intelligence_suite, run_background_sync_loop
 from core.context import worker_manager
 from config import FILES_DIR, MANUAL_SYNC_COOLDOWN_SECONDS
-from db.repository import toggle_resolution_status
 
 router = APIRouter(prefix="/emails", tags=["Emails"])
 
@@ -166,20 +161,6 @@ def get_sync_status(user_email: str = Depends(get_authenticated_user)):
     is_running = worker_manager.is_sync_running(user_email)
     return {"syncing": is_running}
 
-@router.post("/seed-demo")
-def seed_demo(user_email: str = Depends(get_authenticated_user)):
-    """Injects demo emails into the inbox for testing."""
-    return send_demo_emails_to_gmail_inbox(user_email)
-
-@router.post("/seed-excel")
-def seed_excel(user_email: str = Depends(get_authenticated_user)):
-    """Parses grievances.xlsx and seeds those emails into Gmail."""
-    return send_excel_emails_to_gmail_inbox(user_email)
-
-@router.post("/cleanup-seeded")
-def cleanup_seeded(user_email: str = Depends(get_authenticated_user)):
-    """Trashes emails with [DEMO] prefix."""
-    return cleanup_seeded_emails(user_email)
 
 @router.get("/stats/refinement")
 def refinement_stats(user_email: str = Depends(get_authenticated_user)):
@@ -204,7 +185,6 @@ class ComposeRequest(BaseModel):
 @router.post("/compose")
 def compose_email(payload: ComposeRequest, user_email: str = Depends(get_authenticated_user)):
     """Composes and sends a new standalone Gmail message."""
-    from gmail.client import get_gmail_api_service, get_user_display_name
     from email.utils import formataddr
     import base64
     from email.mime.text import MIMEText
@@ -240,7 +220,6 @@ def send_reply(
     user_email: str = Depends(get_authenticated_user)
 ):
     """Sends a reply via Gmail and marks the local thread as replied."""
-    from gmail.client import get_gmail_api_service, get_user_display_name
     from email.utils import formataddr
     import base64
     from email.mime.text import MIMEText
@@ -380,10 +359,9 @@ def reprocess_attachment(
     user_email: str = Depends(get_authenticated_user)
 ):
     """Force downloads and OCR-processes a specific attachment."""
-    from gmail.client import get_gmail_api_service
     from gmail.sync_engine import _fetch_and_save_attachment_locally
     from services.ocr_service import extract_attachment_text
-    from db.repository import update_email_attachment_content, reset_refinement_status, get_db_conn
+    from db.repository import update_email_attachment_content, reset_refinement_status
     from cache.manager import get_user_lock
     import sqlite3
     

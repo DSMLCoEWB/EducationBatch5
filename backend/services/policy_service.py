@@ -13,7 +13,7 @@ from config import (
     CHUNKS_PATH, INDEX_PATH, POLICY_DIR, DEMO_POLICY_DIR
 )
 from core.logging import get_logger
-from rag_pipeline.ingest import ingest_policy_document # Legacy integration
+from rag.ingest import ingest_policy_document
 from services.rag_service import reload_retriever_data
 
 logger = get_logger("services.policy")
@@ -27,10 +27,14 @@ def get_user_policy_paths(user_email: str) -> Dict[str, Path]:
     user_dir = POLICY_DIR / slug
     user_dir.mkdir(parents=True, exist_ok=True)
     
+    # Isolate vector database index and chunk definitions in a dedicated subdirectory
+    index_dir = user_dir / "index"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    
     return {
         "policy_dir": user_dir,
-        "index_path": user_dir / "index.faiss",
-        "chunks_path": user_dir / "chunks.json"
+        "index_path": index_dir / "index.faiss",
+        "chunks_path": index_dir / "chunks.json"
     }
 
 def slugify_policy_id(raw_name: str) -> str:
@@ -86,7 +90,7 @@ def remove_policy_chunks(policy_id: str, user_email: str) -> Tuple[List[Dict[str
     return retained, removed
 
 def resolve_policy_file_path(policy_id: str, user_email: str = None) -> Optional[Path]:
-    """Resolves PDF path, checking user directory first, then demo directory."""
+    """Resolves policy path (supporting PDF, DOCX, TXT, MD, Images), checking user directory first, then demo directory."""
     dirs = []
     if user_email:
         paths = get_user_policy_paths(user_email)
@@ -95,7 +99,12 @@ def resolve_policy_file_path(policy_id: str, user_email: str = None) -> Optional
     dirs.append(DEMO_POLICY_DIR)
     
     for d in dirs:
-        p = d / f"{policy_id}.pdf"
-        if p.exists():
-            return p
+        if d.exists():
+            for ext in [
+                ".pdf", ".PDF", ".docx", ".DOCX", ".txt", ".TXT", ".md", ".MD",
+                ".png", ".PNG", ".jpg", ".JPG", ".jpeg", ".JPEG"
+            ]:
+                p = d / f"{policy_id}{ext}"
+                if p.exists():
+                    return p
     return None

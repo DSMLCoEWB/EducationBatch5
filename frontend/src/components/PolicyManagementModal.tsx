@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Upload, X, CheckCircle2, Loader2, FileText, 
   AlertTriangle, Trash2, Database,
-  RefreshCw, Eye, Search, Tag
+  RefreshCw, Eye, Search, Tag, CheckSquare
 } from 'lucide-react';
 import { 
   uploadPolicy, 
@@ -10,6 +10,7 @@ import {
   deletePolicy, 
   loadDemoPolicies,
   activatePolicy,
+  publishAllPolicies,
   UploadPolicyResult, 
   IndexedPolicy,
   DemoPolicySyncResult,
@@ -24,10 +25,14 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
   const [view, setView] = useState<'list' | 'upload'>('list');
   const [policies, setPolicies] = useState<IndexedPolicy[]>([]);
   const [loading, setLoading] = useState(true);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [uploadResult, setUploadResult] = useState<UploadPolicyResult | null>(null);
+  const [uploadStatuses, setUploadStatuses] = useState<Record<string, 'pending' | 'uploading' | 'success' | 'duplicate' | 'failed'>>({});
+  const [uploadMessages, setUploadMessages] = useState<Record<string, { chunks: number, msg: string }>>({});
+  const [currentUploadingIndex, setCurrentUploadingIndex] = useState<number | null>(null);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [forceOcr, setForceOcr] = useState(false);
   const [isLoadingDemo, setIsLoadingDemo] = useState(false);
   const [demoSyncResult, setDemoSyncResult] = useState<DemoPolicySyncResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +40,7 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [isPublishingAll, setIsPublishingAll] = useState(false);
 
   const categories = [
     'All', 
@@ -94,32 +100,84 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
     return () => { document.body.style.overflow = 'unset'; };
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      if (selectedFile.type !== 'application/pdf') {
-        setError('Only PDF files are supported.');
-        return;
-      }
-      setFile(selectedFile);
+  const processSelectedFiles = (selectedFiles: File[]) => {
+    const allowedExtensions = ['.pdf', '.docx', '.txt', '.md', '.png', '.jpg', '.jpeg'];
+    const validFiles = selectedFiles.filter(f => {
+      const ext = f.name.substring(f.name.lastIndexOf('.')).toLowerCase();
+      return allowedExtensions.includes(ext);
+    });
+    
+    if (validFiles.length === 0) {
+      setError('Only PDF, Word (DOCX), Text (TXT), Markdown (MD), and Images (PNG, JPG, JPEG) are supported.');
+      return;
+    }
+    
+    if (validFiles.length < selectedFiles.length) {
+      setError(`Skipped ${selectedFiles.length - validFiles.length} unsupported files.`);
+    } else {
       setError(null);
-      setUploadResult(null);
+    }
+    
+    setFiles(validFiles);
+    const initialStatuses: Record<string, 'pending'> = {};
+    validFiles.forEach(f => {
+      initialStatuses[f.name] = 'pending';
+    });
+    setUploadStatuses(initialStatuses);
+    setUploadMessages({});
+    setCurrentUploadingIndex(null);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processSelectedFiles(Array.from(e.target.files));
     }
   };
 
+  const handleDrop = (selectedFiles: File[]) => {
+    processSelectedFiles(selectedFiles);
+  };
+
   const handleUpload = async () => {
-    if (!file) return;
+    if (files.length === 0) return;
     setIsUploading(true);
     setError(null);
-    try {
-      const result = await uploadPolicy(file);
-      setUploadResult(result);
-      loadPoliciesList();
-    } catch (err: any) {
-      setError(err.message || 'Failed to upload policy.');
-    } finally {
-      setIsUploading(false);
+    
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      setCurrentUploadingIndex(i);
+      setUploadStatuses(prev => ({ ...prev, [f.name]: 'uploading' }));
+      
+      try {
+        const result = await uploadPolicy(f, forceOcr);
+        if (result.stats.duplicate) {
+          setUploadStatuses(prev => ({ ...prev, [f.name]: 'duplicate' }));
+          setUploadMessages(prev => ({ 
+            ...prev, 
+            [f.name]: { chunks: 0, msg: result.message || 'Collision Guard: Already synchronized.' } 
+          }));
+        } else {
+          setUploadStatuses(prev => ({ ...prev, [f.name]: 'success' }));
+          setUploadMessages(prev => ({ 
+            ...prev, 
+            [f.name]: { 
+              chunks: result.stats.chunks_added !== undefined ? result.stats.chunks_added : (result.stats.chunks !== undefined ? result.stats.chunks : 0), 
+              msg: result.message || 'Successfully indexed in FAISS.' 
+            } 
+          }));
+        }
+        await loadPoliciesList();
+      } catch (err: any) {
+        setUploadStatuses(prev => ({ ...prev, [f.name]: 'failed' }));
+        setUploadMessages(prev => ({ 
+          ...prev, 
+          [f.name]: { chunks: 0, msg: err.message || 'Ingestion failed.' } 
+        }));
+      }
     }
+    
+    setCurrentUploadingIndex(null);
+    setIsUploading(false);
   };
 
   const handleDelete = async (id: string, status: string) => {
@@ -152,6 +210,20 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
     }
   };
 
+  const handlePublishAll = async () => {
+    setIsPublishingAll(true);
+    setError(null);
+    try {
+      const res = await publishAllPolicies();
+      alert(res.message || 'Successfully published all pending guidelines!');
+      loadPoliciesList();
+    } catch (err: any) {
+      alert(err.message || 'Failed to publish guidelines.');
+    } finally {
+      setIsPublishingAll(false);
+    }
+  };
+
   const handleLoadDemoPolicies = async () => {
     setIsLoadingDemo(true);
     setError(null);
@@ -172,7 +244,7 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
       className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-[9999] flex items-center justify-center p-2 sm:p-4 animate-fade-in"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-card rounded-2xl shadow-modal w-full max-w-4xl max-h-[95vh] sm:max-h-[90vh] flex flex-col border border-border animate-scale-in overflow-hidden">
+      <div className="bg-card rounded-2xl shadow-modal w-full max-w-4xl max-h-[90vh] sm:max-h-[85vh] flex flex-col border border-border animate-scale-in overflow-hidden">
         {/* Header */}
         <div className="gradient-header text-primary-foreground px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -195,7 +267,7 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
             Official Guidelines ({policies.length})
           </button>
           <button
-            onClick={() => { setView('upload'); setFile(null); setError(null); setUploadResult(null); }}
+            onClick={() => { setView('upload'); setFiles([]); setError(null); setUploadStatuses({}); setUploadMessages({}); setCurrentUploadingIndex(null); }}
             className={`flex-1 py-3 text-xs font-semibold uppercase tracking-wider transition-all border-b-2 ${
               view === 'upload' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
@@ -213,22 +285,39 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
                 <span>These documents power the AI Assistant. Ensure guidelines are <strong>'Active'</strong> to provide accurate support.</span>
               </div>
               
-              {/* Search Bar */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Search administrative documents..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-8 py-2.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
-                />
-                {searchQuery && (
-                  <button 
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-foreground"
+              {/* Search Bar & Publish Actions */}
+              <div className="flex gap-3 items-center">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search administrative documents..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-inner"
+                  />
+                  {searchQuery && (
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {policies.some(p => p.status === 'pending') && (
+                  <button
+                    onClick={handlePublishAll}
+                    disabled={isPublishingAll}
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md flex-shrink-0 cursor-pointer active:scale-[0.98]"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    {isPublishingAll ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckSquare className="w-3.5 h-3.5" />
+                    )}
+                    Publish All Pending
                   </button>
                 )}
               </div>
@@ -265,7 +354,10 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
                   </div>
                 ) : (
                   (() => {
+                    const showDemo = import.meta.env.VITE_SHOW_DEMO_BUTTON === 'true';
                     const filtered = policies.filter(p => {
+                      if (!showDemo && p.is_demo) return false;
+
                       const matchesSearch = p.id.toLowerCase().includes(searchQuery.toLowerCase());
                       const matchesCategory = activeCategory === 'All' || getPolicyCategory(p.id) === activeCategory;
                       return matchesSearch && matchesCategory;
@@ -298,7 +390,7 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
                             <FileText className="w-5 h-5 text-muted-foreground flex-shrink-0" />
                           </div>
                           <div className="min-w-0">
-                            <p className="font-bold text-foreground text-sm truncate">{policy.id}.pdf</p>
+                            <p className="font-bold text-foreground text-sm truncate">{policy.id}.{policy.extension || 'pdf'}</p>
                             <div className="flex items-center gap-2 mt-1">
                               <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-tight text-primary bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10">
                                 {getPolicyCategory(policy.id)}
@@ -359,31 +451,150 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
                 )}
               </div>
             ) : (
-              <div className="max-w-sm mx-auto space-y-5 pt-2 pb-6">
-                {!uploadResult ? (
-                  <>
+              <div className="max-w-2xl mx-auto pt-2 pb-6">
+                {files.length === 0 ? (
+                  <div className="max-w-sm mx-auto space-y-4">
                     <div 
                       onClick={() => fileInputRef.current?.click()}
-                      className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer hover:border-primary/40 hover:bg-gov-blue-light/50 ${
-                        file ? 'bg-gov-blue-light border-primary/30' : 'bg-muted/30 border-border'
+                      onDragOver={(e) => { e.preventDefault(); setIsDragActive(true); }}
+                      onDragLeave={() => setIsDragActive(false)}
+                      onDrop={(e) => { e.preventDefault(); setIsDragActive(false); if (e.dataTransfer.files) handleDrop(Array.from(e.dataTransfer.files)); }}
+                      className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
+                        isDragActive 
+                          ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-lg scale-[1.02]' 
+                          : 'hover:border-primary/40 hover:bg-gov-blue-light/50 bg-muted/30 border-border'
                       }`}
                     >
-                      <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".pdf" disabled={isUploading} aria-label="Upload PDF" />
-                      {file ? (
-                        <div className="text-center">
-                          <div className="w-12 h-12 bg-primary text-primary-foreground rounded-xl flex items-center justify-center mx-auto mb-2">
-                            <FileText className="w-6 h-6" />
-                          </div>
-                          <p className="font-semibold text-foreground text-sm truncate max-w-[200px]">{file.name}</p>
-                          <p className="text-[10px] text-primary font-semibold uppercase mt-0.5">Ready to index</p>
-                        </div>
-                      ) : (
-                        <div className="text-center">
-                          <Upload className="w-8 h-8 text-muted-foreground/50 mx-auto mb-1" />
-                          <p className="text-sm font-semibold text-foreground">Click to select PDF</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">PDF files only</p>
-                        </div>
+                      <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg" multiple disabled={isUploading} aria-label="Upload Policy Document" />
+                      <div className="text-center">
+                        <Upload className={`w-8 h-8 mx-auto mb-1 transition-all ${isDragActive ? 'text-primary scale-110' : 'text-muted-foreground/50'}`} />
+                        <p className="text-sm font-semibold text-foreground">
+                          {isDragActive ? 'Drop files here!' : 'Click or Drag files to select'}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Supports PDF, Word (DOCX), Text, Markdown, or Images</p>
+                      </div>
+                    </div>
+
+                    {error && (
+                      <p className="text-destructive bg-gov-red-light p-3 rounded-lg text-xs font-medium border border-destructive/15 flex items-center gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {error}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4 max-w-lg mx-auto">
+                    <div className="flex items-center justify-between border-b border-border pb-2">
+                      <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-primary" />
+                        Ingestion Queue
+                      </h4>
+                      {!isUploading && (
+                        <button 
+                          onClick={() => setFiles([])}
+                          className="text-[10px] font-bold text-muted-foreground hover:text-destructive uppercase tracking-wider transition-colors"
+                        >
+                          Clear All
+                        </button>
                       )}
+                    </div>
+
+                    {/* Dynamic Progress Bar */}
+                    {(() => {
+                      const completedCount = Object.values(uploadStatuses).filter(s => s === 'success' || s === 'duplicate' || s === 'failed').length;
+                      const progressPercent = (completedCount / files.length) * 100;
+                      return (
+                        <div className="space-y-1.5 bg-muted/10 p-3 rounded-xl border border-border/60">
+                          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            <span>Ingestion Progress</span>
+                            <span className={completedCount === files.length ? "text-gov-green" : "text-primary animate-pulse"}>
+                              {completedCount}/{files.length} Completed ({Math.round(progressPercent)}%)
+                            </span>
+                          </div>
+                          <div className="w-full h-2 bg-muted rounded-full overflow-hidden border border-border">
+                            <div 
+                              style={{ width: `${progressPercent}%` }}
+                              className="h-full bg-gradient-to-r from-primary to-gov-blue transition-all duration-500 ease-out rounded-full"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="space-y-2 max-h-[35vh] overflow-y-auto pr-1 custom-scrollbar">
+                      {files.map((f, idx) => {
+                        const status = uploadStatuses[f.name] || 'pending';
+                        const info = uploadMessages[f.name];
+                        const isCurrent = currentUploadingIndex === idx;
+
+                        return (
+                          <div 
+                            key={f.name}
+                            className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 hover:scale-[1.01] hover:shadow-sm ${
+                              isCurrent 
+                                ? 'bg-primary/5 border-primary/30 ring-1 ring-primary/10 shadow-sm animate-pulse-subtle' 
+                                : status === 'success'
+                                ? 'bg-gov-green-light/40 border-gov-green/20'
+                                : status === 'duplicate'
+                                ? 'bg-muted/50 border-border opacity-85'
+                                : status === 'failed'
+                                ? 'bg-gov-red-light/40 border-gov-red/20'
+                                : 'bg-card border-border'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className={`p-2 rounded-lg flex-shrink-0 ${
+                                status === 'success' ? 'bg-gov-green/10 text-gov-green' :
+                                status === 'duplicate' ? 'bg-muted text-muted-foreground' :
+                                status === 'failed' ? 'bg-gov-red/10 text-gov-red' :
+                                'bg-primary/10 text-primary'
+                              }`}>
+                                <FileText className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-semibold text-foreground truncate">{f.name}</p>
+                                <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                                  <span>{(f.size / 1024).toFixed(1)} KB</span>
+                                  {status === 'success' && info && (
+                                    <span className="text-gov-green font-bold uppercase text-[9px] bg-gov-green/10 px-1.5 py-0.5 rounded">
+                                      ✓ {info.chunks} chunks
+                                    </span>
+                                  )}
+                                  {status === 'duplicate' && (
+                                    <span className="text-muted-foreground font-bold uppercase text-[9px] bg-muted px-1.5 py-0.5 rounded">
+                                      Synchronized
+                                    </span>
+                                  )}
+                                </p>
+                                {info?.msg && (
+                                  <p className={`text-[9px] mt-1 line-clamp-1 italic ${status === 'failed' ? 'text-gov-red' : 'text-muted-foreground'}`}>
+                                    "{info.msg}"
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex-shrink-0">
+                              {status === 'pending' && (
+                                <span className="text-[9px] font-bold text-muted-foreground uppercase bg-muted/50 px-2 py-1 rounded-md border border-border">Pending</span>
+                              )}
+                              {status === 'uploading' && (
+                                <div className="flex items-center gap-1 text-primary text-[9px] font-bold uppercase bg-primary/10 px-2 py-1 rounded-md border border-primary/20 animate-pulse">
+                                  <Loader2 className="w-3 h-3 animate-spin" /> Ingesting
+                                </div>
+                              )}
+                              {status === 'success' && (
+                                <span className="text-[9px] font-bold text-gov-green uppercase bg-gov-green/10 px-2 py-1 rounded-md border border-gov-green/20 animate-fade-in">Indexed</span>
+                              )}
+                              {status === 'duplicate' && (
+                                <span className="text-[9px] font-bold text-muted-foreground uppercase bg-muted px-2 py-1 rounded-md border border-border animate-fade-in">Unchanged</span>
+                              )}
+                              {status === 'failed' && (
+                                <span className="text-[9px] font-bold text-gov-red uppercase bg-gov-red/10 px-2 py-1 rounded-md border border-gov-red/20 animate-fade-in">Failed</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
 
                     {error && (
@@ -392,45 +603,72 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
                       </p>
                     )}
 
-                    {file && (
-                      <button
-                        onClick={handleUpload}
-                        disabled={isUploading}
-                        className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-                      >
-                        {isUploading ? (
-                          <><Loader2 className="w-4 h-4 animate-spin" /> Indexing...</>
-                        ) : (
-                          <><Database className="w-4 h-4" /> Ingest & Index Policy</>
-                        )}
-                      </button>
+                    {/* AI Layout Recovery (Force OCR) Toggle Switch */}
+                    {!Object.values(uploadStatuses).every(s => s === 'success' || s === 'duplicate' || s === 'failed') && (
+                      <div className={`flex flex-col gap-3 border p-4 rounded-xl transition-all duration-300 ${
+                        forceOcr 
+                          ? 'bg-emerald-500/5 border-emerald-500/20 ring-1 ring-emerald-500/10 shadow-sm' 
+                          : 'bg-muted/40 border-border/80 hover:bg-muted/60'
+                      } ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                forceOcr ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'
+                              }`}>
+                                ✨ AI Layout Recovery (Vision OCR)
+                              </span>
+                              {forceOcr && (
+                                <span className="px-1.5 py-0.5 text-[8px] font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-100 rounded-md dark:bg-emerald-950 dark:text-emerald-400 animate-pulse">
+                                  Enhanced Mode
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground mt-1 block leading-normal">
+                              Bypass standard table parsers and force Gemini Vision AI to read complex multi-column structures, scanned paper, or visual guidelines.
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setForceOcr(!forceOcr)}
+                            disabled={isUploading}
+                            className={`w-11 h-6 rounded-full transition-all duration-200 relative flex items-center p-0.5 cursor-pointer focus:outline-none flex-shrink-0 ${
+                              forceOcr ? 'bg-emerald-600' : 'bg-border'
+                            }`}
+                            aria-label="Force OCR Toggle"
+                          >
+                            <div 
+                              className={`w-5 h-5 bg-white rounded-full shadow-md transition-all duration-200 transform ${
+                                forceOcr ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
                     )}
-                  </>
-                ) : (
-                  <div className="text-center space-y-4 pt-4">
-                    <div className="w-14 h-14 bg-gov-green-light text-gov-green rounded-full flex items-center justify-center mx-auto">
-                      <CheckCircle2 className="w-7 h-7" />
+
+                    <div className="pt-2">
+                      {Object.values(uploadStatuses).every(s => s === 'success' || s === 'duplicate' || s === 'failed') ? (
+                        <button 
+                          onClick={() => { setView('list'); setFiles([]); setForceOcr(false); }}
+                          className="w-full py-3 bg-foreground text-background hover:opacity-90 rounded-lg font-semibold text-sm transition-all shadow-md active:scale-95"
+                        >
+                          Done & Return to Guidelines
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleUpload}
+                          disabled={isUploading}
+                          className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-semibold text-sm hover:bg-primary/90 transition-all flex items-center justify-center gap-2 disabled:opacity-60 shadow-lg shadow-primary/20 active:scale-[0.98]"
+                        >
+                          {isUploading ? (
+                            <><Loader2 className="w-4 h-4 animate-spin" /> Ingesting Batch ({Object.values(uploadStatuses).filter(s => s !== 'pending').length}/{files.length})...</>
+                          ) : (
+                            <><Database className="w-4 h-4" /> Ingest & Index {files.length} {files.length === 1 ? 'Policy' : 'Policies'}</>
+                          )}
+                        </button>
+                      )}
                     </div>
-                    <h4 className="text-lg font-bold text-foreground">
-                      {uploadResult.stats.duplicate ? 'Policy Synchronized' : (uploadResult.stats.is_update ? 'Guideline Updated' : 'Indexing Complete')}
-                    </h4>
-                    <div className="bg-muted/30 p-4 rounded-xl border border-border inline-block min-w-[280px]">
-                      <p className="text-xs font-bold text-primary uppercase tracking-widest mb-1">
-                        {uploadResult.stats.duplicate ? 'Collision Guard Active' : 'RAG Engine Report'}
-                      </p>
-                      <p className="text-sm font-semibold text-foreground">
-                        Document: <span className="text-primary">{uploadResult.stats.policy_id}.pdf</span>
-                      </p>
-                      <p className="text-[11px] text-muted-foreground mt-2 italic">
-                        "{uploadResult.message}"
-                      </p>
-                    </div>
-                    <button 
-                      onClick={() => { setView('list'); loadPoliciesList(); }}
-                      className="w-full py-2.5 bg-foreground text-background rounded-lg font-semibold text-sm"
-                    >
-                      Done
-                    </button>
                   </div>
                 )}
               </div>
@@ -447,7 +685,7 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
             {view === 'upload' ? 'Cancel' : 'Close'}
           </button>
           <div className="flex items-center gap-2">
-            {view === 'list' && (
+            {view === 'list' && (import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_BUTTON === 'true') && (
               <button
                 onClick={handleLoadDemoPolicies}
                 disabled={isLoadingDemo}

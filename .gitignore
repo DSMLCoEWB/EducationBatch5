@@ -68,7 +68,7 @@ src_backup/
 backend_data/
 
 # Sensitive Credentials
-backend/service-account-credentials.json
+backend/scripts/service-account-credentials.json
 
 # Local Logs & Transitory Data
 backend/out_debug.txt
@@ -83,3 +83,6 @@ backend/scratch/
 # Exceptions to text file ignores
 !backend/requirements.txt
 backend/brain/
+
+# Confidential government email PDFs for import
+backend/import_emails/

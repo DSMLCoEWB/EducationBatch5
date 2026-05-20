@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Send, Sparkles, CheckCircle2, X, Loader2 } from 'lucide-react';
 import { Email } from '@/types';
 import { GenerateReplyResult, generateReplyDetailed } from '@/services/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ReplyModalProps {
   email: Email;
@@ -96,9 +98,9 @@ export function ReplyModal({
 
   return (
     <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 animate-fade-in">
-      <div className="bg-card rounded-xl shadow-modal w-full max-w-2xl max-h-[95vh] sm:max-h-[85vh] overflow-hidden flex flex-col border border-border animate-scale-in">
+      <div className={`bg-card rounded-xl shadow-modal w-full ${showPolicyEvidence ? 'max-w-6xl' : 'max-w-2xl'} transition-[max-width] duration-300 ease-in-out max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col border border-border animate-scale-in`}>
         {/* Header */}
-        <div className="gradient-header text-primary-foreground px-6 py-4 flex items-center justify-between">
+        <div className="gradient-header text-primary-foreground px-6 py-4 flex items-center justify-between shrink-0">
           <div className="min-w-0">
             <h3 className="font-semibold text-base">{initialRecipient || !initialBody ? 'Reply to Email' : 'Forward Email'}</h3>
             <p className="text-sm text-primary-foreground/70 truncate mt-0.5">{subject}</p>
@@ -108,143 +110,177 @@ export function ReplyModal({
           </button>
         </div>
 
-        {/* Dynamic Headers */}
-        <div className="px-6 py-4 bg-muted/30 border-b border-border space-y-3">
-          <div className="grid grid-cols-[60px_1fr] items-center gap-3">
-            <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">To</span>
-            <input 
-              type="text"
-              value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
-              placeholder="recipient@example.com"
-              className="bg-background border border-border/60 rounded-md px-2.5 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 w-full font-medium"
-            />
-          </div>
-          <div className="grid grid-cols-[60px_1fr] items-center gap-3">
-            <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">Subject</span>
-            <input 
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="bg-background border border-border/60 rounded-md px-2.5 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 w-full font-medium"
-            />
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-          {/* AI buttons */}
-          {!replyText && !isGenerating && (
-            <div className="space-y-2 mb-4">
-              <button
-                onClick={handleGenerateAIReply}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-all font-medium text-sm shadow-card"
-              >
-                <Sparkles className="w-4 h-4" />
-                Generate AI Reply (RAG-Based)
-              </button>
-              <button
-                onClick={handleUseSuggested}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-muted text-foreground rounded-lg hover:bg-accent transition-all text-sm border border-border"
-              >
-                Use Template Reply
-              </button>
-            </div>
-          )}
-
-          {isGenerating && (
-            <div className="mb-4 flex items-center justify-center gap-3 p-5 bg-gov-blue-light rounded-lg border border-primary/15">
-              <Loader2 className="w-4 h-4 text-primary animate-spin" />
-              <span className="text-primary text-sm font-medium">Generating AI Reply...</span>
-            </div>
-          )}
-
-          {generationError && (
-            <div className="mb-3 text-xs text-gov-amber bg-gov-amber-light px-3 py-2 rounded-lg border border-gov-amber/20">
-              {generationError}
-            </div>
-          )}
-
-          {sendError && (
-            <div className="mb-3 text-xs text-destructive bg-gov-red-light px-3 py-2 rounded-lg border border-destructive/20">
-              {sendError}
-            </div>
-          )}
-
-          {usingSuggested && !generationError && (
-            <div className="mb-3 flex items-center gap-2 text-xs text-primary bg-gov-blue-light px-3 py-2 rounded-lg border border-primary/15">
-              <Sparkles className="w-3.5 h-3.5" />
-              AI-generated reply — edit before sending
-            </div>
-          )}
-
-          {ragEvidence && (
-            <div className="mb-4 rounded-lg border border-primary/15 bg-gov-blue-light p-4 text-sm">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-primary font-semibold text-sm">Policy Evidence</p>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                  ragEvidence.status === 'ok' ? 'bg-gov-green-light text-gov-green' : 'bg-gov-amber-light text-gov-amber'
-                }`}>
-                  {ragEvidence.status.toUpperCase()}
-                </span>
-              </div>
-
-              <label className="mb-3 flex items-center gap-2 text-xs text-primary font-medium cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showPolicyEvidence}
-                  onChange={(e) => setShowPolicyEvidence(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-primary/30 text-primary focus:ring-primary/30"
+        {/* Split Body */}
+        <div className="flex flex-1 overflow-hidden">
+          
+          {/* Left Pane (Compose) */}
+          <div className="flex-1 flex flex-col min-w-0 border-r border-border">
+            {/* Dynamic Headers */}
+            <div className="px-6 py-4 bg-muted/30 border-b border-border space-y-3 shrink-0">
+              <div className="grid grid-cols-[60px_1fr] items-center gap-3">
+                <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">To</span>
+                <input 
+                  type="text"
+                  value={recipient}
+                  onChange={(e) => setRecipient(e.target.value)}
+                  placeholder="recipient@example.com"
+                  className="bg-background border border-border/60 rounded-md px-2.5 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 w-full font-medium"
                 />
-                Show evidence clauses
-              </label>
+              </div>
+              <div className="grid grid-cols-[60px_1fr] items-center gap-3">
+                <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">Subject</span>
+                <input 
+                  type="text"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  className="bg-background border border-border/60 rounded-md px-2.5 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 w-full font-medium"
+                />
+              </div>
+            </div>
 
-              {showPolicyEvidence && ragEvidence.evidence && ragEvidence.evidence.length > 0 && (
-                <div className="space-y-2 mt-2">
-                  {ragEvidence.evidence.map((m, idx) => (
-                    <div key={`${m.metadata?.clause_id || idx}-${idx}`} className="rounded-lg border border-border bg-card p-3">
-                      <div className="flex justify-between items-start mb-1">
-                        <span className="font-bold text-foreground text-xs">Clause {m.metadata?.clause_id || 'N/A'}</span>
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-primary/10 text-primary rounded">
-                          {(m.score * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-primary font-semibold mb-1 uppercase tracking-tight">{m.metadata?.section || 'General'}</p>
-                      <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">{m.text}</p>
-                    </div>
-                  ))}
+            {/* Compose Area */}
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar flex flex-col relative">
+              {/* AI buttons */}
+              {!replyText && !isGenerating && (
+                <div className="space-y-2 mb-4 shrink-0">
+                  <button
+                    onClick={handleGenerateAIReply}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-all font-medium text-sm shadow-card"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Generate AI Reply (RAG-Based)
+                  </button>
+                  <button
+                    onClick={handleUseSuggested}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-muted text-foreground rounded-lg hover:bg-accent transition-all text-sm border border-border"
+                  >
+                    Use Template Reply
+                  </button>
                 </div>
               )}
+
+              {isGenerating && (
+                <div className="mb-4 flex items-center justify-center gap-3 p-5 bg-gov-blue-light rounded-lg border border-primary/15 shrink-0">
+                  <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                  <span className="text-primary text-sm font-medium">Generating AI Reply...</span>
+                </div>
+              )}
+
+              {generationError && (
+                <div className="mb-3 text-xs text-gov-amber bg-gov-amber-light px-3 py-2 rounded-lg border border-gov-amber/20 shrink-0">
+                  {generationError}
+                </div>
+              )}
+
+              {sendError && (
+                <div className="mb-3 text-xs text-destructive bg-gov-red-light px-3 py-2 rounded-lg border border-destructive/20 shrink-0">
+                  {sendError}
+                </div>
+              )}
+
+              {usingSuggested && !generationError && (
+                <div className="mb-3 flex items-center gap-2 text-xs text-primary bg-gov-blue-light px-3 py-2 rounded-lg border border-primary/15 shrink-0">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  AI-generated reply — edit before sending
+                </div>
+              )}
+
+              {ragEvidence && (
+                <div className="mb-4 flex items-center justify-between bg-gov-blue-light/50 border border-primary/15 rounded-lg px-3 py-2 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-xs font-semibold text-primary">AI Assistant</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                      ragEvidence.status === 'ok' ? 'bg-gov-green/10 text-gov-green' : 'bg-gov-amber/10 text-gov-amber'
+                    }`}>
+                      {ragEvidence.status === 'ok' ? 'Policy Found' : 'No Policy Found'}
+                    </span>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-xs text-primary font-bold cursor-pointer hover:opacity-80 transition-opacity">
+                    <input
+                      type="checkbox"
+                      checked={showPolicyEvidence}
+                      onChange={(e) => setShowPolicyEvidence(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-primary/30 text-primary focus:ring-primary/30 cursor-pointer"
+                    />
+                    View Evidence
+                  </label>
+                </div>
+              )}
+
+              {/* Text area */}
+              <div className="flex-1 flex flex-col min-h-[250px]">
+                <label className="block text-xs font-medium text-foreground mb-1.5">Your Reply</label>
+                <textarea
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  placeholder="Type your reply..."
+                  className="w-full flex-1 px-4 py-3 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/30 resize-none placeholder:text-muted-foreground"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">{replyText.length} characters</p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 bg-muted/50 border-t border-border flex items-center justify-end gap-2 shrink-0">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-muted-foreground bg-card border border-border rounded-lg hover:bg-accent transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSend()}
+                disabled={!replyText.trim() || isSending}
+                className="flex items-center gap-2 px-5 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              >
+                {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                {isSending ? 'Sending...' : 'Send Reply'}
+              </button>
+            </div>
+          </div>
+
+          {/* Right Pane (AI & Policy Evidence) */}
+          {showPolicyEvidence && (
+            <div className="w-[450px] shrink-0 bg-muted/10 flex flex-col border-l border-border animate-in slide-in-from-right-8 duration-300">
+              <div className="p-4 border-b border-border bg-muted/30 shrink-0 flex items-center justify-between">
+                <h4 className="font-semibold text-sm flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  Policy Evidence
+                </h4>
+                <button onClick={() => setShowPolicyEvidence(false)} className="p-1 hover:bg-muted rounded text-muted-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+                {ragEvidence?.evidence && ragEvidence.evidence.length > 0 ? (
+                  <div className="space-y-4">
+                    {ragEvidence.evidence.map((m, idx) => (
+                      <div key={`${m.metadata?.clause_id || idx}-${idx}`} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="font-bold text-foreground text-sm">Clause {m.metadata?.clause_id || 'N/A'}</span>
+                          <span className="text-xs font-semibold px-2 py-1 bg-primary/10 text-primary rounded-md">
+                            {(m.score * 100).toFixed(0)}% Match
+                          </span>
+                        </div>
+                        <p className="text-xs text-primary font-bold mb-3 uppercase tracking-tight bg-gov-blue-light/50 inline-block px-2 py-1 rounded">
+                          {m.metadata?.section || 'General'}
+                        </p>
+                        <div className="prose prose-sm prose-p:leading-relaxed prose-p:text-muted-foreground prose-table:border-collapse prose-table:w-full prose-td:border prose-td:border-border prose-td:p-2 prose-th:border prose-th:border-border prose-th:p-2 prose-th:bg-muted/50 max-w-none text-sm text-foreground overflow-x-auto my-2">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {m.text}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-10 text-muted-foreground">
+                    <p className="text-sm">No specific policy clauses were referenced for this reply.</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {/* Text area */}
-          <div>
-            <label className="block text-xs font-medium text-foreground mb-1.5">Your Reply</label>
-            <textarea
-              value={replyText}
-              onChange={(e) => setReplyText(e.target.value)}
-              placeholder="Type your reply..."
-              rows={12}
-              className="w-full px-4 py-3 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring/30 resize-none placeholder:text-muted-foreground"
-            />
-            <p className="text-[11px] text-muted-foreground mt-1">{replyText.length} characters</p>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3 bg-muted/50 border-t border-border flex items-center justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-muted-foreground bg-card border border-border rounded-lg hover:bg-accent transition-colors">
-            Cancel
-          </button>
-          <button
-            onClick={() => void handleSend()}
-            disabled={!replyText.trim() || isSending}
-            className="flex items-center gap-2 px-5 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-          >
-            {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            {isSending ? 'Sending...' : 'Send Reply'}
-          </button>
         </div>
       </div>
     </div>

@@ -7,7 +7,7 @@ from config import (
     CATEGORIES, PRIORITY_KEYWORDS
 )
 from core.logging import get_logger
-from priority_llm import get_batch_triage, apply_thread_escalation
+from services.triage_llm import get_batch_triage
 from utils.email_utils import normalize_email_address
 
 logger = get_logger("services.triage")
@@ -72,22 +72,37 @@ def classify_grievance_heuristic(text: str, subject: str = "", attachment_conten
 
     return "Miscellaneous"
 
-def calculate_priority_heuristic(content: str, subject: str) -> int:
-    """Assigns 0-6 priority level based on keyword weightings."""
+def calculate_priority_heuristic(content: str, subject: str, user_email: str = None) -> int:
+    """Assigns 0-3 priority level based on keyword weightings (user-configurable)."""
     text = f"{subject} {content}".lower()
     
-    # Check for highest levels first
+    # 1. Fetch custom rules from database if user is authenticated
+    if user_email:
+        try:
+            from db.repository import get_priority_rules
+            rules = get_priority_rules(user_email)
+            # Check highest urgency levels first (0, then 1, then 2)
+            for r in sorted(rules, key=lambda x: x["priority"]):
+                level = r["priority"]
+                keywords = r["keywords"]
+                for kw in keywords:
+                    if re.search(r'\b' + re.escape(kw.lower()) + r'\b', text):
+                        return level
+            return 3  # Default misc/low
+        except Exception as e:
+            logger.error(f"⚠️ [Heuristic] Custom priority rule loading failed: {e}")
+            
+    # 2. Static Fallback (if no user context or database issue)
     for level_str, keywords in PRIORITY_KEYWORDS.items():
         level = int(level_str)
         for kw in keywords:
             if re.search(r'\b' + re.escape(kw.lower()) + r'\b', text):
                 return level
                 
-    return 6 # Default misc/low
+    return 3 # Default misc/low
 
 # --- THREAD AWARENESS ---
 
-from utils.email_utils import normalize_email_address
 
 def detect_followup(email: Dict[str, Any], df: Optional[pd.DataFrame], user_email: Optional[str] = None) -> Tuple[str, Optional[str], int]:
     """
@@ -151,7 +166,16 @@ def detect_followup(email: Dict[str, Any], df: Optional[pd.DataFrame], user_emai
 
 def get_batch_triage_ai(emails: List[Dict[str, Any]], user_email: str = None) -> Dict[str, Dict[str, Any]]:
     """
-    Delegates to priority_llm.py for official batch processing and rate-limiting.
+    Delegates to triage_llm.py for official batch processing and rate-limiting.
     """
-    # Simply reuse the well-tested logic from priority_llm
+    # Simply reuse the well-tested logic from triage_llm
     return get_batch_triage(emails, user_email)
+
+
+def apply_thread_escalation(priority: int, followup_count: int) -> int:
+    """Escalates priority to high urgency (level 1) if followup threshold (>3) is breached."""
+    # Ensure priority defaults to 3 if completely None, but preserve 0 explicitly (avoiding falsiness bugs)
+    p = 3 if priority is None else int(priority)
+    if (followup_count or 0) > 3 and p > 1:
+        return 1  
+    return p

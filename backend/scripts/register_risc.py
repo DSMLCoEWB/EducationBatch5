@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
     if not Path(CREDENTIALS_PATH).exists():
         print(f"⚠️ Error: {CREDENTIALS_PATH} not found.")
-        print("Please place your Service Account JSON key in the 'backend' folder.")
+        print("Please place your Service Account JSON key in the 'backend/scripts' folder.")
         sys.exit(1)
 
     try:

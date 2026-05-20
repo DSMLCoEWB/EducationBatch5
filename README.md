@@ -1,255 +1,95 @@
-# WEBEL_FINAL_SHOWDOWN
+# 🎓 AI Grievance Intelligence System (AICOE)
 
-A full‑stack web application for **processing, categorizing, analyzing, and querying grievance emails** using a rule‑based + AI‑assisted backend.
+A full-stack, state-of-the-art enterprise web application for **synchronizing, parsing, categorizing, prioritizing, and generating policy-compliant replies** for Education Department grievance emails. 
 
-The system is designed to help administrators quickly understand large volumes of grievance emails by category, college, timeline, attachments, and follow‑ups, with a chatbot‑style query interface.
-
----
-
-## Key Features
-
-* Parse and process `.eml` grievance emails
-* Categorize emails (Suspension, Examination, FIR, Administration, etc.)
-* Query emails by **college / institution name**
-* Track emails **with / without attachments**
-* Identify **follow‑up emails**
-* Count‑based analytical queries (time range, category, college)
-* Chatbot interface for natural‑language querying
-* Download original emails and extracted attachments
+Powered by a high-precision, hybrid architecture combining **rule-based expert heuristics, multi-stage Gemini LLMs, visual OCR fallbacks, and a semantic FAISS RAG engine**.
 
 ---
 
-## System Architecture
+## 🚀 Key Features
 
-```
-Frontend (React + Vite)
-        |
-        v
-Backend API (FastAPI)
-        |
-        v
-Processed Email Dataset (Excel / JSON)
-        |
-        v
-Rule‑Based Query Engine (+ Optional RAG)
+*   🔄 **Incremental Gmail Sync:** Auto-syncs thread progressions, matching follow-up counts, and folder transitions natively.
+*   🏷️ **Hybrid Grievance Classifier:** Instant static/expert keyword heuristics with database-driven dynamic category overrides.
+*   ⚠️ **0-6 Tiered Priority Engine:** Evaluates emergency and time-sensitive keywords, with a background Gemini LLM batch-priority refinement.
+*   📄 **Multimodal OCR Service:** Direct PDF text extraction with automatic fallback to Gemini Vision OCR for scanned or visual attachments.
+*   💬 **Semantic Policy Chatbot:** Instantly query grievances using natural language backed by policy context.
+*   🤖 **One-Click RAG Replies:** Generate context-aware draft responses grounded strictly in official policy documents.
+*   ⚡ **Hardware-Aware Cooldown:** Dynamic resource manager that pauses background indexers/OCR when active user chat is detected to prevent VRAM overflow.
+
+---
+
+## 🛠️ System Architecture
+
+```mermaid
+graph TD
+    A[Gmail API Server] <-->|OAuth / SSE Sync| B[FastAPI Backend Server]
+    B <-->|Transactions| C[(SQLite db: grievances.db)]
+    B -->|OCR / Prompt Inference| D[Google Gemini API]
+    E[Host GPU / CPU] <-->|FAISS Vector Search| B
+    F[React + Vite Frontend] <-->|REST API / SSE| B
 ```
 
 ---
 
-## Repository Structure
+## 📂 Repository Structure
 
 ```
-WEBEL_FINAL_SHOWDOWN/
-├── backend/                 # FastAPI backend
-│   ├── main.py              # API entry point
-│   ├── requirements.txt     # Python dependencies
-│   ├── files/               # Raw .eml email files
-│   ├── attachments/         # Extracted attachments
-│   └── processed_data/      # Generated Excel / JSON
+AICOE_EDUCATION/
+├── backend/                   # FastAPI Backend
+│   ├── app.py                 # Core application setup & lifespan
+│   ├── main.py                # Uvicorn compatibility bridge
+│   ├── config.py              # System configuration & environment tokens
+│   ├── ai_utils.py            # AI fallback managers
+│   ├── triage_llm.py          # Gemini batch classification & priority engine
+│   ├── core/                  # Coordinating tasks, loggers, locks, & GPU resources
+│   ├── db/                    # SQLite repository handlers
+│   ├── gmail/                 # OAuth clients & synchronization loops
+│   ├── rag/                   # FAISS retrieval & grounding engines
+│   ├── rag_pipeline/          # Semantic PDF chunk ingestion
+│   └── routes/                # FastAPI routing paths (Emails, Settings, RAG)
 │
-├── frontend/                # React + Vite frontend
+├── frontend/                  # React + TypeScript Frontend
 │   ├── src/
-│   ├── public/
+│   │   ├── components/        # Email dashboards & reply composers
+│   │   ├── pages/             # Dynamic thread panels & views
+│   │   └── services/          # Unified Axios API connectors
 │   └── package.json
 │
-├── reply-generator-main/    # (Optional) RAG / AI reply module
-├── data/                    # Static data (college list, mappings)
-├── INTEGRATION_SUMMARY.md
-├── QUICK_START.md
-├── RAG_ARCHITECTURE.md
-└── RAG_SETUP_GUIDE.md
+├── setup_coe.bat              # Universal installation script
+└── docker-compose.yml         # Unified Docker container runner
 ```
 
 ---
 
-## Backend Setup (Local)
+## 🔌 Quick Start & Installation
 
-### Prerequisites
+### Option A: Standard Setup (Native Windows)
+1. **Ensure Ollama is running on your host machine.**
+2. Double-click the **`setup_coe.bat`** script. This script automatically detects your GPU/CPU architecture, configures virtual environments, and installs standard dependencies.
+3. Configure your API tokens in `backend/.env` (renamed from `.env.example`).
+4. Start the backend:
+   ```bash
+   cd backend
+   venv\Scripts\python main.py
+   ```
+5. Start the frontend:
+   ```bash
+   cd frontend
+   npm install && npm run dev
+   ```
 
-* Python 3.9+
-* pip
-
-### Setup Virtual Environment
-
+### Option B: Docker Compose Setup
+Run the unified multi-stage build directly:
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Linux / Mac
-venv\Scripts\activate     # Windows
+docker compose up --build -d
 ```
-
-### Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### Add Email Files
-
-Place all `.eml` grievance emails inside:
-
-```
-backend/files/
-```
-
-### Run Backend Server
-
-```bash
-uvicorn main:app --reload --port 8000
-```
-
-### API Documentation
-
-Access Swagger UI:
-
-```
-http://localhost:8000/docs
-```
+The application will be running at:
+*   **Frontend:** `http://localhost:3000`
+*   **Backend API:** `http://localhost:8000`
 
 ---
 
-##  Frontend Setup (Local)
-
-### Prerequisites
-
-* Node.js (v16+)
-* npm / yarn
-
-### Install Dependencies
-
-```bash
-cd frontend
-npm install
-```
-
-### Configure Backend URL
-
-Create `.env` in `frontend/`:
-
-```
-VITE_API_URL=http://localhost:8000
-```
-
-### Run Frontend
-
-```bash
-npm run dev
-```
-
-Frontend will be available at:
-
-```
-http://localhost:5173
-```
-
----
-
-##  Important API Endpoints
-
-| Endpoint                      | Method | Description             |
-| ----------------------------- | ------ | ----------------------- |
-| `/`                           | GET    | Health check            |
-| `/process`                    | POST   | Parse all `.eml` files  |
-| `/emails`                     | GET    | List all emails         |
-| `/emails?category=XYZ`        | GET    | Filter by category      |
-| `/emails?college=ABC`         | GET    | Filter by college       |
-| `/chat`                       | POST   | Chatbot query endpoint  |
-| `/download/email/{file}`      | GET    | Download original email |
-| `/download/attachment/{file}` | GET    | Download attachment     |
-
----
-
-##  Chatbot Query Examples
-
-Supported query patterns:
-
-* "How many emails had attachments?"
-* "How many emails had no attachments?"
-* "How many suspension emails in the last 7 days?"
-* "Show follow‑up emails from APC Roy College"
-* "How many emails from XYZ College?"
-
-**Request Format:**
-
-```json
-{
-  "message": "How many emails had attachments?"
-}
-```
-
-**Response Format:**
-
-```json
-{
-  "answer": "286 emails have attachments."
-}
-```
-
->  The chatbot is **data‑driven**, not generic. All answers are computed strictly from the processed grievance dataset.
-
----
-
-## ☁️ Deployment
-
-### Backend (Hugging Face Spaces)
-
-1. Push backend code to HF Space
-2. Ensure startup command runs FastAPI
-3. Confirm `/chat` accepts **POST**, not GET
-
-### Frontend (Vercel / Netlify)
-
-1. Connect GitHub repo
-2. Set environment variable:
-
-```
-VITE_API_URL=https://<backend-url>
-```
-
-3. Deploy
-
----
-
-##  Common Issues & Fixes
-
-* **405 Method Not Allowed on /chat**
-
-  * Ensure frontend uses `POST`, not `GET`
-  * Ensure FastAPI route decorator is `@app.post("/chat")`
-
-* **Same count returned for all queries**
-
-  * Query parser fallback triggered
-  * Ensure intent detection and filters are applied before default response
-
----
-
-##  Best Practices
-
-* Do not hardcode counts
-* Always compute results from filtered dataframe
-* Log parsed intent + applied filters
-* Validate chatbot response against dataset
-
----
-
-##  Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit changes
-4. Push and open a Pull Request
-
----
-
-##  License
-
-Specify license here (MIT / Apache‑2.0 / Proprietary).
-
----
-
-##  Contact
-
-For technical issues, deployment help, or improvements, please raise an issue in the repository.
-
-
+## 🔒 Security & Policy Adherence
+*   All user sessions and OAuth credential storage are fully encrypted natively.
+*   CORS and safety policies are automatically enforced per `CORS_ORIGINS` configuration.
+*   Vector search results are automatically validated against a minimal trust threshold (`0.62`) before drafting responses.

@@ -194,14 +194,19 @@ def process_intelligence_backlog(user_email: str):
                     # Check for more work
                     more_work = get_unrefined_emails(user_email, limit=1)
                     if more_work:
-                        logger.info(f"😴 [Enrichment] Backlog remaining. Resting {PRIORITY_LLM_WINDOW_SECONDS + 1}s to respect rate limit...")
-                        time.sleep(PRIORITY_LLM_WINDOW_SECONDS + 1)
+                        from config import AI_PREFER_LOCAL
+                        # Local models don't need 60s API rests, just a small breather for GPU/UI responsiveness
+                        rest_seconds = 5 if AI_PREFER_LOCAL else (PRIORITY_LLM_WINDOW_SECONDS + 1)
+                        logger.info(f"😴 [Enrichment] Backlog remaining. Resting {rest_seconds}s...")
+                        time.sleep(rest_seconds)
                     else:
                         break
                 else:
                     # If rate limited or empty, wait and try again or exit cycle
-                    logger.warning("⚠️ [Enrichment] AI Triage limit reached/empty. Cooling down.")
-                    time.sleep(PRIORITY_LLM_WINDOW_SECONDS + 1)
+                    from config import AI_PREFER_LOCAL
+                    rest_seconds = 5 if AI_PREFER_LOCAL else (PRIORITY_LLM_WINDOW_SECONDS + 1)
+                    logger.warning(f"⚠️ [Enrichment] AI Triage limit reached/empty. Cooling down {rest_seconds}s.")
+                    time.sleep(rest_seconds)
         except Exception as ai_err:
             logger.error(f"⚠️ [Enrichment] AI Triage Phase failed: {ai_err}")
 

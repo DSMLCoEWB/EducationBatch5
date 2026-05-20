@@ -105,7 +105,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
       // If the Citizen follows up, absoluteLatest becomes a non-sent message again, 
       // and priority restores from latestCitizen.
       const isCurrentlyActioned = absoluteLatest.isSent && !absoluteLatest.is_demo;
-      const displayPriority = isCurrentlyActioned ? 6 : latestCitizen.priority;
+      const displayPriority = isCurrentlyActioned ? 3 : latestCitizen.priority;
 
       // A follow-up is any message in the thread after the initial one
       const threadFollowUps = Math.max(0, group.length - 1);
@@ -141,8 +141,8 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     return stableEmails.filter(e => {
       // Priority Filter
       if (filters.priorities.length > 0) {
-        const p = Number.isFinite(Number(e.priority)) ? Number(e.priority) : 6;
-        const label = p <= 1 ? 'Critical' : p <= 3 ? 'High' : p <= 5 ? 'Medium' : 'Low';
+        const p = Number.isFinite(Number(e.priority)) ? Number(e.priority) : 3;
+        const label = p === 0 ? 'Critical' : p === 1 ? 'High' : p === 2 ? 'Medium' : 'Low';
         if (!filters.priorities.includes(label)) return false;
       }
 
@@ -209,8 +209,8 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
 
   const sortedEmails = useMemo(() => {
     return [...filteredEmails].sort((a, b) => {
-      const pa = Number.isFinite(Number(a.priority)) ? Number(a.priority) : 6;
-      const pb = Number.isFinite(Number(b.priority)) ? Number(b.priority) : 6;
+      const pa = Number.isFinite(Number(a.priority)) ? Number(a.priority) : 3;
+      const pb = Number.isFinite(Number(b.priority)) ? Number(b.priority) : 3;
       if (pa !== pb) return pa - pb;
 
       let aValue: any, bValue: any;
@@ -549,7 +549,7 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
   };
 
   const daysPending = getDaysPending();
-  const priority = Number.isFinite(Number(email.priority)) ? Number(email.priority) : 6;
+  const priority = Number.isFinite(Number(email.priority)) ? Number(email.priority) : 3;
 
   return (
     <>
@@ -565,12 +565,12 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           )}
         </td>
         <td className="px-4 py-3">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${priority <= 1 ? 'bg-gov-red-light text-gov-red' :
-              priority <= 3 ? 'bg-gov-orange-light text-gov-orange' :
-                priority <= 5 ? 'bg-gov-amber-light text-gov-amber' :
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${priority === 0 ? 'bg-gov-red-light text-gov-red' :
+              priority === 1 ? 'bg-gov-orange-light text-gov-orange' :
+                priority === 2 ? 'bg-gov-amber-light text-gov-amber' :
                   'bg-muted text-muted-foreground'
             }`}>
-            {priority <= 1 ? 'Critical' : priority <= 3 ? 'High' : priority <= 5 ? 'Medium' : 'Low'}
+            {priority === 0 ? 'Critical' : priority === 1 ? 'High' : priority === 2 ? 'Medium' : 'Low'}
           </span>
         </td>
         <td className="px-4 py-3">

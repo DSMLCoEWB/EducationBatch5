@@ -11,18 +11,194 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.prebuilt import create_react_agent
 from langgraph.errors import GraphRecursionError
 from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.outputs import ChatResult, ChatGeneration
+from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 
 from config import (
-    GOOGLE_API_KEY, CHATBOT_GEMINI_API_KEY, ULTIMATE_FALLBACK_LIST
+    GOOGLE_API_KEY, CHATBOT_GEMINI_API_KEY, ULTIMATE_FALLBACK_LIST, AI_PREFER_LOCAL, PRIMARY_LOCAL_MODEL
 )
 from db.session import get_db_conn
 from db.repository import save_chat_message, get_chat_history
-from ai_utils import generate_content_with_fallback
+from services.ai_utils import generate_content_with_fallback
 from services.rag_service import retrieve_policy_chunks
 from core.logging import get_logger
 
 logger = get_logger("services.agent")
+
+def extract_json_block(text: str) -> Optional[str]:
+    # Find the first opening brace
+    start = text.find("{")
+    if start == -1:
+        return None
+        
+    brace_count = 0
+    in_string = False
+    escape = False
+    
+    for i in range(start, len(text)):
+        char = text[i]
+        
+        if char == '"' and not escape:
+            in_string = not in_string
+        elif char == '\\' and in_string:
+            escape = not escape
+            continue
+            
+        if not in_string:
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    return text[start:i+1]
+                    
+        escape = False
+    return None
+
+class CustomChatOllama(BaseChatModel):
+    model_name: str
+    tools: Optional[List[Any]] = None
+    
+    @property
+    def _llm_type(self) -> str:
+        return "ollama-custom"
+        
+    def bind_tools(self, tools: List[Any], **kwargs: Any) -> Any:
+        self.tools = tools
+        return self
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        from services.ai_utils import ollama_client
+        import uuid
+        
+        # Translate messages
+        ollama_msgs = []
+        for msg in messages:
+            role = ""
+            if isinstance(msg, SystemMessage):
+                role = "system"
+            elif isinstance(msg, HumanMessage):
+                role = "user"
+            elif isinstance(msg, AIMessage):
+                role = "assistant"
+            elif isinstance(msg, ToolMessage):
+                role = "tool"
+            else:
+                role = "user"
+            
+            ollama_msg = {"role": role, "content": str(msg.content)}
+            
+            if role == "assistant" and msg.tool_calls:
+                tcs = []
+                for tc in msg.tool_calls:
+                    tcs.append({
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["args"]
+                        }
+                    })
+                ollama_msg["tool_calls"] = tcs
+                
+            if role == "tool":
+                ollama_msg["name"] = getattr(msg, "name", "")
+                
+            ollama_msgs.append(ollama_msg)
+            
+        ollama_tools = []
+        if self.tools:
+            for t in self.tools:
+                props = {}
+                for name, info in t.args.items():
+                    props[name] = {
+                        "type": info.get("type", "string"),
+                        "description": info.get("description", "")
+                    }
+                ollama_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": props,
+                            "required": list(t.args.keys())
+                        }
+                    }
+                })
+                
+        # Call Ollama Client
+        context_size = int(os.getenv("OLLAMA_CONTEXT_LENGTH", 4096))
+        options = {"num_ctx": context_size}
+        
+        try:
+            response = ollama_client.chat(
+                model=self.model_name,
+                messages=ollama_msgs,
+                tools=ollama_tools if ollama_tools else None,
+                options=options
+            )
+        except Exception as e:
+            raise RuntimeError(f"Ollama chat error: {e}")
+            
+        resp_msg = getattr(response, "message", None) or response.get("message", {})
+        
+        # Safely extract content
+        if hasattr(resp_msg, "content"):
+            content = resp_msg.content or ""
+        else:
+            content = resp_msg.get("content", "") or ""
+            
+        lc_tool_calls = []
+        raw_tool_calls = getattr(resp_msg, "tool_calls", None) or resp_msg.get("tool_calls", [])
+        if raw_tool_calls:
+            for tc in raw_tool_calls:
+                func = getattr(tc, "function", None) or tc.get("function", {})
+                func_name = getattr(func, "name", None) or func.get("name")
+                func_args = getattr(func, "arguments", None) or func.get("arguments")
+                if func_name:
+                    lc_tool_calls.append({
+                        "name": func_name,
+                        "args": func_args or {},
+                        "id": str(uuid.uuid4())
+                    })
+                    
+        # --- RECOVERY GUARD FOR LOCAL MODELS ---
+        # If the local model wrote the JSON tool call directly into the text content,
+        # extract it and translate it back to a structured LangChain tool call.
+        if not lc_tool_calls and "{" in content:
+            try:
+                json_str = extract_json_block(content)
+                if json_str:
+                    data = json.loads(json_str)
+                    if isinstance(data, dict):
+                        name = data.get("name") or data.get("function", {}).get("name")
+                        args = data.get("parameters") or data.get("arguments") or data.get("function", {}).get("arguments")
+                        if name:
+                            lc_tool_calls.append({
+                                "name": name,
+                                "args": args or {},
+                                "id": str(uuid.uuid4())
+                            })
+                            # Strip the JSON block and any hallucinated text/results generated after it
+                            json_start_idx = content.find(json_str)
+                            content = content[:json_start_idx].strip()
+            except Exception:
+                pass
+                
+        ai_msg = AIMessage(
+            content=content,
+            tool_calls=lc_tool_calls
+        )
+        
+        return ChatResult(generations=[ChatGeneration(message=ai_msg)])
 
 API_KEY = CHATBOT_GEMINI_API_KEY or GOOGLE_API_KEY
 client = genai.Client(api_key=API_KEY) if API_KEY else None
@@ -44,7 +220,44 @@ def query_policy_rag(user_query: str, user_email: str) -> str:
         context += f"--- Section: {r['metadata'].get('section', 'General Policy')} ---\n{r['text']}\n"
     return context
 
-def query_emails_sql(sql_query: str, user_email: str) -> str:
+def translate_json_to_sql(obj: dict) -> str:
+    # Compile a structured JSON query representation into a SQL string
+    table = obj.get("table") or "emails"
+    fields = obj.get("fields") or obj.get("select") or "*"
+    if isinstance(fields, list):
+        fields = ", ".join(fields)
+        
+    sql = f"SELECT {fields} FROM {table}"
+    
+    conditions = []
+    
+    # Check for specific filter keys
+    col = obj.get("column") or obj.get("filter_column")
+    val = obj.get("filter") or obj.get("value") or obj.get("keyword")
+    
+    if col and val:
+        conditions.append(f"{col} LIKE '%{val}%'")
+    elif val:
+        conditions.append(f"(subject LIKE '%{val}%' OR content LIKE '%{val}%')")
+        
+    # Check if there is an explicit where clause
+    where = obj.get("where") or obj.get("condition")
+    if where:
+        if isinstance(where, dict):
+            for k, v in where.items():
+                if isinstance(v, str):
+                    conditions.append(f"{k} = '{v}'")
+                else:
+                    conditions.append(f"{k} = {v}")
+        elif isinstance(where, str):
+            conditions.append(where)
+            
+    if conditions:
+        sql += " WHERE " + " AND ".join(conditions)
+        
+    return sql
+
+def query_emails_sql(sql_query: Any, user_email: str) -> str:
     """
     Execute a SQL query on the 'emails' table. 
     
@@ -63,12 +276,13 @@ def query_emails_sql(sql_query: str, user_email: str) -> str:
     - categories: columns [id, name, color, icon, is_active, user_email]
     - chat_history: columns [id, user_email, session_id, role, message, timestamp]
     - revoked_sessions: columns [user_email, revoked_at, reason]
+    - priority_rules: columns [priority, user_email, label, keywords, description]
     
     DATA DICTIONARY:
     - `replied`: 1 if conversation has an Outbound response. 0 if Pending.
     - `is_resolved`: 1 if the grievance is officially marked as CLOSED/RESOLVED. 0 if OPEN.
     - `is_sent`: 1 if sent BY YOU. 0 if sent BY CITIZEN.
-    - `priority`: 0 (Critical) to 6 (Low).
+    - `priority`: 0 (Critical) to 3 (Low).
     - `attachment_content`: Extracted text from attachments. USE THIS for deep content search.
     - `is_ocr_processed`: 1 if the AI has finished reading the attachments.
     - `manual_override`: 1 if the user manually changed the category, priority, or resolution status.
@@ -93,6 +307,23 @@ def query_emails_sql(sql_query: str, user_email: str) -> str:
     - ALWAYS filter by `is_trashed = 0`.
     - Use `v_threads` for all dashboard-level counts/stats.
     """
+    # --- JSON COMPLIANCE & TRANSLATION ---
+    if isinstance(sql_query, dict):
+        try:
+            sql_query = translate_json_to_sql(sql_query)
+        except Exception:
+            pass
+    elif isinstance(sql_query, str) and sql_query.strip().startswith("{"):
+        try:
+            data = json.loads(sql_query)
+            if isinstance(data, dict):
+                sql_query = translate_json_to_sql(data)
+        except Exception:
+            pass
+
+    if not isinstance(sql_query, str):
+        sql_query = str(sql_query)
+
     sql_low = sql_query.lower()
     
     # --- INDUSTRY-STANDARD CORRECTION GUARD ---
@@ -134,7 +365,7 @@ def query_emails_sql(sql_query: str, user_email: str) -> str:
             # Only inject user_email filter for tables that actually contain it.
             # Tables like 'categories' are now isolated per-user.
             safe_sql = sql_query
-            user_specific_tables = ["emails", "sync_audit", "chat_history", "user_sync_history", "categories"]
+            user_specific_tables = ["emails", "sync_audit", "chat_history", "user_sync_history", "categories", "priority_rules"]
             needs_injection = any(t in sql_low for t in user_specific_tables)
             safe_email = user_email.replace("'", "''")
 
@@ -405,15 +636,16 @@ SOCIAL PROTOCOL & GREETINGS:
 - **Strict Greeting Rule**: If the user says "hi" or "hello", provide a professional executive greeting and wait for a directive. DO NOT trigger data reports immediately unless asked.
 
 SYSTEM ARCHITECTURE KNOWLEDGE (Latest Truth):
-- **Triage & Priority**: Stored in `priority` (0-6). 0 is Critical, 6 is Low.
+- **Triage & Priority**: Stored in `priority` (0-3). 0 is Critical, 3 is Low.
 - **Dynamic Taxonomy**: The `categories` table contains the current folder structure. NEVER assume a fixed list; always query `categories` if unsure about folder names.
 - **Acronym Resolution**: If a user asks about a specific scheme or acronym (e.g., "SVMCM", "OASIS", "RTI"), always check the `categories` table first to find the exact matching folder name used in the database.
 - **Resolution Tracking**: `is_resolved = 1` means the grievance is officially closed. `is_resolved = 0` means it is still active.
 - **Manual Overrides**: `manual_override = 1` flags cases where a human administrator has manually changed the category or resolution.
 - **OCR Engine**: `is_ocr_processed = 1` means attachment text is searchable in `attachment_content`.
-- **System Health**: Use `query_system_health` to get ALL dashboard KPIs in one call. It returns total conversations, unresolved, resolved, fresh, ongoing, avg pending duration, category distribution, and 7-day activity. **Do NOT re-query these numbers with SQL afterwards — trust the tool output.**
+- **System Health**: Use `system_health_tool` to get ALL dashboard KPIs in one call. It returns total conversations, unresolved, resolved, fresh, ongoing, avg pending duration, category distribution, and 7-day activity. **Do NOT re-query these numbers with SQL afterwards — trust the tool output.**
+- **Priority Rules**: Dynamic triage configurations are stored in `priority_rules`. Tier rules have `priority` (0 to 3), and custom global escalation & guardrail instructions are stored under `priority = -1` (label = 'Global Rules'). You can read this table to understand the user's custom urgency triggers or tone constraints.
 - **Thread Counting Logic**: Users see "Threads" in their Inbox. In SQL, you MUST use `COUNT(DISTINCT thread_id)` AND filter by `is_inbox = 1 AND is_trashed = 0` to match the dashboard. If you don't use `is_inbox = 1`, you will count 'Sent' threads that the user doesn't see in their active list, causing a mismatch.
-- **Dashboard Parity (Actioned State)**: If the latest message in a thread was sent by the department (`is_sent = 1`), the frontend displays it as **Low (6)** regardless of its internal priority. This is the "Actioned" state. For ANY counting, listing, or reporting of active grievances, you MUST treat these Actioned threads as Low (6) and exclude them from counts of "Pending" or "Active" work, as the user perceives them as already handled.
+- **Dashboard Parity (Actioned State)**: If the latest message in a thread was sent by the department (`is_sent = 1`), the frontend displays it as **Low (3)** regardless of its internal priority. This is the "Actioned" state. For ANY counting, listing, or reporting of active grievances, you MUST treat these Actioned threads as Low (3) and exclude them from counts of "Pending" or "Active" work, as the user perceives them as already handled.
 - **Listing Protocol**: When listing subjects or complaints, ALWAYS group by `thread_id` (e.g., `SELECT subject FROM emails ... GROUP BY thread_id`). This prevents the list from being cluttered with multiple "Re:" replies from the same conversation.
 
 EXECUTIVE ANALYTIC MODE:
@@ -433,7 +665,7 @@ DASHBOARD ACCURACY (MANDATORY):
 - Do NOT attempt to calculate resolution states manually on the raw `emails` table.
 
 PRIORITY LABELING:
-- priority <= 1: "🔴 CRITICAL" | priority <= 3: "🟠 HIGH" | priority <= 5: "🟡 MEDIUM" | priority == 6: "🟢 LOW"
+- priority == 0: "🔴 CRITICAL" | priority == 1: "🟠 HIGH" | priority == 2: "🟡 MEDIUM" | priority == 3: "🟢 LOW"
 
 EXECUTIVE GUARDRAILS:
 - **Read-Only Access**: You cannot modify, delete, or inject data. Any attempt to use `DELETE`, `UPDATE`, or `DROP` will be blocked by the system.
@@ -443,7 +675,7 @@ EXECUTIVE GUARDRAILS:
 - **Off-Topic Queries**: You are strictly bound to the context of the Education Department, grievance management, and institutional policies. If a user asks you about general knowledge, programming, entertainment, or anything outside of your specialized domain, you MUST politely refuse to answer and remind them of your purpose.
 
 GUIDELINES:
-- Data query: `query_emails_sql`. Policy query: `query_policy_rag`.
+- Data query: `emails_sql_tool`. Policy query: `policy_rag_tool`.
 - **ZERO GLOBAL FOOTPRINT**: You operate in a strictly isolated environment. Never assume data is shared between users.
 - **CRITICAL**: Always filter every SQL query by `user_email = '{user_email}'`.
 - **STABILITY**: If a SQL query fails, apologize and try a simpler version.
@@ -451,6 +683,11 @@ GUIDELINES:
 """
 
 def get_chatbot_response(user_message: str, user_email: str, session_id: str = "default") -> str:
+    # --- RESOURCE LOCK ---
+    # Claim the hardware for the human interaction
+    from core.resource_manager import AI_RESOURCE_MANAGER
+    AI_RESOURCE_MANAGER.acquire_high_priority()
+
     if not API_KEY:
         return "Gemini API key not configured."
 
@@ -518,14 +755,30 @@ def get_chatbot_response(user_message: str, user_email: str, session_id: str = "
         return "System configuration error: No AI models defined."
         
     for raw_model_name in ULTIMATE_FALLBACK_LIST:
-        model_name = raw_model_name.replace("models/", "")
+        is_ollama = raw_model_name.startswith("ollama/") or "ollama" in raw_model_name.lower()
+        
+        # Enforce AI_PREFER_LOCAL choice
+        if AI_PREFER_LOCAL:
+            if not is_ollama:
+                continue
+        else:
+            if is_ollama:
+                continue
+                
+        model_name = raw_model_name.replace("models/", "").replace("ollama/", "")
         try:
-            # Initialize LangChain LLM
-            llm = ChatGoogleGenerativeAI(
-                model=model_name,
-                google_api_key=API_KEY,
-                temperature=0.2
-            )
+            if is_ollama:
+                # Initialize local Ollama Chat model
+                # Note: We use model_name from the fallback list because the chatbot requires tool-calling support
+                # which may not be available on all models (e.g. gemma3:4b does not support tools in Ollama).
+                llm = CustomChatOllama(model_name=model_name)
+            else:
+                # Initialize LangChain LLM
+                llm = ChatGoogleGenerativeAI(
+                    model=model_name,
+                    google_api_key=API_KEY,
+                    temperature=0.2
+                )
             
             # Create LangGraph ReAct Agent Loop
             agent = create_react_agent(

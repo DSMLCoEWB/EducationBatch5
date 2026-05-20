@@ -124,6 +124,9 @@ def map_email_row(row: Any) -> Dict[str, Any]:
     email['recipientEmail'] = email.get('recipient_email')
     email['instituteName']  = email.get('institute_name')
     email['html_content']   = email.get('html_content')
+    email['to']             = email.get('to_address')
+    email['cc']             = email.get('cc_address')
+    email['bcc']            = email.get('bcc_address')
     
     email['hasAttachment'] = bool(email.get('has_attachment'))
     email['is_demo']       = bool(email.get('is_demo'))
@@ -195,6 +198,9 @@ def init_db():
                 user_email TEXT,
                 is_resolved BOOLEAN DEFAULT 0,
                 manual_override BOOLEAN DEFAULT 0,
+                to_address TEXT,
+                cc_address TEXT,
+                bcc_address TEXT,
                 last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -309,6 +315,17 @@ def init_db():
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS priority_rules (
+                priority INTEGER,
+                user_email TEXT,
+                label TEXT,
+                keywords TEXT,
+                description TEXT DEFAULT '',
+                PRIMARY KEY (user_email, priority)
+            )
+        """)
+
         # NOTE: Category seeding is now handled per-user in ensure_user_categories()
 
         
@@ -365,6 +382,9 @@ def _run_migrations(cursor):
         "institute_name": "TEXT",
         "is_resolved": "BOOLEAN DEFAULT 0",
         "manual_override": "BOOLEAN DEFAULT 0",
+        "to_address": "TEXT",
+        "cc_address": "TEXT",
+        "bcc_address": "TEXT",
         "sync_interval_seconds": "INTEGER DEFAULT 300"
     }
     # Special case for tables other than 'emails'
@@ -390,6 +410,44 @@ def _run_migrations(cursor):
         print("[DB Migration] Adding icon column to categories...")
         cursor.execute("ALTER TABLE categories ADD COLUMN icon TEXT DEFAULT 'Hash'")
 
+    # Migrate priority_rules table to support dynamic description rubrics
+    try:
+        cursor.execute("SELECT description FROM priority_rules LIMIT 1")
+    except sqlite3.OperationalError:
+        print("[DB Migration] Adding description column to priority_rules...")
+        try:
+            cursor.execute("ALTER TABLE priority_rules ADD COLUMN description TEXT DEFAULT ''")
+        except Exception as e:
+            print(f"[DB Migration] Warning: Failed to alter priority_rules: {e}")
+
+    # Create system metadata table to track one-time migrations and tasks
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        
+        cursor.execute("SELECT value FROM system_metadata WHERE key = 'priority_rubrics_backfilled'")
+        row = cursor.fetchone()
+        has_desc_seeded = row is not None and row[0] == 'true'
+        
+        if not has_desc_seeded:
+            print("[DB Migration] Seeding default descriptions for priority rules...")
+            default_descs = {
+                0: "Chief Secretary / Cabinet / Highest Government Authority (Mandatory Command), Court orders, RTI Matters, Examination Paper Leakage/Breach, Major Student Accidents (Critical)",
+                1: "Anti-Ragging Complaints, FIR cases, CMO Issues, Ministerial References, Service Matters (Salary/Pension Delays), Suspensions / Disciplinary, Financial Fraud (High Stakes & Integrity)",
+                2: "Tenders / Procurement (Deadlines), Seat Matrix, Accreditation (NAAC/NBA), Ordinary Leave Requests, Admissions, Semester / Examination routine, Scholarship Queries (Routine & Medium Stakes)",
+                3: "Miscellaneous, routine queries, website feedback, or general information (Standard/Low)"
+            }
+            for prio, desc in default_descs.items():
+                cursor.execute("UPDATE priority_rules SET description = ? WHERE priority = ? AND (description = '' OR description IS NULL)", (desc, prio))
+            
+            cursor.execute("INSERT OR REPLACE INTO system_metadata (key, value) VALUES ('priority_rubrics_backfilled', 'true')")
+    except Exception as e:
+        print(f"[DB Migration] Warning: Failed to backfill descriptions: {e}")
+
 def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
     with get_db_conn() as conn:
         cursor = conn.cursor()
@@ -400,9 +458,10 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
                 recipient_email, subject, content, category, mail_type, priority, 
                 date, has_attachment, attachments, is_demo, replied, is_trashed, 
                 is_inbox, is_sent, is_priority_refined, is_ocr_processed, 
-                attachment_content, html_content, followup_count, institute_name, user_email
+                attachment_content, html_content, followup_count, institute_name, 
+                to_address, cc_address, bcc_address, user_email
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             ON CONFLICT(id) DO UPDATE SET
                 gmail_id=COALESCE(excluded.gmail_id, gmail_id),
@@ -435,6 +494,9 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
                 html_content=COALESCE(excluded.html_content, html_content),
                 followup_count=COALESCE(excluded.followup_count, followup_count),
                 institute_name=COALESCE(excluded.institute_name, institute_name),
+                to_address=COALESCE(excluded.to_address, to_address),
+                cc_address=COALESCE(excluded.cc_address, cc_address),
+                bcc_address=COALESCE(excluded.bcc_address, bcc_address),
                 last_synced=CURRENT_TIMESTAMP
         """
 
@@ -474,12 +536,15 @@ def save_emails_batch(user_email: str, emails: List[Dict[str, Any]]):
                 1 if e.get('is_trashed') else 0,
                 1 if e.get('is_inbox') else 0,
                 1 if e.get('is_sent') else 0,
-                0, # is_priority_refined
-                0, # is_ocr_processed
-                None, # attachment_content
+                1 if e.get('is_priority_refined') else 0,
+                1 if e.get('is_ocr_processed') else 0,
+                e.get('attachment_content'), # attachment_content
                 e.get('html_content'),
                 e.get('followup_count', 0),
                 e.get('institute_name'),
+                e.get('to'),
+                e.get('cc'),
+                e.get('bcc'),
                 user_email
             ))
 
@@ -940,16 +1005,21 @@ def update_email_attachment_content(user_email: str, email_id: str, text: str, f
 
 def get_unrefined_emails(user_email: str, limit: int = 5) -> List[Dict[str, Any]]:
     """Returns a batch of emails that need AI priority/category refinement."""
+    from config import AI_PREFER_LOCAL
+    # Restrict Gemini API from processing the heavy demo batch
+    demo_filter = "" if AI_PREFER_LOCAL else "AND is_demo = 0"
+    
     with get_db_conn() as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT id, sender, subject, content, attachment_content 
             FROM emails 
             WHERE user_email = ? 
               AND is_priority_refined = 0 
               AND is_trashed = 0 
               AND (has_attachment = 0 OR is_ocr_processed = 1)
+              {demo_filter}
             ORDER BY date DESC LIMIT ?
         """, (user_email, limit))
         return [dict(row) for row in cursor.fetchall()]
@@ -961,7 +1031,7 @@ def update_email_refinement(user_email: str, email_id: str, priority: int, categ
         cursor.execute("""
             UPDATE emails 
             SET priority = ?, category = ?, is_priority_refined = 1, last_synced = CURRENT_TIMESTAMP 
-            WHERE id = ? AND LOWER(user_email) = LOWER(?)
+            WHERE id = ? AND LOWER(user_email) = LOWER(?) AND is_demo = 0
         """, (priority, category, email_id, user_email.strip()))
         conn.commit()
         return cursor.rowcount
@@ -973,7 +1043,7 @@ def reset_refinement_status(user_email: str, email_id: str):
         cursor.execute("""
             UPDATE emails 
             SET is_priority_refined = 0 
-            WHERE id = ? AND user_email = ?
+            WHERE id = ? AND user_email = ? AND is_demo = 0
         """, (email_id, user_email))
         conn.commit()
         return cursor.rowcount
@@ -1001,7 +1071,7 @@ def add_category(user_email: str, name: str, color: str, icon: str):
         if row:
             if not row[1]: 
                 cursor.execute("UPDATE categories SET is_active = 1, color = ?, icon = ? WHERE id = ?", (color, icon, row[0]))
-                cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ?", (user_email,))
+                cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ? AND is_demo = 0", (user_email,))
                 conn.commit()
                 return row[0]
             else:
@@ -1009,7 +1079,7 @@ def add_category(user_email: str, name: str, color: str, icon: str):
         
         new_id = str(uuid.uuid4())
         cursor.execute("INSERT INTO categories (id, name, color, icon, is_active, user_email) VALUES (?, ?, ?, ?, 1, ?)", (new_id, name, color, icon, user_email))
-        cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ?", (user_email,))
+        cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ? AND is_demo = 0", (user_email,))
         conn.commit()
         return new_id
 
@@ -1028,7 +1098,7 @@ def update_category(user_email: str, cat_id: str, name: str, color: str, icon: s
             # 1. Migrate existing emails to the new name immediately
             cursor.execute("UPDATE emails SET category = ? WHERE category = ? AND user_email = ?", (name, old_name, user_email))
             # 2. Reset refinement so AI can double-check the logic
-            cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ?", (user_email,))
+            cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ? AND is_demo = 0", (user_email,))
             
         conn.commit()
 
@@ -1045,7 +1115,8 @@ def delete_category(user_email: str, cat_id: str):
         
         cursor.execute("""
             UPDATE emails 
-            SET category = 'Miscellaneous', is_priority_refined = 0 
+            SET category = 'Miscellaneous', 
+                is_priority_refined = (CASE WHEN is_demo = 1 THEN is_priority_refined ELSE 0 END)
             WHERE category = ? AND user_email = ?
         """, (cat_name, user_email))
         conn.commit()
@@ -1086,6 +1157,144 @@ def ensure_user_categories(user_email: str):
                     )
                 except: pass # Race condition safety
             conn.commit()
+
+def get_priority_rules(user_email: str) -> List[Dict[str, Any]]:
+    """Fetches custom priority rules for a specific user. Seeds default keywords and descriptions self-healingly if empty."""
+    with get_db_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("SELECT priority, label, keywords, description FROM priority_rules WHERE user_email = ? AND priority >= 0 ORDER BY priority ASC", (user_email,))
+            rows = cursor.fetchall()
+        except sqlite3.OperationalError:
+            cursor.execute("SELECT priority, label, keywords FROM priority_rules WHERE user_email = ? AND priority >= 0 ORDER BY priority ASC", (user_email,))
+            rows = cursor.fetchall()
+        
+        if not rows:
+            # Seed default 4-level system keywords and dynamic description rubrics
+            default_rules = [
+                (0, "Critical", ["urgent", "critical", "cmo", "emergency", "immediate", "legal", "court", "salary", "pension", "arrear", "fixation", "seniority"], 
+                 "Chief Secretary / Cabinet / Highest Government Authority (Mandatory Command), Court orders, RTI Matters, Examination Paper Leakage/Breach, Major Student Accidents (Critical)"),
+                (1, "High", ["suspension", "disciplinary", "chargesheet", "misconduct", "ragging", "anti-ragging", "anti ragging", "transfer", "posting", "deputation"], 
+                 "Anti-Ragging Complaints, FIR cases, CMO Issues, Ministerial References, Service Matters (Salary/Pension Delays), Suspensions / Disciplinary, Financial Fraud (High Stakes & Integrity)"),
+                (2, "Medium", ["exam", "semester", "result", "marksheet", "admit", "scholarship", "svmcm", "oasis", "fee"], 
+                 "Tenders / Procurement (Deadlines), Seat Matrix, Accreditation (NAAC/NBA), Ordinary Leave Requests, Admissions, Semester / Examination routine, Scholarship Queries (Routine & Medium Stakes)"),
+                (3, "Low", ["general", "query", "status", "acknowledge"], 
+                 "Miscellaneous, routine queries, website feedback, or general information (Standard/Low)")
+            ]
+            for prio, label, kw_list, desc in default_rules:
+                cursor.execute(
+                    "INSERT OR REPLACE INTO priority_rules (priority, user_email, label, keywords, description) VALUES (?, ?, ?, ?, ?)",
+                    (prio, user_email, label, json.dumps(kw_list), desc)
+                )
+            conn.commit()
+            
+            # Re-fetch
+            cursor.execute("SELECT priority, label, keywords, description FROM priority_rules WHERE user_email = ? AND priority >= 0 ORDER BY priority ASC", (user_email,))
+            rows = cursor.fetchall()
+            
+        result = []
+        for r in rows:
+            try:
+                kw = json.loads(r["keywords"])
+            except:
+                kw = []
+            
+            desc = ""
+            if "description" in r.keys():
+                desc = r["description"] or ""
+                
+            result.append({
+                "priority": r["priority"],
+                "label": r["label"],
+                "keywords": kw,
+                "description": desc
+            })
+        return result
+
+def save_priority_rules(user_email: str, rules: List[Dict[str, Any]]):
+    """Saves the user's custom priority rules (keywords and descriptions) and resets priority refinement for background re-triage."""
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        for r in rules:
+            prio = int(r["priority"])
+            label = str(r["label"])
+            keywords = json.dumps(r["keywords"])
+            description = str(r.get("description", ""))
+            cursor.execute(
+                "INSERT OR REPLACE INTO priority_rules (priority, user_email, label, keywords, description) VALUES (?, ?, ?, ?, ?)",
+                (prio, user_email, label, keywords, description)
+            )
+        # Reset is_priority_refined = 0 on all non-demo emails to trigger recalculation with new rules!
+        cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ? AND is_demo = 0", (user_email,))
+        conn.commit()
+
+def get_global_rules(user_email: str) -> str:
+    """Fetches custom global rules for a specific user. Seeds default if empty."""
+    old_default = (
+        "- Increase urgency (lower number), capped at Level 1, if ANY of the following are detected:\n"
+        "  (a) User frustration, anger, or emotionally distressed tone or a truly urgent or time-sensitive matter.\n"
+        "  (b) Excessive unanswered follow-ups (>3 follow-ups without resolution) or evidence of a significantly delayed departmental response.\n"
+        "- Level 0 is reserved for Chief Secretary commands, court orders, major student accidents, and institutional breaches.\n"
+        "- Anti-Ragging complaints and student safety grievances MUST follow Level 1 unless they involve a major medical emergency/accident."
+    )
+    
+    new_default = (
+        "- Increase urgency (lower number), capped at Level 1, if ANY of the following are detected:\n"
+        "  (a) User frustration, anger, or emotionally distressed tone or a truly urgent or time-sensitive matter.\n"
+        "  (b) Excessive unanswered follow-ups (>3 follow-ups without resolution) or evidence of a significantly delayed departmental response.\n"
+        "- Level 0 is reserved for Chief Secretary commands, court orders, major student accidents, and institutional breaches.\n"
+        "- Anti-Ragging complaints and student safety grievances MUST follow Level 1 unless they involve a major medical emergency/accident.\n"
+        '- DO NOT classify general student "inquiries" or "enquiries" as Suspension/Disciplinary unless there is explicit mention of misconduct or penalties.\n'
+        '- "SVMCMS", "Oasis", and "K3" are strictly Scholarship & Fee Concession matters.'
+    )
+
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT description FROM priority_rules WHERE user_email = ? AND priority = -1",
+                (user_email,)
+            )
+            row = cursor.fetchone()
+            if row:
+                current_val = row[0] or ""
+                if current_val.strip() == old_default.strip():
+                    cursor.execute(
+                        "UPDATE priority_rules SET description = ? WHERE user_email = ? AND priority = -1",
+                        (new_default, user_email)
+                    )
+                    conn.commit()
+                    return new_default
+                return current_val
+        except sqlite3.OperationalError:
+            pass
+
+        # Seed default if not found
+        try:
+            cursor.execute(
+                "INSERT OR REPLACE INTO priority_rules (priority, user_email, label, keywords, description) VALUES (-1, ?, 'Global Rules', '[]', ?)",
+                (user_email, new_default)
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Error seeding global rules: {e}")
+            
+        return new_default
+
+def save_global_rules(user_email: str, global_rules: str):
+    """Saves the user's custom global rules and resets priority refinement for re-triage."""
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO priority_rules (priority, user_email, label, keywords, description) VALUES (-1, ?, 'Global Rules', '[]', ?)",
+            (user_email, global_rules)
+        )
+        # Reset is_priority_refined = 0 on all non-demo emails to trigger recalculation with new global rules!
+        cursor.execute("UPDATE emails SET is_priority_refined = 0 WHERE user_email = ? AND is_demo = 0", (user_email,))
+        conn.commit()
+
 
 def get_unprocessed_attachments(user_email: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Returns attachments that exist locally but haven't been OCR-processed yet."""

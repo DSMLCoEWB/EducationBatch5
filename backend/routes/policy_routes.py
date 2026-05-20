@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -12,7 +12,7 @@ from services.policy_service import (
     slugify_policy_id, remove_policy_chunks, resolve_policy_file_path, 
     load_policy_chunks
 )
-from rag_pipeline.ingest import ingest_policy_document
+from rag.ingest import ingest_policy_document
 from services.rag_service import reload_retriever_data
 from config import POLICY_DIR, DEMO_POLICY_DIR
 
@@ -22,15 +22,20 @@ class PolicyInfo(BaseModel):
     id: str
     chunk_count: int
     status: str
+    extension: str = "pdf"
+    is_demo: bool = False
 
 @router.post("/upload")
 async def upload_policy(
     file: UploadFile = File(...),
+    force_ocr: bool = Form(False),
     user_email: str = Depends(get_authenticated_user)
 ):
     """Uploads and indexes a new policy document with Intelligent Collision Guard."""
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDFs allowed.")
+    allowed_exts = {".pdf", ".docx", ".txt", ".md", ".png", ".jpg", ".jpeg"}
+    ext = Path(file.filename).suffix.lower()
+    if ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail=f"Unsupported format. Allowed: {', '.join(allowed_exts)}")
         
     # 1. Read content and calculate digital fingerprint (hash)
     content = await file.read()
@@ -41,7 +46,7 @@ async def upload_policy(
     # User-Specific Path Resolution
     from services.policy_service import get_user_policy_paths
     paths = get_user_policy_paths(user_email)
-    path = paths["policy_dir"] / f"{policy_id}.pdf"
+    path = paths["policy_dir"] / f"{policy_id}{ext}"
     
     is_update = False
     
@@ -74,7 +79,7 @@ async def upload_policy(
 
     # 4. Critical Logic: Purge old memory and teach the AI the new content
     remove_policy_chunks(policy_id, user_email)
-    stats = ingest_policy_document(str(path), user_email, policy_id)
+    stats = ingest_policy_document(str(path), user_email, policy_id, force_ocr=force_ocr)
     reload_retriever_data(user_email)
     
     return {
@@ -96,22 +101,41 @@ def list_policies(user_email: str = Depends(get_authenticated_user)):
         
     # Local Filesystem Sweep
     discovered_pids = set()
+    policy_extensions = {}
     from services.policy_service import get_user_policy_paths
     paths = get_user_policy_paths(user_email)
     
     dirs = [paths["policy_dir"], DEMO_POLICY_DIR]
     for d in dirs:
         if d.exists():
-            for f in d.glob("*.pdf"): discovered_pids.add(f.stem)
-            for f in d.glob("*.PDF"): discovered_pids.add(f.stem)
+            for ext_pattern in [
+                "*.pdf", "*.PDF", "*.docx", "*.DOCX", "*.txt", "*.TXT", "*.md", "*.MD",
+                "*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG"
+            ]:
+                for f in d.glob(ext_pattern):
+                    pid = f.stem
+                    discovered_pids.add(pid)
+                    policy_extensions[pid] = f.suffix.lower().replace(".", "")
             
     # Include both files and existing index entries
     all_pids = discovered_pids.union(set(counts.keys()))
     
     policies = []
     for pid in sorted(list(all_pids)):
-        exists = resolve_policy_file_path(pid, user_email) is not None
+        resolved_path = resolve_policy_file_path(pid, user_email)
+        exists = resolved_path is not None
         chunk_count = counts.get(pid, 0)
+        
+        # Determine if it is solely a demo policy (not present in user's isolated directory)
+        user_path = paths["policy_dir"] / resolved_path.name if resolved_path else None
+        is_demo = not (user_path and user_path.exists())
+        
+        # Get extension dynamically
+        ext = "pdf"
+        if resolved_path:
+            ext = resolved_path.suffix.lower().replace(".", "")
+        elif pid in policy_extensions:
+            ext = policy_extensions[pid]
         
         if exists and chunk_count > 0:
             status = "active"
@@ -123,7 +147,9 @@ def list_policies(user_email: str = Depends(get_authenticated_user)):
         policies.append(PolicyInfo(
             id=pid, 
             chunk_count=chunk_count, 
-            status=status
+            status=status,
+            extension=ext,
+            is_demo=is_demo
         ))
     return {"policies": policies}
 
@@ -132,11 +158,68 @@ def download_policy(
     policy_id: str,
     user_email: str = Depends(get_authenticated_user)
 ):
-    """Downloads the original PDF for a policy."""
+    """Downloads the original document for a policy."""
     path = resolve_policy_file_path(policy_id, user_email)
     if not path:
         raise HTTPException(status_code=404)
-    return FileResponse(str(path), media_type="application/pdf")
+        
+    ext = path.suffix.lower()
+    media_types = {
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".txt": "text/plain",
+        ".md": "text/markdown",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg"
+    }
+    mtype = media_types.get(ext, "application/octet-stream")
+    return FileResponse(str(path), media_type=mtype)
+
+@router.post("/activate-all")
+def activate_all_policies(user_email: str = Depends(get_authenticated_user)):
+    """Indexes/Activates all pending or unindexed guidelines for this user."""
+    from services.policy_service import get_user_policy_paths
+    paths = get_user_policy_paths(user_email)
+    policy_dir = paths["policy_dir"]
+    
+    # Sweep local directory for all PDFs
+    pdf_files = list(policy_dir.glob("*.pdf")) + list(policy_dir.glob("*.PDF"))
+    if not pdf_files:
+        return {"success": True, "message": "No guidelines found to publish.", "activated_count": 0}
+        
+    # Find currently active policy ids in user's index chunks
+    chunks = load_policy_chunks(user_email)
+    active_pids = {c.get("policy_id") for c in chunks if c.get("policy_id")}
+    
+    to_activate = [p for p in pdf_files if p.stem not in active_pids]
+    
+    if not to_activate:
+        return {"success": True, "message": "All guidelines are already active.", "activated_count": 0}
+        
+    activated_count = 0
+    stats_list = []
+    for path in to_activate:
+        try:
+            # Surgically ingest pending document
+            remove_policy_chunks(path.stem, user_email)
+            stats = ingest_policy_document(str(path), user_email, path.stem)
+            activated_count += 1
+            stats_list.append({"policy_id": path.stem, "status": "success", "stats": stats})
+        except Exception as e:
+            stats_list.append({"policy_id": path.stem, "status": "failed", "error": str(e)})
+            
+    # Reload retriever index just once at the end for efficiency!
+    if activated_count > 0:
+        reload_retriever_data(user_email)
+        
+    return {
+        "success": True, 
+        "message": f"Successfully published {activated_count} guidelines.", 
+        "activated_count": activated_count,
+        "details": stats_list
+    }
+
 
 @router.post("/{policy_id}/activate")
 def activate_policy(

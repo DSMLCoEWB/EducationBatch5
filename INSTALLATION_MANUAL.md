@@ -1,540 +1,283 @@
-# 📋 Installation Manual — AI Grievance Intelligence System
+# 📋 Comprehensive Installation Manual — AI Grievance Intelligence System
 
-> **Version:** 1.0
-> **Target Platform:** Windows 10/11 (COE Machine)
-> **Deployment Method:** Docker Desktop
-> **Estimated Setup Time:** 30–45 minutes
+Welcome to the definitive setup and installation manual for the **AI Grievance Intelligence System**. This document outlines how to install, configure, secure, and run the application natively on **any operating system** (Windows, Linux, macOS) or inside **Docker containers**.
 
 ---
 
-## Table of Contents
-
+## 🚦 Table of Contents
 1. [System Requirements](#1-system-requirements)
-2. [Install Docker Desktop](#2-install-docker-desktop)
-3. [Download the Project](#3-download-the-project)
-4. [Google Cloud Setup (API Keys &amp; OAuth)](#4-google-cloud-setup-api-keys--oauth)
-5. [Configure the Application](#5-configure-the-application)
-6. [Launch the Application](#6-launch-the-application)
-7. [First Login &amp; Onboarding](#7-first-login--onboarding)
-8. [Stopping &amp; Restarting](#8-stopping--restarting)
-9. [Updating to a New Version](#9-updating-to-a-new-version)
-10. [Backup &amp; Data](#10-backup--data)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Installation without Docker (Traditional Method)](#12-installation-without-docker-traditional-method)
-13. [Architecture Overview](#13-architecture-overview)
+2. [Google Cloud Platform Setup (API Keys & OAuth)](#2-google-cloud-platform-setup-api-keys--oauth)
+3. [Method A: Native Installation (Highly Recommended for Host GPU/Ollama)](#3-method-a-native-installation-highly-recommended-for-host-gpuollama)
+4. [Method B: Containerized Installation (Docker Desktop)](#4-method-b-containerized-installation-docker-desktop)
+5. [Local Playground: Seeding & Initializing FAISS Index](#5-local-playground-seeding--initializing-faiss-index)
+6. [Maintenance, Backups & Data Folders](#6-maintenance-backups--data-folders)
+7. [Troubleshooting & Common Fixes](#7-troubleshooting--common-fixes)
+8. [Appendix: Environment Variables Reference](#8-appendix-environment-variables-reference)
+   * [8.1 Backend Environment Variables](#81-backend-environment-variables-backendenv)
+   * [8.2 Frontend Environment Variables](#82-frontend-environment-variables-frontendenv)
 
 ---
 
 ## 1. System Requirements
 
-| Requirement                | Minimum                                       | Recommended   |
-| :------------------------- | :-------------------------------------------- | :------------ |
-| **Operating System** | Windows 10 (64-bit) Build 19041+              | Windows 11    |
-| **RAM**              | 4 GB                                          | 8 GB          |
-| **Disk Space**       | 5 GB free                                     | 10 GB free    |
-| **Internet**         | Required (for Gmail & AI APIs)                | Broadband     |
-| **Browser**          | Chrome 90+ / Edge 90+                         | Latest Chrome |
-| **Ports**            | 3000 (Frontend) & 8000 (Backend) must be free | —            |
+The system processes large policy documents and scans visual email attachments. Minimum and recommended criteria vary based on whether local GPU acceleration is used.
 
-> ⚠️ **Important:** This application requires an active internet connection to communicate with Google's Gmail API and Gemini AI API. It will NOT work on an air-gapped network.
+| Requirement | Minimum (CPU Only) | Recommended (NVIDIA GPU Acceleration) |
+| :--- | :--- | :--- |
+| **Operating System** | Windows 10/11, Ubuntu 22.04+, macOS | Windows 11 / Ubuntu 22.04+ |
+| **Processor** | Intel Core i5 / AMD Ryzen 5 | Intel Core i7 / AMD Ryzen 7 |
+| **RAM** | 8 GB | 16 GB+ |
+| **Graphics Card** | Standard Integrated Graphics | NVIDIA GPU with 4GB+ VRAM (CUDA 12.4 compatible) |
+| **Disk Space** | 5 GB free space | 15 GB free space (for AI model caching) |
+| **Internet** | Required for external API calls | High-speed Broadband |
 
----
-
-## 2. Install Docker Desktop
-
-Docker Desktop packages the entire application into isolated containers, eliminating the need to install Python, Node.js, or any other dependencies manually.
-
-### Steps:
-
-1. **Download Docker Desktop** from: https://www.docker.com/products/docker-desktop/
-2. **Run the installer** (`Docker Desktop Installer.exe`).
-3. During installation, ensure **"Use WSL 2 instead of Hyper-V"** is checked (recommended).
-4. **Restart your computer** when prompted.
-5. **Launch Docker Desktop** from the Start Menu.
-6. Wait for the Docker Engine to start (the whale icon in the system tray will stop animating).
-7. **Verify installation** by opening **PowerShell** and running:
-
-```powershell
-docker --version
-docker compose version
-```
-
-You should see version numbers like `Docker version 27.x.x` and `Docker Compose version v2.x.x`.
-
-> 💡 **Tip:** If you see an error about WSL 2, run `wsl --install` in an elevated PowerShell and restart.
+> [!IMPORTANT]
+> This application requires an active internet connection to communicate securely with Google Gmail and Google Gemini AI servers. It cannot run in an air-gapped network environment.
 
 ---
 
-## 2.1. GPU Acceleration (Recommended for COE)
+## 2. Google Cloud Platform Setup (API Keys & OAuth)
 
-The AI Grievance System includes local AI models for searching policy documents. While these can run on the CPU, using an NVIDIA GPU is significantly faster.
+To unlock automated Gmail synchronization and LLM classification, you must configure two types of credentials in your Google Cloud Console.
 
-### Prerequisites:
+### 2.1 Enable Google APIs
+1. Navigate to the [Google Cloud Library Console](https://console.cloud.google.com/apis/library).
+2. Create or select a Google Cloud project.
+3. Search for and enable the following APIs:
+   * **Gmail API**
+   * **Generative Language API** (required for Gemini)
 
-- **NVIDIA GPU** with 4GB+ VRAM.
-- **NVIDIA Driver** (Version 535+ recommended).
+### 2.2 Get a Gemini API Key
+1. Go to the [Google AI Studio API Key Manager](https://aistudio.google.com/apikey).
+2. Click **Create API Key**.
+3. Copy the generated key. You will configure this as `GOOGLE_API_KEY` and `GEMINI_API_KEY`.
 
-### One-Time Setup for Docker GPU Support:
+### 2.3 Create OAuth Client Credentials for Gmail Sync
+1. Go to the [Google Credentials Console](https://console.cloud.google.com/apis/credentials).
+2. Click **Create Credentials** → **OAuth client ID**.
+3. If prompted to configure the OAuth Consent Screen:
+   * Select **External** User Type.
+   * Add the following authorization scopes:
+     * `https://www.googleapis.com/auth/gmail.readonly`
+     * `https://www.googleapis.com/auth/gmail.send`
+     * `https://www.googleapis.com/auth/gmail.modify`
+     * `https://www.googleapis.com/auth/userinfo.email`
+     * `https://www.googleapis.com/auth/userinfo.profile`
+   * Add your target Gmail accounts as **Test Users** (mandatory while in testing mode).
+4. Select **Web Application** as the Application Type.
+5. Set the redirect and origin configurations:
+   * **Authorized JavaScript Origins:** `http://localhost:3000`
+   * **Authorized Redirect URIs:** `http://localhost:8000/auth/google/callback`
+6. Click **Create** and safely record your **Client ID** and **Client Secret**.
 
-To allow Docker containers to use your physical GPU, you must install the **NVIDIA Container Toolkit**:
+### 2.4 Generate Cryptographic Security Keys
+For secure multi-user credential storage and session signing, the system requires two secure cryptographic keys.
 
-1. **Open PowerShell as Administrator**.
-2. Run the following command to install the toolkit via `winget`:
-   ```powershell
-   winget install NVIDIA.ContainerToolkit
+1. **OAuth Encryption Key (`GOOGLE_OAUTH_ENCRYPTION_KEY`)**:
+   * **What it does**: A symmetric Fernet key used to securely encrypt and decrypt Gmail API refresh tokens inside the database (protecting user credentials at rest).
+   * **How to generate it**: Open a terminal and run the following Python command:
+     ```bash
+     python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+     ```
+   * **Usage**: Copy the printed 44-character string and paste it into `.env` as `GOOGLE_OAUTH_ENCRYPTION_KEY`.
+
+2. **Session Signature Secret (`APP_SESSION_SECRET`)**:
+   * **What it does**: A cryptographically secure secret used to sign cookies and manage secure user sessions (preventing session hijacking).
+   * **How to generate it**: Run the same Python generator command again or use a secure random hex generator:
+     ```bash
+     python -c "import secrets; print(secrets.token_hex(32))"
+     ```
+   * **Usage**: Copy the printed string and paste it into `.env` as `APP_SESSION_SECRET`.
+
+### 2.5 Optional Dedicated LLM Keys (Quota Isolation)
+Under high traffic, multiple background AI Triaging tasks can clash with the AI Reply Generator, causing Gemini API rate-limiting errors.
+To isolate these quotas, you can optionally configure up to three separate Gemini API keys:
+1. **`GOOGLE_API_KEY` / `GEMINI_API_KEY`**: The main key used for generating email responses in the reply modal.
+2. **`PRIORITY_GOOGLE_API_KEY` / `PRIORITY_GEMINI_API_KEY`**: A secondary key used for high-volume background ticket classifications and priority triage.
+3. **`CHATBOT_GEMINI_API_KEY`**: A third key reserved exclusively for the AI assistant chatbot.
+
+*Note: If secondary keys are left blank in `.env`, the system will gracefully fall back to using your main `GOOGLE_API_KEY` for all operations.*
+
+---
+
+## 3. Method A: Native Installation (Highly Recommended for Host GPU/Ollama)
+
+Running the system natively lets the backend leverage host GPU architectures and connect to local Ollama nodes directly without virtualization overhead.
+
+### 3.1 Setup on Windows (Automated Smart Script)
+1. **Ensure Ollama is running** on your host.
+2. Double-click the **`setup_coe.bat`** script in the project root.
+3. The script will automatically:
+   * Detect NVIDIA GPU video controllers.
+   * Configure a local Python Virtual Environment (`backend/venv`).
+   * Download the correct version of PyTorch (CUDA 12.4 wheels for GPU, standard wheels for CPU) to prevent system DLL conflicts.
+   * Install all required backend packages from `backend/requirements.txt`.
+
+### 3.2 Setup on Linux / macOS
+1. Open a terminal and navigate to the `backend/` directory:
+   ```bash
+   cd backend
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install --upgrade pip
+   pip install -r requirements.txt
    ```
-3. **Restart Docker Desktop** after the installation completes.
 
-### Launching in GPU Mode:
+### 3.3 Configure Environment Variables
+1. Navigate to the `backend/` folder.
+2. Rename `.env.example` to `.env`.
+3. Open `.env` and fill in your Google credentials from [Section 2](#2-google-cloud-platform-setup-api-keys--oauth):
+   ```ini
+   GOOGLE_API_KEY=AIzaSy...your_gemini_key
+   GEMINI_API_KEY=AIzaSy...your_gemini_key
+   GOOGLE_OAUTH_CLIENT_ID=your_id.apps.googleusercontent.com
+   GOOGLE_OAUTH_CLIENT_SECRET=your_secret
+   ```
 
-If you have an **NVIDIA GPU** and have installed the toolkit above, run:
+### 3.4 Launch Services Natively
 
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
-```
-
-If you have an **AMD or Intel GPU** (like a Radeon or Iris Xe), run:
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d
-```
-
-This will build the specialized GPU image and give the backend access to your hardware via DirectML.
-
----
-
-## 3. Download the Project
-
-### Option A: Using Git (Recommended)
-
-```powershell
-# Open PowerShell and navigate to a folder of your choice
-cd C:\Projects
-
-# Clone the repository
-git clone https://github.com/Debajitgithub/AICOE_EDUCATION_with_priority.git
-
-# Enter the project folder
-cd AICOE_EDUCATION_with_priority
-```
-
-### Option B: Manual Download
-
-1. Go to the GitHub repository page.
-2. Click the green **"Code"** button → **"Download ZIP"**.
-3. Extract the ZIP to a folder like `C:\Projects\AICOE_EDUCATION_with_priority`.
+*   **Terminal 1 - Backend Server:**
+    ```bash
+    cd backend
+    # Windows:
+    venv\Scripts\activate.bat
+    python main.py
+    # Linux / macOS:
+    source venv/bin/activate
+    python main.py
+    ```
+*   **Terminal 2 - Frontend Client:**
+    ```bash
+    cd frontend
+    npm install
+    npm run dev
+    ```
+    Access the React UI at `http://localhost:3000`.
 
 ---
 
-## 4. Google Cloud Setup (API Keys & OAuth)
+## 4. Method B: Containerized Installation (Docker Desktop)
 
-The application needs **two types of Google credentials**:
+Using Docker simplifies cross-platform dependencies by packaging the backend and frontend into isolated, self-healing containers.
 
-- **Gemini API Key** — for the AI chatbot and email classification.
-- **OAuth Client ID & Secret** — for secure Gmail login and email sync.
+### 4.1 Create Environment Files
+1. Create `backend/.env` (configured as shown in [Section 3.3](#33-configure-environment-variables)).
+2. Create `frontend/.env` and verify the backend API endpoints:
+   ```ini
+   VITE_API_URL=http://localhost:8000
+   VITE_REPLY_API_URL=http://localhost:8000
+   ```
 
-### 4A. Get a Gemini API Key
-
-1. Go to: https://aistudio.google.com/apikey
-2. Click **"Create API Key"**.
-3. Select an existing Google Cloud project or create a new one.
-4. **Copy the API key** — you will need it in Step 5.
-
-> 💡 The free tier of Gemini API provides generous rate limits sufficient for departmental use.
-
-### 4B. Create OAuth Credentials
-
-1. Go to: https://console.cloud.google.com/apis/credentials
-2. Select or create a project (use the same project as Step 4A).
-3. Click **"+ CREATE CREDENTIALS"** → **"OAuth client ID"**.
-4. If prompted to configure the **OAuth Consent Screen**:
-   - Choose **"External"** user type.
-   - Fill in the required fields (App name, Support email).
-   - Add the following **Scopes**:
-     - `https://www.googleapis.com/auth/gmail.readonly`
-     - `https://www.googleapis.com/auth/gmail.send`
-     - `https://www.googleapis.com/auth/gmail.modify`
-     - `https://www.googleapis.com/auth/userinfo.email`
-     - `https://www.googleapis.com/auth/userinfo.profile`
-   - Add **Test Users** (the Gmail addresses that will use the system).
-   - Save.
-5. Back on the Credentials page, click **"+ CREATE CREDENTIALS"** → **"OAuth client ID"**.
-6. Choose **"Web application"** as the Application Type.
-7. Set:
-   - **Name:** `Grievance Dashboard`
-   - **Authorized JavaScript Origins:** `http://localhost:3000`
-   - **Authorized Redirect URIs:** `http://localhost:8000/auth/google/callback`
-8. Click **"Create"**.
-9. **Copy the Client ID and Client Secret** — you will need them in Step 5.
-
-### 4C. Enable Required APIs
-
-In the same Google Cloud project, enable these APIs:
-
-1. Go to: https://console.cloud.google.com/apis/library
-2. Search and enable:
-   - **Gmail API**
-   - **Generative Language API** (for Gemini)
+### 4.2 Start Containers
+1. Launch **Docker Desktop** on your host machine.
+2. Open a terminal in the project root and start the multi-stage services:
+   ```bash
+   docker compose up --build -d
+   ```
+3. Verify both containers are running successfully:
+   ```bash
+   docker compose ps
+   ```
+   Access the dashboard at `http://localhost:3000`.
 
 ---
 
-## 5. Configure the Application
+## 5. Build the Semantic FAISS Policy Index
 
-### 5A. Create the Backend Configuration
+To enable policy-grounded AI responses, the application requires building a semantic FAISS vector index of your institutional guidelines. This is handled completely dynamically via the running application:
 
-1. Open the project folder in File Explorer.
-2. Navigate to the `backend` folder.
-3. Find the file named `.env.example`.
-4. **Copy** it and **rename** the copy to `.env` (just `.env`, no other extension).
-5. Open `.env` in Notepad and fill in these **mandatory** fields:
-
-```ini
-# ===== MANDATORY: Replace these with your actual values =====
-
-# Your Gemini API Key from Step 4A
-GOOGLE_API_KEY=AIzaSy...your_key_here
-GEMINI_API_KEY=AIzaSy...your_key_here
-
-# Your OAuth credentials from Step 4B
-GOOGLE_OAUTH_CLIENT_ID=123456789-abc.apps.googleusercontent.com
-GOOGLE_OAUTH_CLIENT_SECRET=GOCSPX-...your_secret_here
-
-# Security Keys (generate random strings or use these defaults for testing)
-GOOGLE_OAUTH_ENCRYPTION_KEY=my-super-secret-encryption-key-change-me
-APP_SESSION_SECRET=my-session-secret-change-me-in-production
-```
-
-6. **Save and close** the file.
-
-> ⚠️ **Security:** Never share your `.env` file or commit it to Git. It contains sensitive credentials.
-
-### 5B. Create the Frontend Configuration
-
-1. Navigate to the `frontend` folder.
-2. Find `.env.example` and **copy** it to `.env`.
-3. For local deployment, set:
-
-```ini
-VITE_API_URL=http://localhost:8000
-VITE_REPLY_API_URL=http://localhost:8000
-```
-
-4. **Save and close.**
+1. Start both the backend and frontend servers natively (described in [Section 3](#3-method-a-native-installation-highly-recommended-for-host-gpuollama)) or containerized (described in [Section 4](#4-method-b-containerized-installation-docker-desktop)).
+2. Open the React dashboard at `http://localhost:3000` and sign in using Google OAuth.
+3. Open the **"Administrative Policy Console"** from the top navigation bar or sidebar, and click the **"Load Demo PDFs"** button in the modal's footer. This dynamically parses all official policy documents stored in `backend/demo_policies/`, extracts their semantic chunks, and builds the local `rag_index.faiss` database.
+4. Alternatively, you can compile this index via a single HTTP API call:
+   ```bash
+   curl -X POST http://localhost:8000/policies/load-demo
+   ```
 
 ---
 
-## 6. Launch the Application
+## 6. Maintenance, Backups & Data Folders
 
-### First-Time Build & Launch
+### 6.1 Data Locations
+Active application data is preserved outside of code directories to ensure update safety:
+*   **SQLite Database:** `backend/data/grievances.db`
+*   **OAuth Credentials Cache:** `backend/data/oauth_tokens/`
+*   **FAISS Vector Index:** `backend/rag/data/`
+*   **Extracted Attachments:** `backend/attachments/`
 
-1. **Open PowerShell** (or Windows Terminal).
-2. Navigate to the project root folder:
-
+### 6.2 Manual Data Backup (Windows Command)
+To safely backup all user credentials, emails, and attachments, run:
 ```powershell
-cd C:\Projects\AICOE_EDUCATION_with_priority
-```
-
-3. **Build and start** the application:
-
-```powershell
-docker compose up --build -d
-```
-
-This command will:
-
-- Download the required base images (~1 GB, first time only).
-- Build the backend container (installs Python + AI libraries).
-- Build the frontend container (compiles the React app).
-- Start both containers in the background.
-
-> ⏱️ **First build takes 5–10 minutes** depending on internet speed. Subsequent starts take ~30 seconds.
-
-4. **Verify both containers are running:**
-
-```powershell
-docker compose ps
-```
-
-You should see:
-
-```
-NAME                 STATUS              PORTS
-grievance-backend    Up (healthy)        0.0.0.0:8000->8000/tcp
-grievance-frontend   Up (healthy)        0.0.0.0:3000->80/tcp
-```
-
-5. **Open your browser** and go to:
-
-```
-http://localhost:3000
-```
-
-🎉 **The application is now running!**
-
----
-
-## 7. First Login & Onboarding
-
-1. On the login page, click **"Sign in with Google"**.
-2. Select the Gmail account you added as a Test User in Step 4B.
-3. Grant the requested permissions (Read, Send, Modify emails).
-4. You will be redirected to the Dashboard.
-5. The system will begin **syncing your emails** in the background.
-   - A progress indicator will show on the dashboard.
-   - Initial sync fetches the last 14 days of email history.
-   - The AI will automatically classify and prioritize each grievance.
-6. Once sync completes, you can:
-   - View grievance statistics on the **Dashboard**.
-   - Ask the **AI Assistant** questions like: *"How many SVMCM complaints are unresolved?"*
-   - Reply to grievances with **AI-suggested responses**.
-
----
-
-## 8. Stopping & Restarting
-
-### Stop the Application
-
-```powershell
-cd C:\Projects\AICOE_EDUCATION_with_priority
+# Stop services
 docker compose down
-```
-
-### Restart the Application (without rebuilding)
-
-```powershell
-cd C:\Projects\AICOE_EDUCATION_with_priority
-docker compose up -d
-```
-
-### View Real-Time Logs
-
-```powershell
-# All services
-docker compose logs -f
-
-# Backend only
-docker compose logs -f backend
-
-# Frontend only
-docker compose logs -f frontend
-```
-
----
-
-## 9. Updating to a New Version
-
-When you receive an updated version of the code:
-
-```powershell
-cd C:\Projects\AICOE_EDUCATION_with_priority
-
-# Stop the current instance
-docker compose down
-
-# Pull the latest code (if using Git)
-git pull origin main
-
-# Rebuild and restart
-docker compose up --build -d
-```
-
-> 💡 Your data (emails, chat history, OAuth tokens) is stored in the `backend/data/` folder on your host machine and is preserved across updates.
-
----
-
-## 10. Backup & Data
-
-### Where is data stored?
-
-| Data             | Location on Host Machine       |
-| :--------------- | :----------------------------- |
-| Email database   | `backend/data/grievances.db` |
-| OAuth tokens     | `backend/data/oauth_tokens/` |
-| Policy documents | `backend/policies/`          |
-| Attachments      | `backend/attachments/`       |
-
-### Creating a Backup
-
-```powershell
-# Stop the app first to ensure data consistency
-docker compose down
-
-# Copy the data folder
+# Copy data safely
 Copy-Item -Path ".\backend\data" -Destination ".\backup_data_$(Get-Date -Format 'yyyyMMdd')" -Recurse
-
-# Restart
-docker compose up -d
-```
-
-### Restoring from Backup
-
-```powershell
-docker compose down
-Copy-Item -Path ".\backup_data_20260507\*" -Destination ".\backend\data\" -Recurse -Force
-docker compose up -d
 ```
 
 ---
 
-## 11. Troubleshooting
+## 7. Troubleshooting & Common Fixes
 
-### ❌ "Docker is not running"
+### ❌ Python `WinError 1114` (DLL Initialization Failed)
+*   **Cause:** Occurs on Windows host GPUs when PyTorch tries to load mismatched CUDA/CPU drivers.
+*   **Fix:** Run `setup_coe.bat` to automatically detect your driver capabilities and install matched PyTorch libraries.
 
-→ Open Docker Desktop from the Start Menu and wait for the engine to start.
+### ❌ OAuth consent screen `Error 403: access_denied`
+*   **Cause:** The Gmail login address has not been registered as an authorized developer account test user.
+*   **Fix:** Go to Google Cloud Console → **OAuth consent screen** → **Test Users** and add your sync email address.
 
-### ❌ "Port 8000 already in use"
+### ❌ Gmail callback fails with `redirect_uri_mismatch`
+*   **Cause:** The URI configured in Google Credentials differs from the server environment.
+*   **Fix:** Ensure your GCP OAuth Authorized Redirect URI matches exactly: `http://localhost:8000/auth/google/callback`
 
-→ Another program is using port 8000. Find and stop it:
-
-```powershell
-netstat -ano | findstr :8000
-taskkill /PID <PID_NUMBER> /F
-```
-
-### ❌ "Port 3000 already in use"
-
-→ Same as above but for port 3000.
-
-### ❌ Backend shows "unhealthy"
-
-→ Check the backend logs for errors:
-
-```powershell
-docker compose logs backend
-```
-
-Common causes:
-
-- Missing or invalid API keys in `.env`.
-- Missing environment variables.
-
-### ❌ Frontend shows a blank page
-
-→ The frontend build may have failed. Rebuild:
-
-```powershell
-docker compose down
-docker compose up --build -d
-```
-
-### ❌ "OAuth error: redirect_uri_mismatch"
-
-→ The redirect URI in Google Cloud Console doesn't match. Ensure it is exactly:
-
-```
-http://localhost:8000/auth/google/callback
-```
-
-### ❌ "Error 403: access_denied"
-
-→ The Gmail account is not added as a Test User in the OAuth Consent Screen. Go to Google Cloud Console → OAuth Consent Screen → Test Users → Add the email.
-
-### ❌ AI Chatbot says "I am having trouble processing"
-
-→ Check if the Gemini API key is valid:
-
-```powershell
-docker compose logs backend | Select-String "API"
-```
-
-### ❌ Emails not syncing
-
-→ Verify Gmail API is enabled in Google Cloud Console and the OAuth token is valid. Try logging out and logging back in.
+### ❌ FAISS Index / Retrieval Fails
+*   **Cause:** The FAISS index directory is empty or raw PDFs failed chunk ingestion.
+*   **Fix:** Open the **"Administrative Policy Console"** on the React dashboard and click **"Load Demo PDFs"** in the footer, or trigger it manually by running `curl -X POST http://localhost:8000/policies/load-demo` to build the `rag_index.faiss` vector database and policy chunks.
 
 ---
 
----
+## 8. Appendix: Environment Variables Reference
 
-## 12. Installation without Docker (Traditional Method)
+The system utilizes separate environment files for the FastAPI backend and React frontend.
 
-If the COE machine does **not** have Docker Desktop installed, use this method to run the application directly on Windows.
+### 8.1 Backend Environment Variables (`backend/.env`)
 
-### Prerequisites:
+The backend engine uses centralized `.env` configurations to dial in background sync behavior, local AI support, and RAG retrieval settings. Below is a comprehensive reference table of every parameter exposed in `backend/.env.example`:
 
-- **Python 3.10+** installed and added to PATH.
-- **Node.js 18+** (Required for frontend).
-- **NVIDIA GPU** (Optional but highly recommended for speed).
+| Category | Variable Name | Default Value | Purpose & Comprehensive Impact |
+| :--- | :--- | :--- | :--- |
+| **Safeguards** | `SYNC_ENABLED` | `true` | **Global Sync Switch**: Instantly toggles the background Gmail synchronization worker on or off. |
+| | `GMAIL_CALLS_PER_MINUTE_LIMIT` | `50` | **Rate Limiting**: The maximum number of Gmail API calls the sync engine is allowed to perform per minute, preventing rate-limiting blocks. |
+| | `GMAIL_SYNC_INTERVAL_SECONDS` | `600` | **Polled Refresh Rate**: How frequently (in seconds) the background task checks for new incoming grievance emails. |
+| | `MANUAL_SYNC_COOLDOWN_SECONDS` | `60` | **Cooldown Guard**: Prevents users from overloading Google's servers by limiting manual inbox refreshes on the UI. |
+| | `GMAIL_FULL_SYNC_DAYS` | `365` | **Sync Depth**: How far back in history (in days) the system crawls to build the initial inbox cache on first user login. |
+| | `SYNC_JITTER_SECONDS` | `60` | **Anti-Bot Jitter**: Adds a random ± variance (in seconds) to background intervals so requests do not trigger bot detection systems. |
+| | `SYNC_MAX_BACKOFF_SECONDS` | `3600` | **Network Resiliency**: The upper cap (1 hour) for the exponential backoff delay during network disconnects. |
+| **AI / LLM Keys** | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | *(None)* | **Primary LLM Access**: The central Google AI Studio API key used to generate replies and interact with Gemini models. |
+| | `PRIORITY_GOOGLE_API_KEY` | *(None)* | **Classification Key**: Dedicated key to process high-volume background priority ratings, preventing quota clashes. |
+| | `CHATBOT_GEMINI_API_KEY` | *(None)* | **Assistant Key**: Dedicated key reserved for the real-time student grievance assistant chatbot in the UI. |
+| **AI Models** | `AI_PREFER_LOCAL` | `false` | **Local Mode Switch**: Set to `true` to route classification and parsing tasks to a local Ollama model instead of Gemini. |
+| | `PRIMARY_LOCAL_MODEL` | `gemma3:4b` | **Ollama Model**: The target local LLM to load and execute via your local Ollama node. |
+| | `OLLAMA_CONTEXT_LENGTH` | `16384` | **Local Token Cap**: The maximum context window loaded into local VRAM (recommended 8k-16k for complex grievances). |
+| | `OLLAMA_VULKAN` / `OLLAMA_FLASH_ATTENTION` | `1` / `1` | **Acceleration**: Activates AMD/Intel Vulkan and Flash Attention optimizations inside Ollama for rapid inference. |
+| | `AI_FALLBACK_MODELS` | *(List)* | **Resiliency Fallbacks**: Comma-separated list of models the system steps through if primary local or API requests fail. |
+| | `VISION_FALLBACK_MODELS` | *(List)* | **OCR Fallbacks**: Vision-enabled models used to read scanned graphic PDF attachments and visual tickets. |
+| **RAG & Search** | `RAG_TOP_K` | `5` | **RAG Extraction**: Number of candidate chunks retrieved from the FAISS database for contextual re-ranking. |
+| | `RAG_MIN_SCORE` | `0.40` | **Similarity Cutoff**: The strict cosine similarity threshold (0.0 to 1.0) required for a policy clause to be deemed relevant. |
+| | `RAG_UNREPLIED_MAX` | `3` | **The "3" in 3+2 RAG**: The maximum number of recent, consecutive unreplied incoming citizen follow-up emails to crawl backwards. This captures the complete list of fresh unaddressed queries sent by the student since the last official department reply. |
+| | `RAG_ANCHOR_DEPTH` | `2` | **The "2" in 3+2 RAG**: The depth of the "Anchor Turn" representing the **last official Department Reply + its incoming Citizen Trigger** (the "handshake"). This establishes a perfect historical context of what was already officially answered and what prompted it. |
+| **OAuth & Security**| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | *(None)* | **Google OAuth Client**: Client keys from GCP Credentials for secure department-level user sign-in. |
+| | `GOOGLE_OAUTH_ENCRYPTION_KEY` | *(None)* | **Credential Guard**: A symmetric Fernet key used to securely encrypt and decrypt Gmail OAuth tokens inside the database at rest. |
+| | `APP_SESSION_SECRET` | *(None)* | **Session Guard**: Cryptographic signature secret used to sign session cookies and prevent session hijacking. |
 
-### Steps:
+### 8.2 Frontend Environment Variables (`frontend/.env`)
 
-1. **Download the Project** (See Section 3).
-2. **Configure the .env files** (See Section 4 & 5).
-3. **Run the GPU Smart Setup**:
-   - **For NVIDIA GPUs**: Double-click **`setup_coe_gpu.bat`**.
-   - **For AMD/Intel GPUs**: Double-click **`setup_coe_amd.bat`**.
-   - This script will automatically create a `venv`, detect your GPU, and install the correct version of PyTorch to avoid "DLL load" errors.
-4. **Start the Backend**:
-   - Open a new terminal.
-   - `cd backend`
-   - `venv\Scripts\python main.py`
-5. **Start the Frontend**:
-   - Open a second terminal.
-   - `cd frontend`
-   - `npm install`
-   - `npm run dev`
-6. **Access the system** at `http://localhost:3000` (or the port shown in the terminal).
+The frontend application uses client-side Vite environment variables (prefixed with `VITE_`) to configure API gateway routing and UI behaviors:
 
----
+| Variable Name | Default Value | Purpose & Comprehensive Impact |
+| :--- | :--- | :--- |
+| `VITE_API_URL` | `http://localhost:8000` | **Backend API Base**: The central routing address pointing to your FastAPI backend gateway for general transactions (grievances, policy lists, etc.). |
+| `VITE_REPLY_API_URL` | `http://localhost:8000` | **Response Engine Gateway**: Pointing to the backend API router responsible for triggering RAG-contextual email generation. |
+| `VITE_AUTH_STATUS_POLLING_SECONDS` | `60` | **Session Poller**: Frequency (in seconds) the UI queries the backend database to check if Google OAuth sync remains fully authenticated. |
+| `VITE_SHOW_DEMO_BUTTON` | `false` | **Demo Console Bypass**: Developer/QA override. Set to `true` to force-render the "Load Demo PDFs" option in a production/deployed environment. Otherwise, it is automatically protected and only displayed on localhost/dev nodes. |
 
-## 13. Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────┐
-│                    User's Browser                    │
-│                 http://localhost:3000                 │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────┐
-│              Docker Desktop (Windows)                 │
-│                                                       │
-│  ┌─────────────────┐    ┌──────────────────────────┐ │
-│  │   Frontend       │    │   Backend                │ │
-│  │   (Nginx)        │    │   (FastAPI + Uvicorn)    │ │
-│  │   Port: 3000     │───▶│   Port: 8000             │ │
-│  │                  │    │                          │ │
-│  │   React + Vite   │    │   ┌──────────────────┐  │ │
-│  │   TailwindCSS    │    │   │  SQLite Database  │  │ │
-│  │                  │    │   │  (grievances.db)  │  │ │
-│  └─────────────────┘    │   └──────────────────┘  │ │
-│                          │                          │ │
-│                          │   ┌──────────────────┐  │ │
-│                          │   │  AI Engine        │  │ │
-│                          │   │  (LangGraph +     │  │ │
-│                          │   │   Gemini API)     │  │ │
-│                          │   └──────────────────┘  │ │
-│                          │                          │ │
-│                          │   ┌──────────────────┐  │ │
-│                          │   │  Gmail Sync       │  │ │
-│                          │   │  (Background      │  │ │
-│                          │   │   Worker)          │  │ │
-│                          │   └──────────────────┘  │ │
-│                          └──────────────────────────┘ │
-└──────────────────────────────────────────────────────┘
-                       │
-                       ▼
-        ┌──────────────────────────┐
-        │   Google Cloud Platform   │
-        │                          │
-        │  • Gmail API             │
-        │  • Gemini AI API         │
-        │  • OAuth 2.0             │
-        └──────────────────────────┘
-```
-
-### Key Components
-
-| Component            | Technology                   | Purpose                                         |
-| :------------------- | :--------------------------- | :---------------------------------------------- |
-| **Frontend**   | React, Vite, TailwindCSS     | User interface, dashboard, chatbot UI           |
-| **Backend**    | Python, FastAPI, Uvicorn     | API server, business logic, AI orchestration    |
-| **Database**   | SQLite                       | Email storage, chat history, user settings      |
-| **AI Engine**  | LangGraph, Gemini API        | Chatbot, email classification, priority scoring |
-| **Email Sync** | Gmail API                    | Background email fetching and parsing           |
-| **RAG System** | FAISS, Sentence-Transformers | Policy-aware AI responses                       |
-| **Web Server** | Nginx (in Docker)            | Serves the compiled frontend, handles routing   |
-
----
-
-> **Document Prepared By:** AI Centre of Excellence, Education Department
-> **Last Updated:** May 2026

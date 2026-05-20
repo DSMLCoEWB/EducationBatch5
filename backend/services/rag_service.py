@@ -15,7 +15,7 @@ from config import (
     RAG_UNREPLIED_MAX, RAG_ANCHOR_DEPTH
 )
 from core.logging import get_logger
-from ai_utils import generate_content_with_fallback
+from services.ai_utils import generate_content_with_fallback
 
 logger = get_logger("services.rag")
 
@@ -280,7 +280,7 @@ def generate_suggested_reply_with_evidence(
         client=client,
         contents=prompt,
         model_list=ULTIMATE_FALLBACK_LIST,
-        label="RAG-Service"
+        label="RAG-Generator"
     )
 
     if response:

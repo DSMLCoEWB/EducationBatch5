@@ -1,0 +1,28 @@
+# --- EXCLUDE HEAVY FOLDERS FROM C: DRIVE STAGING ---
+**/node_modules
+**/venv
+**/.venv
+**/__pycache__
+**/.git
+**/.next
+**/dist
+**/build
+
+# --- EXCLUDE DATA FOLDERS ---
+backend/attachments/
+backend/files/
+backend/data/
+backend/brain/
+backend/scratch/
+backend/cache/
+
+# --- EXCLUDE LOGS AND ENV ---
+*.log
+.env
+.env.*
+!backend/.env.example
+
+*.pptx
+*.docx
+*.pdf
+*.md

@@ -6,7 +6,11 @@ from db.repository import (
     get_all_categories,
     add_category,
     update_category,
-    delete_category
+    delete_category,
+    get_priority_rules,
+    save_priority_rules,
+    get_global_rules,
+    save_global_rules
 )
 from core.coordination import trigger_intelligence_suite
 
@@ -90,6 +94,34 @@ def apply_categories(user_email: str = Depends(get_authenticated_user)):
         from core.notifier import SSE_NOTIFIER
         SSE_NOTIFIER.notify(user_email, "sync_started")
         trigger_intelligence_suite(user_email)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/priority-rules")
+def fetch_priority_rules(user_email: str = Depends(get_authenticated_user)):
+    """Fetches the custom priority rules and global rules for the current user."""
+    try:
+        rules = get_priority_rules(user_email)
+        global_rules = get_global_rules(user_email)
+        return {"rules": rules, "global_rules": global_rules}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/priority-rules")
+def update_priority_rules(
+    payload: Dict[str, Any] = Body(...),
+    user_email: str = Depends(get_authenticated_user)
+):
+    """Updates custom priority rules and global rules for the current user."""
+    rules = payload.get("rules")
+    global_rules = payload.get("global_rules")
+    if not isinstance(rules, list):
+        raise HTTPException(status_code=400, detail="Rules payload must be a list.")
+    try:
+        save_priority_rules(user_email, rules)
+        if global_rules is not None:
+            save_global_rules(user_email, global_rules)
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

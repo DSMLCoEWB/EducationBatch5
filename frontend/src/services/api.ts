@@ -44,6 +44,9 @@ export interface BackendEmail {
   instituteName?: string;
   replied?: boolean;
   threadId?: string;
+  to?: string;
+  cc?: string;
+  bcc?: string;
 }
 
 export interface BackendCategory {
@@ -72,6 +75,8 @@ export interface IndexedPolicy {
   id: string;
   chunk_count: number;
   status: string;
+  extension?: string;
+  is_demo?: boolean;
 }
 
 export interface UploadPolicyResult {
@@ -79,13 +84,15 @@ export interface UploadPolicyResult {
   message: string;
   stats: {
     policy_id: string;
-    chunks_added: number;
-    total_chunks: number;
-    embeddings_generated: number;
-    index_path: string;
-    chunks_path: string;
+    chunks_added?: number;
+    total_chunks?: number;
+    embeddings_generated?: number;
+    index_path?: string;
+    chunks_path?: string;
     is_update: boolean;
     duplicate?: boolean;
+    chunks?: number;
+    chunk_count?: number;
   };
 }
 
@@ -180,6 +187,34 @@ export async function applySettingsCategories(): Promise<void> {
   });
   if (!response.ok) throw new Error("Failed to trigger AI re-categorization");
 }
+
+export interface PriorityRule {
+  priority: number;
+  label: string;
+  keywords: string[];
+  description?: string;
+}
+
+export interface PriorityRulesResponse {
+  rules: PriorityRule[];
+  global_rules: string;
+}
+
+export async function fetchPriorityRules(): Promise<PriorityRulesResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/settings/priority-rules`);
+  if (!response.ok) throw new Error("Failed to fetch settings priority rules");
+  return response.json();
+}
+
+export async function savePriorityRules(rules: PriorityRule[], global_rules: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/settings/priority-rules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rules, global_rules })
+  });
+  if (!response.ok) throw new Error("Failed to save settings priority rules");
+}
+
 
 export async function triggerManualSync(): Promise<{ status: string }> {
   const response = await apiFetch(`${API_BASE_URL}/emails/sync`, {
@@ -425,9 +460,10 @@ export async function fetchPolicies(): Promise<IndexedPolicy[]> {
   return (data.policies || []) as IndexedPolicy[];
 }
 
-export async function uploadPolicy(file: File): Promise<UploadPolicyResult> {
+export async function uploadPolicy(file: File, forceOcr: boolean = false): Promise<UploadPolicyResult> {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('force_ocr', String(forceOcr));
 
   const response = await apiFetch(`${API_BASE_URL}/policies/upload`, {
     method: 'POST',
@@ -483,6 +519,24 @@ export async function activatePolicy(policyId: string): Promise<any> {
         throw new Error(detail);
     }
     return response.json();
+}
+
+export async function publishAllPolicies(): Promise<any> {
+  const response = await apiFetch(`${API_BASE_URL}/policies/activate-all`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    let detail = 'Failed to publish all policies';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // Ignore
+    }
+    throw new Error(detail);
+  }
+  return response.json();
 }
 
 export async function deletePolicy(policyId: string): Promise<void> {

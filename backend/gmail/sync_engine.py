@@ -201,7 +201,6 @@ def _guarded_full_sync(service: Any, user_email: str) -> Tuple[int, str]:
         SSE_NOTIFIER.notify(user_email)
         
     profile = service.users().getProfile(userId="me").execute()
-    profile = service.users().getProfile(userId="me").execute()
     return len(ingested), profile.get("historyId")
 
 def _rewrite_html_cids(html: str, cid_map: Dict[str, str]) -> str:
@@ -255,7 +254,7 @@ def _process_single_message_optimized(user_email: str, msg_id: str, creds: Optio
         subject = email_data.get("subject", "")
         
         email_data["category"] = classify_grievance_heuristic(content, subject, user_email=user_email)
-        email_data["priority"] = calculate_priority_heuristic(content, subject)
+        email_data["priority"] = calculate_priority_heuristic(content, subject, user_email=user_email)
         
         # 5. Thread Awareness (Instant logic)
         mail_type, parent_id, f_count = detect_followup(email_data, context_df, user_email)
@@ -357,11 +356,6 @@ def _fetch_and_save_attachment_locally(service: Any, msg_id: str, att_meta: Dict
             with open(path, "wb") as f:
                 f.write(payload)
                 
-        return path
-    except Exception as e:
-        logger.error(f"❌ [Sync] Failed to download attachment {filename} for {user_email}: {e}")
-        return None
-
         return path
     except Exception as e:
         logger.error(f"❌ [Sync] Failed to download attachment {filename} for {user_email}: {e}")

@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 from docx import Document
 from google.genai import Client, types
-from ai_utils import generate_content_with_fallback
+from services.ai_utils import generate_content_with_fallback
 from config import ATTACHMENTS_DIR
 from core.logging import get_logger
 
@@ -33,7 +33,7 @@ def extract_text_from_attachment_ai(path: str) -> str:
             "If it is an official document, preserve core facts like names, dates, and status."
         ]
 
-        from ai_utils import generate_content_with_fallback, VISION_FALLBACK_LIST
+        from services.ai_utils import generate_content_with_fallback, VISION_FALLBACK_LIST
         
         response = generate_content_with_fallback(
             client=client,

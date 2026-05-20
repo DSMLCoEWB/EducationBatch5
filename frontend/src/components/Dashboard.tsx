@@ -3,8 +3,8 @@ import { Mail, MailOpen, Reply, Paperclip, Clock, TrendingUp, LayoutList, Messag
 import { BarChart, Bar, AreaChart, Area, PieChart, Pie, Label, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { Email } from '@/types';
 
-interface DashboardProps { 
-  emails: Email[]; 
+interface DashboardProps {
+  emails: Email[];
   onViewChange: (view: string) => void;
   customCategories?: { id: string; name: string; color: string }[];
 }
@@ -26,10 +26,10 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
   const grievances = useMemo(() => {
     const threadGroups: Record<string, Email[]> = {};
     const standalone: Email[] = [];
-    
+
     // Only aggregate emails that are inquiries in the inbox
     const coreGrievances = emails.filter(e => e.isInbox);
-    
+
     coreGrievances.forEach(e => {
       if (e.threadId) {
         if (!threadGroups[e.threadId]) threadGroups[e.threadId] = [];
@@ -86,7 +86,7 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
     count: grievances.filter(e => e.category === cat.name).length,
     fill: cat.color
   })).filter(c => c.count > 0 && c.name !== 'Misc' || activeCats.length > 0)
-  .sort((a, b) => b.count - a.count);
+    .sort((a, b) => b.count - a.count);
 
   const mailTypeData = [
     { name: 'Fresh', value: stats.fresh, fill: 'hsl(180, 100%, 40%)' },
@@ -171,13 +171,13 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
   return (
     <div className="flex-1 p-4 sm:p-6 gradient-surface overflow-y-auto custom-scrollbar">
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 mb-8 mt-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 mb-8 mt-1">
 
         {statCards.map((card) => {
           const style = cardStyles[card.variant];
           return (
-            <div 
-              key={card.title} 
+            <div
+              key={card.title}
               className={`relative ${style.bg} rounded-2xl border ${style.border} border-t-4 ${style.accent} p-5 ${style.shadow} transition-all duration-300 hover:-translate-y-1 group`}
             >
               <div className="flex items-start justify-between">
@@ -216,24 +216,24 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
             <div className="w-2 h-2 rounded-full bg-primary" /> Real-time Analytics
           </div>
         </div>
-        
+
         <ResponsiveContainer width="100%" height={500}>
-          <BarChart 
-            data={categoryData} 
+          <BarChart
+            data={categoryData}
             layout="vertical"
             margin={{ left: isMobile ? 10 : 50, right: 30, top: 0, bottom: 10 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={true} vertical={false} />
             <XAxis type="number" hide />
-            <YAxis 
-              dataKey="name" 
+            <YAxis
+              dataKey="name"
               type="category"
-              tick={{ dx: isMobile ? -14 : -8, fontSize: isMobile ? 9 : 11, fontWeight: 600, fill: 'hsl(var(--foreground))' }} 
+              tick={{ dx: isMobile ? -14 : -8, fontSize: isMobile ? 9 : 11, fontWeight: 600, fill: 'hsl(var(--foreground))' }}
               width={isMobile ? 120 : 180}
               axisLine={false}
               tickLine={false}
             />
-            <Tooltip 
+            <Tooltip
               cursor={{ fill: 'hsl(var(--muted) / 0.3)' }}
               content={({ active, payload }) => {
                 if (active && payload && payload.length) {
@@ -250,9 +250,9 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
                 return null;
               }}
             />
-            <Bar 
-              dataKey="count" 
-              radius={[0, 6, 6, 0]} 
+            <Bar
+              dataKey="count"
+              radius={[0, 6, 6, 0]}
               barSize={24}
               onClick={(data) => onViewChange(data.id)}
               style={{ cursor: 'pointer' }}
@@ -269,83 +269,83 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
         {/* Distribution & Volume row */}
         <div className="bg-card rounded-xl border border-border p-5 shadow-card overflow-hidden lg:col-span-5">
           <h3 className="text-sm font-semibold text-foreground mb-6">Inquiry Character Distribution</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <PieChart>
-            <Pie 
-              data={mailTypeData.filter(d => d.value > 0)} 
-              cx="50%" 
-              cy="45%" 
-              innerRadius={70} 
-              outerRadius={90} 
-              paddingAngle={5}
-              dataKey="value"
-              stroke="none"
-              label={({ name, percent }) => percent > 0.02 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
-              labelLine={false}
-            >
-              {mailTypeData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.fill} />
-              ))}
-              <Label 
-                value={stats.total} 
-                position="center" 
-                className="text-4xl font-normal fill-foreground"
-                style={{ fontFamily: 'inherit', letterSpacing: '-0.02em' }}
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={mailTypeData.filter(d => d.value > 0)}
+                cx="50%"
+                cy="45%"
+                innerRadius={70}
+                outerRadius={90}
+                paddingAngle={5}
+                dataKey="value"
+                stroke="none"
+                label={({ name, percent }) => percent > 0.02 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
+                labelLine={false}
+              >
+                {mailTypeData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                ))}
+                <Label
+                  value={stats.total}
+                  position="center"
+                  className="text-4xl font-normal fill-foreground"
+                  style={{ fontFamily: 'inherit', letterSpacing: '-0.02em' }}
+                />
+                <Label
+                  value="TOTAL"
+                  position="center"
+                  dy={28}
+                  className="text-[10px] font-medium fill-muted-foreground uppercase tracking-[0.2em]"
+                  style={{ fontFamily: 'inherit' }}
+                />
+              </Pie>
+              <Tooltip
+                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '11px' }}
               />
-              <Label 
-                value="TOTAL" 
-                position="center" 
-                dy={28}
-                className="text-[10px] font-medium fill-muted-foreground uppercase tracking-[0.2em]"
-                style={{ fontFamily: 'inherit' }}
-              />
-            </Pie>
-            <Tooltip 
-              contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '11px' }}
-            />
-            <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: 600 }} />
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
+              <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: 600 }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
 
-      {/* Area Chart with Gradient */}
-      <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow lg:col-span-7">
-        <h3 className="text-sm font-semibold text-foreground mb-4">Activity Volume (7 Days)</h3>
-        <ResponsiveContainer width="100%" height={260}>
-          <AreaChart data={dailyVolumeData} margin={{ bottom: isMobile ? 30 : 10 }}>
-            <defs>
-              <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-            <XAxis 
-              dataKey="date" 
-              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} 
-              axisLine={{ stroke: 'hsl(var(--border))' }} 
-              tickLine={false}
-              angle={isMobile ? -35 : 0}
-              textAnchor={isMobile ? "end" : "middle"}
-            />
-            <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-            <Tooltip 
-              contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px' }}
-              itemStyle={{ color: 'hsl(var(--foreground))' }}
-            />
-            <Area 
-              type="monotone" 
-              dataKey="count" 
-              stroke="hsl(var(--primary))" 
-              strokeWidth={3}
-              fillOpacity={1} 
-              fill="url(#colorCount)" 
-              name="Activity"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        {/* Area Chart with Gradient */}
+        <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow lg:col-span-7">
+          <h3 className="text-sm font-semibold text-foreground mb-4">Activity Volume (7 Days)</h3>
+          <ResponsiveContainer width="100%" height={260}>
+            <AreaChart data={dailyVolumeData} margin={{ bottom: isMobile ? 30 : 10 }}>
+              <defs>
+                <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                axisLine={{ stroke: 'hsl(var(--border))' }}
+                tickLine={false}
+                angle={isMobile ? -35 : 0}
+                textAnchor={isMobile ? "end" : "middle"}
+              />
+              <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+              <Tooltip
+                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px' }}
+                itemStyle={{ color: 'hsl(var(--foreground))' }}
+              />
+              <Area
+                type="monotone"
+                dataKey="count"
+                stroke="hsl(var(--primary))"
+                strokeWidth={3}
+                fillOpacity={1}
+                fill="url(#colorCount)"
+                name="Activity"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
-  </div>
   );
 }

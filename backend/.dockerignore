@@ -28,3 +28,4 @@ service-account-credentials.json
 .pytest_cache/
 .vscode/
 .idea/
+*.md

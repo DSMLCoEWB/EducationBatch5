@@ -608,8 +608,20 @@ function EmailCard({
                 </div>
                 <div className="grid grid-cols-[60px_1fr] gap-x-2">
                   <span className="text-muted-foreground font-medium text-right">to:</span>
-                  <span className="font-semibold text-slate-700">{email.recipientEmail || (email.isSent ? 'Unknown' : 'me')}</span>
+                  <span className="font-semibold text-slate-700">{email.to || email.recipientEmail || (email.isSent ? 'Unknown' : 'me')}</span>
                 </div>
+                {email.cc && (
+                  <div className="grid grid-cols-[60px_1fr] gap-x-2">
+                    <span className="text-muted-foreground font-medium text-right">cc:</span>
+                    <span className="font-semibold text-slate-700">{email.cc}</span>
+                  </div>
+                )}
+                {email.bcc && (
+                  <div className="grid grid-cols-[60px_1fr] gap-x-2">
+                    <span className="text-muted-foreground font-medium text-right">bcc:</span>
+                    <span className="font-semibold text-slate-700">{email.bcc}</span>
+                  </div>
+                )}
                 <div className="grid grid-cols-[60px_1fr] gap-x-2">
                   <span className="text-muted-foreground font-medium text-right">date:</span>
                   <span className="font-semibold text-slate-700">{new Date(email.emailDate).toLocaleString()}</span>
