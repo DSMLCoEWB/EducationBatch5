@@ -16,9 +16,10 @@ interface EmailThreadPanelProps {
   onClose: () => void;
   onUpdateEmail: (emailId: string, updates: Partial<Email>) => void;
   isTrashView?: boolean;
+  customCategories?: any[];
 }
 
-export function EmailThreadPanel({ email, onClose, onUpdateEmail, isTrashView = false }: EmailThreadPanelProps) {
+export function EmailThreadPanel({ email, onClose, onUpdateEmail, isTrashView = false, customCategories = [] }: EmailThreadPanelProps) {
   const [thread, setThread] = useState<Email[]>([]);
   const [isResolved, setIsResolved] = useState(email.is_resolved);
   const [loading, setLoading] = useState(true);
@@ -153,7 +154,7 @@ export function EmailThreadPanel({ email, onClose, onUpdateEmail, isTrashView = 
     printWindow.document.close();
   };
 
-  const categoryInfo = getCategoryInfo(email.category);
+  const categoryInfo = getCategoryInfo(email.category, customCategories);
 
   return (
     <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-stretch justify-end animate-fade-in">

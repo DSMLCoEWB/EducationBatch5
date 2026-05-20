@@ -21,6 +21,7 @@ interface EmailTableProps {
   onDeleteEmail: (emailId: string) => void;
   onRestoreEmail: (emailId: string) => void;
   selectedEmail: Email | null;
+  customCategories?: any[];
 }
 
 type SortField = 'emailDate' | 'followUpCount' | 'sender';
@@ -37,7 +38,7 @@ interface Filters {
   searchQuery: string;
 }
 
-export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, onDeleteEmail, onRestoreEmail, selectedEmail }: EmailTableProps) {
+export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, onDeleteEmail, onRestoreEmail, selectedEmail, customCategories = [] }: EmailTableProps) {
   const [sortField, setSortField] = useState<SortField>('emailDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [showFilters, setShowFilters] = useState(false);
@@ -276,7 +277,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     return acc;
   }, 0);
 
-  const categoryInfo = getCategoryInfo(categoryId);
+  const categoryInfo = getCategoryInfo(categoryId, customCategories);
 
   return (
     <div className="flex-1 p-3 sm:p-6 gradient-surface overflow-y-auto custom-scrollbar">
@@ -452,6 +453,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
                   onUpdateEmail={onUpdateEmail}
                   onDeleteEmail={onDeleteEmail}
                   onRestoreEmail={onRestoreEmail}
+                  customCategories={customCategories}
                 />
               ))}
             </tbody>
@@ -510,11 +512,12 @@ interface EmailRowProps {
   onDeleteEmail: (emailId: string) => void;
   onRestoreEmail: (emailId: string) => void;
   key?: React.Key;
+  customCategories?: any[];
 }
 
-function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, onRestoreEmail }: EmailRowProps) {
+function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, onRestoreEmail, customCategories = [] }: EmailRowProps) {
   const [showReplyModal, setShowReplyModal] = useState(false);
-  const categoryInfo = getCategoryInfo(email.category);
+  const categoryInfo = getCategoryInfo(email.category, customCategories);
 
   const handleReplyClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -612,7 +615,15 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           {email.hasAttachment && <Paperclip className="w-3.5 h-3.5 text-muted-foreground mx-auto" />}
         </td>
         <td className="px-4 py-3">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${categoryInfo.bgColor} ${categoryInfo.color}`}>
+          <span 
+            className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${categoryInfo.bgColor} ${categoryInfo.color}`}
+            style={categoryInfo.customColor ? { 
+              color: categoryInfo.customColor, 
+              backgroundColor: categoryInfo.customColor.startsWith('#') ? `${categoryInfo.customColor}15` : undefined,
+              borderColor: categoryInfo.customColor.startsWith('#') ? `${categoryInfo.customColor}30` : undefined,
+              borderWidth: categoryInfo.customColor.startsWith('#') ? '1px' : undefined
+            } : undefined}
+          >
             {categoryInfo.label}
           </span>
         </td>

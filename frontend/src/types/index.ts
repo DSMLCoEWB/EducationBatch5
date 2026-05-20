@@ -66,6 +66,7 @@ export interface CategoryInfo {
   color: string;
   bgColor: string;
   icon: string;
+  customColor?: string;
 }
 
 export interface DashboardStats {

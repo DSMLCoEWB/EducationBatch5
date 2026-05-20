@@ -76,6 +76,7 @@ backend/test_rag_out.txt
 backend/demo_emails_from_chunks.json
 frontend/build_log.txt
 *.txt
+*.tex
 
 # Development Scratchpads
 backend/scratch/

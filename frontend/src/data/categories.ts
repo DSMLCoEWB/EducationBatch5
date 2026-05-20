@@ -143,6 +143,35 @@ export const categories: CategoryInfo[] = [
   }
 ];
 
-export const getCategoryInfo = (categoryId: string): CategoryInfo => {
-  return categories.find(cat => cat.id === categoryId) || categories[0];
+export const getCategoryInfo = (categoryId: string, customCategories?: any[]): CategoryInfo => {
+  if (!categoryId) return categories[0];
+
+  // 1. Prioritize dynamic database categories to support user styling / customizations
+  if (customCategories) {
+    const foundCustom = customCategories.find(c => c.id === categoryId || c.name === categoryId);
+    if (foundCustom) {
+      const staticFallback = categories.find(cat => cat.id === categoryId);
+      return {
+        id: foundCustom.name,
+        label: foundCustom.name,
+        color: staticFallback?.color || 'text-foreground',
+        bgColor: staticFallback?.bgColor || 'bg-muted',
+        icon: foundCustom.icon || staticFallback?.icon || 'folder',
+        customColor: foundCustom.color
+      };
+    }
+  }
+
+  // 2. Fall back to static views (Inbox, Sent, Trash, etc.)
+  const foundStatic = categories.find(cat => cat.id === categoryId);
+  if (foundStatic) return foundStatic;
+
+  // 3. Absolute fallback
+  return {
+    id: categoryId,
+    label: categoryId,
+    color: 'text-foreground',
+    bgColor: 'bg-muted',
+    icon: 'folder'
+  };
 };

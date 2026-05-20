@@ -414,6 +414,7 @@ export default function App() {
                 onDeleteEmail={handleDeleteEmail} 
                 onRestoreEmail={handleRestoreEmail} 
                 selectedEmail={selectedEmail}
+                customCategories={categories}
               />
             )
           )}
@@ -425,6 +426,7 @@ export default function App() {
           onClose={() => setSelectedEmail(null)} 
           onUpdateEmail={handleUpdateEmail}
           isTrashView={activeView === 'trash'}
+          customCategories={categories}
         />
       )}
       <Chatbot emails={filteredEmails} />
