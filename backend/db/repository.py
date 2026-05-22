@@ -1283,6 +1283,45 @@ def get_global_rules(user_email: str) -> str:
             
         return new_default
 
+def get_system_role(user_email: str) -> str:
+    """Fetches custom system prompt role for a specific user. Seeds default if empty."""
+    default_role = "senior professional grievance redressal officer for the Department of Education, Government of West Bengal"
+    
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT description FROM priority_rules WHERE user_email = ? AND priority = -2",
+                (user_email,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return row[0] or default_role
+        except sqlite3.OperationalError:
+            pass
+            
+        # Seed default if not found
+        try:
+            cursor.execute(
+                "INSERT OR REPLACE INTO priority_rules (priority, user_email, label, keywords, description) VALUES (-2, ?, 'System Role', '[]', ?)",
+                (user_email, default_role)
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Error seeding system role: {e}")
+            
+        return default_role
+
+def save_system_role(user_email: str, system_role: str):
+    """Saves the user's custom system prompt role."""
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO priority_rules (priority, user_email, label, keywords, description) VALUES (-2, ?, 'System Role', '[]', ?)",
+            (user_email, system_role)
+        )
+        conn.commit()
+
 def save_global_rules(user_email: str, global_rules: str):
     """Saves the user's custom global rules and resets priority refinement for re-triage."""
     with get_db_conn() as conn:

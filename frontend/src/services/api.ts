@@ -198,6 +198,7 @@ export interface PriorityRule {
 export interface PriorityRulesResponse {
   rules: PriorityRule[];
   global_rules: string;
+  system_role: string;
 }
 
 export async function fetchPriorityRules(): Promise<PriorityRulesResponse> {
@@ -206,11 +207,11 @@ export async function fetchPriorityRules(): Promise<PriorityRulesResponse> {
   return response.json();
 }
 
-export async function savePriorityRules(rules: PriorityRule[], global_rules: string): Promise<void> {
+export async function savePriorityRules(rules: PriorityRule[], global_rules: string, system_role: string): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/settings/priority-rules`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rules, global_rules })
+    body: JSON.stringify({ rules, global_rules, system_role })
   });
   if (!response.ok) throw new Error("Failed to save settings priority rules");
 }

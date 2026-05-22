@@ -45,8 +45,21 @@ def extract_text_from_attachment_ai(path: str) -> str:
         if response:
             try:
                 return response.text.strip()
-            except:
-                return str(response).strip()
+            except Exception as e:
+                logger.warning(f"⚠️ Response text extraction failed for {path}: {e}")
+                try:
+                    parts = []
+                    if response.candidates:
+                        for cand in response.candidates:
+                            if cand.content and cand.content.parts:
+                                for part in cand.content.parts:
+                                    if part.text:
+                                        parts.append(part.text)
+                    if parts:
+                        return "".join(parts).strip()
+                except Exception as inner_e:
+                    logger.warning(f"Failed to extract partial text from candidates: {inner_e}")
+                return ""
     except Exception as e:
         logger.error(f"⚠️ AI OCR failed for {path}: {e}")
     return ""

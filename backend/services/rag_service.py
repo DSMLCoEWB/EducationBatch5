@@ -12,7 +12,7 @@ from google import genai
 from config import (
     INDEX_PATH, CHUNKS_PATH, RAG_TOP_K, 
     RAG_MIN_SCORE, RAG_FINAL_LIMIT, ULTIMATE_FALLBACK_LIST,
-    RAG_UNREPLIED_MAX, RAG_ANCHOR_DEPTH
+    RAG_UNREPLIED_MAX, RAG_ANCHOR_DEPTH, RAG_MAX_UNIQUE_SECTIONS
 )
 from core.logging import get_logger
 from services.ai_utils import generate_content_with_fallback
@@ -130,11 +130,18 @@ def retrieve_policy_chunks(query: str, user_email: str) -> List[Dict[str, Any]]:
     results.sort(key=lambda x: x["score"], reverse=True)
     results = results[:RAG_FINAL_LIMIT]
     
-    # 4. Consistency Filtering (Prefer dominant section)
-    unique_sections = set(res["metadata"]["section"] for res in results)
-    if len(unique_sections) > 2 and results:
-        highest_scoring_section = results[0]["metadata"]["section"]
-        results = [res for res in results if res["metadata"]["section"] == highest_scoring_section]
+    # 4. Consistency Filtering (Prefer dominant sections based on config limit)
+    if RAG_MAX_UNIQUE_SECTIONS > 0 and results:
+        unique_sections = set(res["metadata"]["section"] for res in results)
+        if len(unique_sections) > RAG_MAX_UNIQUE_SECTIONS:
+            top_sections = []
+            for res in results:
+                sect = res["metadata"]["section"]
+                if sect not in top_sections:
+                    top_sections.append(sect)
+                    if len(top_sections) == RAG_MAX_UNIQUE_SECTIONS:
+                        break
+            results = [res for res in results if res["metadata"]["section"] in top_sections]
 
     return results
 
@@ -247,8 +254,29 @@ def generate_suggested_reply_with_evidence(
     # 4. Final Generation Prompt
     context_text = "\n\n".join([f"[Clause {c['metadata']['clause_id']}] {c['text']}" for c in chunks])
     
+    from db.repository import get_system_role
+    custom_role = get_system_role(user_email)
+    
+    dynamic_system_prompt = f"""
+You are a {custom_role}.
+Primary Goal: Generate a formal, helpful, and policy-grounded email reply.
+
+Rules:
+1. Strict Grounding: Use ONLY the provided policy context.
+2. Complete Response: Output a FULL email body (Salutation, Body, Signature).
+3. NO REDUNDANT SUBJECT: DO NOT include a "Subject:" line in your response.
+4. NO HARD WRAPPING: Do NOT insert line breaks within paragraphs. Use double newlines between paragraphs.
+5. Minimum Length: The body must be 3-5 sentences minimum.
+6. Policy Citation: You MUST explicitly mention specific clause IDs (e.g., "As per MSC-06...") to support your statements.
+7. Delay Handling: If the query is about a delay, mention the specific escalation path (e.g., nodal officer) or response timelines.
+8. Tone: Professional, authoritative yet respectful.
+9. Language: Formal English.
+
+If context is insufficient, state that no relevant policy clause is available.
+"""
+
     prompt = f"""
-    {SYSTEM_PROMPT}
+    {dynamic_system_prompt}
 
     CONVERSATION HISTORY:
     {history_text}

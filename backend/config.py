@@ -83,9 +83,10 @@ if _fallback_models_raw:
     ULTIMATE_FALLBACK_LIST = [m.strip() for m in _fallback_models_raw.split(",") if m.strip()]
 else:
     ULTIMATE_FALLBACK_LIST = [
-        "models/gemini-3.1-flash-lite", 
+        "models/gemini-3.1-flash-lite",
         "models/gemini-flash-latest",
-        "models/gemini-3-flash-preview", 
+        "models/gemini-3-flash-preview",
+        "models/gemini-2.5-flash",
         "models/gemini-2.5-flash-lite",
         "models/gemma-4-31b-it",
         "models/gemma-4-26b-a4b-it",
@@ -103,6 +104,7 @@ if _vision_fallback_raw:
     VISION_FALLBACK_LIST = [m.strip() for m in _vision_fallback_raw.split(",") if m.strip()]
 else:
     VISION_FALLBACK_LIST = [
+        "models/gemini-2.5-flash",
         "models/gemini-3.1-flash-lite",
         "models/gemini-flash-latest",
         "models/gemini-3-flash-preview", 
@@ -320,9 +322,10 @@ PRIORITY_KEYWORDS = {
 INDEX_PATH = DATA_DIR / "rag_index.faiss"
 CHUNKS_PATH = DATA_DIR / "policy_chunks.json"
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
-RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.40"))
+RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.30"))
 RAG_SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", RAG_MIN_SCORE))
 RAG_FINAL_LIMIT = int(os.getenv("RAG_FINAL_LIMIT", "3"))
+RAG_MAX_UNIQUE_SECTIONS = int(os.getenv("RAG_MAX_UNIQUE_SECTIONS", "0"))
 
 # --- SURGICAL RAG "3+2" PARAMETERS ---
 RAG_UNREPLIED_MAX = int(os.getenv("RAG_UNREPLIED_MAX", "3"))

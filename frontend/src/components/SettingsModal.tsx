@@ -45,6 +45,8 @@ export function SettingsModal({ isOpen, onClose, onCategoriesChanged }: Settings
   const [draftPriorityRules, setDraftPriorityRules] = useState<PriorityRule[]>([]);
   const [globalRules, setGlobalRules] = useState<string>('');
   const [draftGlobalRules, setDraftGlobalRules] = useState<string>('');
+  const [systemRole, setSystemRole] = useState<string>('');
+  const [draftSystemRole, setDraftSystemRole] = useState<string>('');
   const [newKeywords, setNewKeywords] = useState<Record<number, string>>({});
 
   // Loading States
@@ -81,6 +83,8 @@ export function SettingsModal({ isOpen, onClose, onCategoriesChanged }: Settings
       setDraftPriorityRules(JSON.parse(JSON.stringify(rulesData.rules))); // deep clone
       setGlobalRules(rulesData.global_rules || '');
       setDraftGlobalRules(rulesData.global_rules || '');
+      setSystemRole(rulesData.system_role || '');
+      setDraftSystemRole(rulesData.system_role || '');
       
       // Initialize keyword inputs
       const kwInputs: Record<number, string> = {};
@@ -144,8 +148,10 @@ export function SettingsModal({ isOpen, onClose, onCategoriesChanged }: Settings
 
   // Detect dirty states
   const hasPriorityChanges = useMemo(() => {
-    return JSON.stringify(priorityRules) !== JSON.stringify(draftPriorityRules) || globalRules !== draftGlobalRules;
-  }, [priorityRules, draftPriorityRules, globalRules, draftGlobalRules]);
+    return JSON.stringify(priorityRules) !== JSON.stringify(draftPriorityRules) || 
+           globalRules !== draftGlobalRules ||
+           systemRole !== draftSystemRole;
+  }, [priorityRules, draftPriorityRules, globalRules, draftGlobalRules, systemRole, draftSystemRole]);
 
   const hasCategoryChanges = useMemo(() => {
     return drafts.some(x => x.status !== 'existing');
@@ -182,7 +188,9 @@ export function SettingsModal({ isOpen, onClose, onCategoriesChanged }: Settings
         }
       });
 
-      const rulesModified = JSON.stringify(priorityRules) !== JSON.stringify(finalPriorityRules) || globalRules !== draftGlobalRules;
+      const rulesModified = JSON.stringify(priorityRules) !== JSON.stringify(finalPriorityRules) || 
+                            globalRules !== draftGlobalRules ||
+                            systemRole !== draftSystemRole;
 
       // 1. Process Categories if modified
       if (hasCategoryChanges) {
@@ -212,7 +220,7 @@ export function SettingsModal({ isOpen, onClose, onCategoriesChanged }: Settings
 
       // 2. Process Priorities if modified
       if (rulesModified) {
-        await savePriorityRules(finalPriorityRules, draftGlobalRules);
+        await savePriorityRules(finalPriorityRules, draftGlobalRules, draftSystemRole);
       }
 
       // 3. Trigger unified background re-classification if anything changed
@@ -540,6 +548,36 @@ export function SettingsModal({ isOpen, onClose, onCategoriesChanged }: Settings
                   </div>
                   <p className="text-[10px] text-muted-foreground/85 font-medium leading-relaxed">
                     💡 These instructions are appended to the AI Triage prompt globally and act as guardrails (e.g. for tone analysis, safety escalations, or anti-ragging overrides).
+                  </p>
+                </div>
+
+                {/* AI Responder Persona / Role Section */}
+                <div className="p-4 border border-border/80 bg-muted/20 rounded-xl shadow-xs space-y-3 mt-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg border bg-card text-card-foreground shadow-xs">
+                        🤖 AI Responder Persona / Role
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <span>💼 AI Persona / Officer Title Description</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g., senior professional grievance redressal officer for the Department of Education, Government of West Bengal"
+                      value={draftSystemRole}
+                      onChange={(e) => setDraftSystemRole(e.target.value)}
+                      className="w-full px-3 py-2 bg-background border border-border rounded-xl text-xs outline-none focus:ring-1 focus:ring-foreground transition-all shadow-inner"
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/85 font-medium leading-relaxed">
+                    💡 <strong>Why configure this?</strong> Defining this role shapes the tone, perspective, and authority of the AI across the entire platform. It dynamically configures:
+                    <br />• <strong>Draft Replies:</strong> Formulates suggestions with the correct persona and signatures.
+                    <br />• <strong>Triage Engine:</strong> Guides categorization and priority classification on behalf of your department.
+                    <br />• <strong>Executive Chatbot:</strong> Binds the assistant's guardrails, scope, and query analysis to your specific organization.
                   </p>
                 </div>
 

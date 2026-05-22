@@ -133,8 +133,11 @@ def get_batch_triage(emails, user_email: str = None):
         except Exception:
             global_rules = ""
 
+    from db.repository import get_system_role
+    custom_role = get_system_role(user_email) if user_email else "the Department of Education"
+
     prompt = f"""
-You are an expert triage assistant for a government education department. 
+You are an expert triage assistant acting on behalf of the {custom_role}. 
 Analyze the following batch of emails and assign BOTH a category and a priority rank (0-3) to each.
 
 CATEGORIES:

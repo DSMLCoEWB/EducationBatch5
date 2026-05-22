@@ -308,15 +308,24 @@ async def email_events(request: Request, user_email: str = Depends(get_authentic
     )
 
 @router.get("/colleges")
-def list_colleges():
-    """Returns the list of registered Colleges/Institutions."""
-    import json
-    from config import DATA_DIR
-    path = os.path.join(DATA_DIR, "colleges.json")
-    if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f:
-            return {"colleges": json.load(f)}
-    return {"colleges": []}
+def list_colleges(user_email: str = Depends(get_authenticated_user)):
+    """
+    Returns distinct institute names dynamically extracted from AI-processed emails.
+    Self-growing: no hardcoded file needed — the list expands as new grievances are processed.
+    """
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT institute_name 
+            FROM emails 
+            WHERE user_email = ? 
+              AND institute_name IS NOT NULL 
+              AND institute_name != ''
+              AND institute_name != 'Individual / Public'
+            ORDER BY institute_name
+        """, (user_email,))
+        names = [row[0] for row in cursor.fetchall()]
+    return {"colleges": names}
 
 @router.get("/download/{eml_filename}")
 def download_eml(eml_filename: str):

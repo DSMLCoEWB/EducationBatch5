@@ -433,7 +433,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Priority</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Institute</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Subject</th>
-                <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hidden xl:table-cell">Preview</th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hidden xl:table-cell min-w-[250px]">Preview</th>
                 <th className="px-4 py-3 text-center text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">📎</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Category</th>
                 <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Type</th>
@@ -607,7 +607,7 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
           </div>
         </td>
         <td className="px-4 py-3 hidden xl:table-cell">
-          <div className="text-xs text-muted-foreground max-w-[200px] line-clamp-2">
+          <div className="text-xs text-muted-foreground max-w-[350px] line-clamp-2">
             {email.snippet || ""}
           </div>
         </td>

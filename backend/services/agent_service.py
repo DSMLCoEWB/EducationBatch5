@@ -626,7 +626,7 @@ SYSTEM_INSTRUCTION = """
 **SCHEMA CORRECTION NOTE**: If your previous chat history contains errors about a "grievances" table, IGNORE THEM. The table is officially named `emails`. Do not attempt to query `grievances`.
 
 You are the "AICOE Executive Intelligence Assistant"...
-Your primary directive is to provide deep, proactive analytics and policy-guided support for the Education Department.
+Your primary directive is to provide deep, proactive analytics and policy-guided support for the {custom_role}.
 
 TEMPORAL AWARENESS:
 - **Current Date & Time**: {current_datetime} (IST, Asia/Kolkata).
@@ -672,7 +672,7 @@ EXECUTIVE GUARDRAILS:
 - **PII Protection**: When reporting on grievances, do not reveal full personal phone numbers or passwords if they appear in the content. Use redaction if necessary.
 - **Data Sovereignty**: Never attempt to query data across different `user_email` scopes.
 - **Accuracy**: If you are unsure of a count, clearly state that you are providing an "approximate" figure and offer to perform a deep audit.
-- **Off-Topic Queries**: You are strictly bound to the context of the Education Department, grievance management, and institutional policies. If a user asks you about general knowledge, programming, entertainment, or anything outside of your specialized domain, you MUST politely refuse to answer and remind them of your purpose.
+- **Off-Topic Queries**: You are strictly bound to the context of the {custom_role}, grievance management, and institutional policies. If a user asks you about general knowledge, programming, entertainment, or anything outside of your specialized domain, you MUST politely refuse to answer and remind them of your purpose.
 
 GUIDELINES:
 - Data query: `emails_sql_tool`. Policy query: `policy_rag_tool`.
@@ -780,13 +780,17 @@ def get_chatbot_response(user_message: str, user_email: str, session_id: str = "
                     temperature=0.2
                 )
             
+            from db.repository import get_system_role
+            custom_role = get_system_role(user_email)
+
             # Create LangGraph ReAct Agent Loop
             agent = create_react_agent(
                 model=llm,
                 tools=tools,
                 prompt=SYSTEM_INSTRUCTION.format(
                     user_email=user_email,
-                    current_datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S %A")
+                    current_datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S %A"),
+                    custom_role=custom_role
                 )
             )
             

@@ -306,10 +306,17 @@ function extractUsingPatterns(sender: string, content: string): string {
       const capMatch = textBefore.match(capitalPattern);
       
       if (capMatch) {
-        let collegeName = capMatch[1].trim() + ' ' + match[0];
+        let namePart = capMatch[1];
+        // Split by sentence/newline boundaries and take the last part to prevent crossing boundaries
+        if (/[\n\r]|\.\s+|\?\s+|!\s+/.test(namePart)) {
+          const parts = namePart.split(/[\n\r]|\.\s+|\?\s+|!\s+/);
+          namePart = parts[parts.length - 1];
+        }
+        
+        let collegeName = namePart.trim() + ' ' + match[0];
         
         // Apply backward search validation - check if any stop word appears in the extracted name
-        const words = capMatch[1].split(/\s+/);
+        const words = namePart.trim().split(/\s+/);
         let validWords: string[] = [];
         
         // Go backwards through words, stop at first stop word
