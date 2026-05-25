@@ -83,7 +83,11 @@ backend/scratch/
 
 # Exceptions to text file ignores
 !backend/requirements.txt
+
 backend/brain/
 
 # Confidential government email PDFs for import
 backend/import_emails/
+
+# Figures
+figures/

@@ -90,7 +90,8 @@ def get_batch_triage(emails, user_email: str = None):
         content_snippet = (e.get('content', '') or "")[:700]
         att_snippet = (e.get('attachment_content', '') or "")[:500]
         
-        emails_block += f"INDEX: {idx}\nSENDER: {e.get('sender')}\nSUBJECT: {e.get('subject')}\nCONTENT: {content_snippet}...\n"
+        f_count = e.get('followup_count', 0)
+        emails_block += f"INDEX: {idx}\nSENDER: {e.get('sender')}\nSUBJECT: {e.get('subject')}\nFOLLOW-UP COUNT: {f_count}\nCONTENT: {content_snippet}...\n"
         if att_snippet:
             emails_block += f"ATTACHMENT_TEXT: {att_snippet}...\n"
         emails_block += "---\n"

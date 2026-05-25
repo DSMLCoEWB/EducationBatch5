@@ -1013,7 +1013,7 @@ def get_unrefined_emails(user_email: str, limit: int = 5) -> List[Dict[str, Any]
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(f"""
-            SELECT id, sender, subject, content, attachment_content 
+            SELECT id, sender, subject, content, attachment_content, followup_count, priority
             FROM emails 
             WHERE user_email = ? 
               AND is_priority_refined = 0 
@@ -1025,9 +1025,17 @@ def get_unrefined_emails(user_email: str, limit: int = 5) -> List[Dict[str, Any]
         return [dict(row) for row in cursor.fetchall()]
 
 def update_email_refinement(user_email: str, email_id: str, priority: int, category: str):
-    """Updates an email with AI-refined priority and category labels with casing safety."""
+    """Updates an email with AI-refined priority and category labels with casing safety and downgrade protection."""
     with get_db_conn() as conn:
         cursor = conn.cursor()
+        
+        # Enforce downgrade protection: do not allow LLM to downgrade priority established by heuristics/escalation
+        cursor.execute("SELECT priority FROM emails WHERE id = ? AND LOWER(user_email) = LOWER(?)", (email_id, user_email.strip()))
+        row = cursor.fetchone()
+        if row and row[0] is not None:
+            # Priority values are 0 (Critical) to 3 (Low). Keeping the minimum ensures we preserve the highest priority.
+            priority = min(int(row[0]), int(priority))
+            
         cursor.execute("""
             UPDATE emails 
             SET priority = ?, category = ?, is_priority_refined = 1, last_synced = CURRENT_TIMESTAMP 

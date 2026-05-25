@@ -173,9 +173,9 @@ def get_batch_triage_ai(emails: List[Dict[str, Any]], user_email: str = None) ->
 
 
 def apply_thread_escalation(priority: int, followup_count: int) -> int:
-    """Escalates priority to high urgency (level 1) if followup threshold (>3) is breached."""
+    """Escalates priority by 1 unit (capped at High / level 1) if followup threshold (>3) is breached."""
     # Ensure priority defaults to 3 if completely None, but preserve 0 explicitly (avoiding falsiness bugs)
     p = 3 if priority is None else int(priority)
     if (followup_count or 0) > 3 and p > 1:
-        return 1  
+        return max(1, p - 1)  # Escalates by 1 unit, capped at High (level 1)
     return p
