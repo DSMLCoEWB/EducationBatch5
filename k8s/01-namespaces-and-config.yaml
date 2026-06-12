@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grievance-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: grievance-system
+data:
+  APP_ENV: production
+  DATABASE_TYPE: postgres
+  TASK_QUEUE_TYPE: celery
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/0
+  CORS_ORIGINS: ""
+  # OAuth Redirect URIs — update to match your deployment domain.
+  # NOTE: Google & Microsoft OAuth require HTTPS for any non-localhost domain.
+  # For a local intranet deployment, use a self-signed cert or your org's internal CA.
+  # For localhost-only dev testing, you may use http://localhost.
+  GOOGLE_OAUTH_REDIRECT_URI: "https://<YOUR_PRODUCTION_DOMAIN>/api/auth/google/callback"
+  MICROSOFT_OAUTH_REDIRECT_URI: "https://<YOUR_PRODUCTION_DOMAIN>/api/auth/microsoft/callback"
+  OAUTH_SUCCESS_REDIRECT_URL: "/"
+  # Set to "false" only if running on plain HTTP (local intranet without TLS). Requires "true" with HTTPS.
+  OAUTH_COOKIE_SECURE: "true"
+
+  # --- AI & SYNC OPERATIONAL DIALS ---
+  SYNC_ENABLED: "true"
+  GMAIL_CALLS_PER_MINUTE_LIMIT: "50"
+  GLOBAL_SYNC_INTERVAL_SECONDS: "600"
+  MANUAL_SYNC_COOLDOWN_SECONDS: "60"
+  FULL_SYNC_DAYS: "365"
+  SYNC_JITTER_SECONDS: "60"
+  SYNC_MAX_BACKOFF_SECONDS: "3600"
+  
+  # --- AI MODEL CONFIGURATION ---
+  AI_PREFER_LOCAL: "false"
+  PRIMARY_LOCAL_MODEL: "gemma3:4b"
+  OLLAMA_CONTEXT_LENGTH: "16384"
+  AI_FALLBACK_MODELS: "ollama/llama3.2:3b,ollama/qwen3.5:4b,ollama/gemma3:4b,ollama/phi4-mini:latest,models/gemini-3.1-flash-lite,models/gemini-flash-latest,models/gemini-3-flash-preview,models/gemini-2.5-flash,models/gemini-2.5-flash-lite,models/gemma-4-31b-it,models/gemma-4-26b-a4b-it,models/gemma-3-27b-it,models/gemma-3-12b-it,models/gemma-3-4b-it,models/gemma-3n-e2b-it,models/gemma-3-1b-it,models/gemini-robotics-er-1.6-preview,models/gemini-robotics-er-1.5-preview"
+  VISION_FALLBACK_MODELS: "ollama/qwen3-vl:2b,ollama/qwen2-vl:2b,ollama/moondream,models/gemini-2.5-flash,models/gemini-3.1-flash-lite,models/gemini-flash-latest,models/gemini-3-flash-preview,models/gemini-2.5-flash-lite"
+  
+  # --- RAG & RETRIEVAL TUNING ---
+  RAG_TOP_K: "5"
+  RAG_MIN_SCORE: "0.30"
+  RAG_FINAL_LIMIT: "3"
+  RAG_MAX_UNIQUE_SECTIONS: "0"
+  RAG_UNREPLIED_MAX: "3"
+  RAG_ANCHOR_DEPTH: "2"
+  RAG_SIMILARITY_THRESHOLD: "0.30"
+  
+  # --- RATE LIMITING & BATCHING ---
+  PRIORITY_LLM_MAX_CALLS: "1"
+  PRIORITY_LLM_WINDOW_SECONDS: "60"
+  AI_BATCH_SIZE: "15"
+---
+# ⛔ SECRETS ARE NOT STORED HERE.
+# The backend-secrets Kubernetes Secret is defined in k8s/00-secrets.yaml
+# That file is listed in .gitignore and must NEVER be committed to Git.
+# Copy k8s/00-secrets.example.yaml to k8s/00-secrets.yaml and fill in real values before deploying.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: grievance-system
+data:
+  nginx.conf: |
+    worker_processes auto;
+    worker_rlimit_nofile 65535;
+
+    events {
+        worker_connections 4096;
+        multi_accept on;
+        use epoll;
+    }
+
+    http {
+        server_tokens off;
+
+        limit_req_zone $binary_remote_addr zone=auth_limit:10m rate=10r/m;
+        limit_req_zone $binary_remote_addr zone=api_limit:10m rate=60r/m;
+
+        client_max_body_size 10M;
+        client_body_timeout 30s;
+        client_header_timeout 30s;
+        send_timeout 30s;
+        keepalive_timeout 65s;
+
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+
+        gzip on;
+        gzip_vary on;
+        gzip_comp_level 6;
+        gzip_min_length 1000;
+        gzip_proxied any;
+        gzip_types text/plain text/css text/javascript application/javascript application/json application/xml image/svg+xml;
+
+        upstream backend_cluster {
+            server backend:8000;
+            keepalive 32;
+        }
+        upstream frontend_cluster {
+            server frontend:80;
+            keepalive 16;
+        }
+
+        server {
+            listen 8000;
+            server_name _;
+
+            add_header X-Frame-Options "SAMEORIGIN" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-XSS-Protection "1; mode=block" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+            add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none';" always;
+
+            location ~ ^/api/(auth|login) {
+                limit_req zone=auth_limit burst=5 nodelay;
+                limit_req_status 429;
+                rewrite ^/api/(.*) /$1 break;
+                proxy_pass http://backend_cluster;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_http_version 1.1;
+                proxy_read_timeout 30s;
+            }
+
+            location /api/ {
+                limit_req zone=api_limit burst=20 nodelay;
+                limit_req_status 429;
+                rewrite ^/api/(.*) /$1 break;
+                proxy_pass http://backend_cluster;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_http_version 1.1;
+                proxy_set_header Connection '';
+                chunked_transfer_encoding off;
+                proxy_buffering off;
+                proxy_cache off;
+                proxy_read_timeout 86400s;
+            }
+
+            location / {
+                proxy_pass http://frontend_cluster;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_read_timeout 30s;
+            }
+
+            location ~ /\. { deny all; return 404; }
+            location ~* \.(env|git|svn|htaccess|htpasswd|log|bak|sql|enc|db|sqlite3)$ { deny all; return 404; }
+        }
+    }

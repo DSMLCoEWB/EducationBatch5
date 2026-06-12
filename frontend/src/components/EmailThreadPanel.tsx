@@ -10,6 +10,7 @@ import { API_BASE_URL, fetchEmailThread, sendReply, reprocessAttachment, trashEm
 import { transformBackendEmails } from '@/utils/dataTransformer';
 import { ReplyModal } from './ReplyModal';
 import { toast } from 'sonner';
+import DOMPurify from 'dompurify';
 
 interface EmailThreadPanelProps {
   email: Email;
@@ -80,7 +81,7 @@ export function EmailThreadPanel({ email, onClose, onUpdateEmail, isTrashView = 
     setShowScrollButton(!isNearBottom);
   };
 
-  const handleReplyInThread = async (emailToReply: Email, replyText: string, recipient?: string, subject?: string) => {
+  const handleReplyInThread = async (emailToReply: Email, replyText: string, recipient?: string, subject?: string, cc?: string, bcc?: string) => {
     try {
       const success = await sendReply(
         recipient || emailToReply.senderEmail || '',
@@ -88,7 +89,9 @@ export function EmailThreadPanel({ email, onClose, onUpdateEmail, isTrashView = 
         emailToReply.id,
         subject || emailToReply.subject,
         emailToReply.threadId,
-        ''
+        '',
+        cc,
+        bcc
       );
       if (success) {
         toast.success("Message sent successfully");
@@ -278,7 +281,7 @@ export function EmailThreadPanel({ email, onClose, onUpdateEmail, isTrashView = 
             initialSubject={modalConfig.initialSubject}
             initialRecipient={modalConfig.initialRecipient}
             onClose={() => setModalConfig(null)}
-            onSendReply={(text, recipient, subject) => handleReplyInThread(modalConfig.email, text, recipient, subject)}
+            onSendReply={(text, recipient, subject, cc, bcc) => handleReplyInThread(modalConfig.email, text, recipient, subject, cc, bcc)}
           />
         )}
 
@@ -316,6 +319,7 @@ export function EmailThreadPanel({ email, onClose, onUpdateEmail, isTrashView = 
 function EmailSafeFrame({ content, htmlContent }: { content: string, htmlContent?: string }) {
   const [showPlainText, setShowPlainText] = useState(false);
   const [frameHeight, setFrameHeight] = useState(200);
+  const [isDark, setIsDark] = useState(false);
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
 
   // Intelligent Detection: Is this actually HTML or just raw text stored in the html field?
@@ -327,66 +331,194 @@ function EmailSafeFrame({ content, htmlContent }: { content: string, htmlContent
     htmlContent.toLowerCase().includes('<table')
   ) : false;
 
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    setIsDark(document.documentElement.classList.contains('dark'));
+    return () => observer.disconnect();
+  }, []);
+
   const updateHeight = () => {
     if (iframeRef.current && iframeRef.current.contentDocument) {
-      const body = iframeRef.current.contentDocument.body;
-      if (body) {
-        // Safe growth logic: Add buffer and avoid jitter
-        const newHeight = Math.max(100, body.scrollHeight + 15);
-        if (Math.abs(newHeight - frameHeight) > 5) {
-          setFrameHeight(newHeight);
-        }
+      const doc = iframeRef.current.contentDocument;
+      if (doc) {
+        const height = doc.documentElement?.scrollHeight || doc.body?.scrollHeight || 100;
+        const newHeight = Math.max(100, height);
+        setFrameHeight((prev) => {
+          if (Math.abs(newHeight - prev) > 5) return newHeight;
+          return prev;
+        });
       }
     }
   };
 
   useEffect(() => {
-    if (!showPlainText && isActualHtml && htmlContent && iframeRef.current) {
-       const doc = iframeRef.current.contentDocument;
-       if (doc) {
-         doc.open();
-         const isFullHtml = htmlContent.toLowerCase().includes('<html');
-         const styledHtml = isFullHtml ? htmlContent.replace(/__API_BASE_URL__/g, API_BASE_URL) : `
-           <!DOCTYPE html>
-           <html>
-             <head>
-               <style>
-                 body { 
-                   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-                   color: #1f2937; 
-                   line-height: 1.6;
-                   padding: 0;
-                   margin: 0;
-                   background-color: transparent;
-                   word-wrap: break-word;
-                   overflow-y: hidden;
-                 }
-                 img { max-width: 100%; height: auto; display: block; margin: 16px 0; border-radius: 8px; }
-                 a { color: #2563eb; text-decoration: underline; }
-                 pre { white-space: pre-wrap; word-wrap: break-word; background: #f3f4f6; padding: 16px; border-radius: 8px; font-size: 13px; }
-                 blockquote { border-left: 3px solid #e5e7eb; padding-left: 16px; margin-left: 0; color: #6b7280; }
-               </style>
-             </head>
-             <body>${htmlContent.replace(/__API_BASE_URL__/g, API_BASE_URL)}</body>
-             <script>
-                // Notify parent of internal height shifts (e.g., dynamic images)
-                const observer = new ResizeObserver(() => {
-                  window.parent.postMessage({ type: 'iframe_resize' }, '*');
-                });
-                observer.observe(document.body);
-             </script>
-           </html>
-         `;
-         doc.write(styledHtml);
-         doc.close();
-       }
+    if (!iframeRef.current) return;
+
+    // Build absolute base URL once
+    const absoluteApiBaseUrl = API_BASE_URL.startsWith('http')
+      ? API_BASE_URL
+      : `${window.location.origin}${API_BASE_URL.startsWith('/') ? '' : '/'}${API_BASE_URL}`;
+
+    // Track created blob URLs so we can revoke them on cleanup
+    const blobUrls: string[] = [];
+    let cancelled = false;
+
+    async function renderFrame() {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc) return;
+
+      // --- PLAIN TEXT PATH ---
+      if (showPlainText || !htmlContent || !isActualHtml) {
+        doc.open();
+        doc.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <style>
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                  font-size: 14px; line-height: 1.6;
+                  color: ${isDark ? '#e5e7eb' : '#374151'};
+                  padding: 16px; margin: 0;
+                  white-space: pre-wrap; word-break: break-word;
+                }
+              </style>
+            </head>
+            <body>${(content || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</body>
+          </html>
+        `);
+        doc.close();
+        return;
+      }
+
+      // --- HTML PATH: pre-fetch backend images as Blob URLs ---
+      // Replace __API_BASE_URL__ placeholders with absolute URL first
+      let processedHtml = htmlContent.replace(/__API_BASE_URL__/g, absoluteApiBaseUrl);
+
+      // Find all img src values that point to our API
+      const imgRegex = /(<img[^>]+src=["'])([^"']*\/api\/[^"']+)(["'])/gi;
+      const matches = [...processedHtml.matchAll(imgRegex)];
+
+      for (const match of matches) {
+        if (cancelled) return;
+        const originalUrl = match[2];
+        try {
+          const res = await fetch(originalUrl, {
+            credentials: 'include',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          });
+          if (res.ok) {
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            blobUrls.push(blobUrl);
+            // Replace the first occurrence of this URL in the HTML
+            processedHtml = processedHtml.replace(originalUrl, blobUrl);
+          }
+        } catch (e) {
+          console.warn('[EmailSafeFrame] Failed to prefetch image:', originalUrl, e);
+        }
+      }
+
+      if (cancelled) return;
+
+      const isFullHtml = htmlContent.toLowerCase().includes('<html');
+      const darkStyle = `
+        <style>
+          :root { color-scheme: ${isDark ? 'dark' : 'light'}; }
+          ${isDark ? `
+            * {
+              color: #e2e8f0 !important;
+              background-color: transparent !important;
+              background: transparent !important;
+            }
+          ` : ''}
+          a { color: ${isDark ? '#60a5fa' : '#2563eb'} !important; }
+          pre { white-space: pre-wrap; word-wrap: break-word; background: ${isDark ? '#1e293b' : '#f3f4f6'} !important; padding: 16px; border-radius: 8px; font-size: 13px; color: ${isDark ? '#e2e8f0' : 'inherit'} !important; }
+          blockquote { border-left: 3px solid ${isDark ? '#334155' : '#e5e7eb'} !important; padding-left: 16px !important; margin-left: 0 !important; color: ${isDark ? '#94a3b8' : '#6b7280'} !important; }
+          body { padding-bottom: 20px !important; } /* Replaces artificial iframe buffer */
+        </style>
+      `;
+
+      const baseTag = `<base target="_blank" href="${window.location.origin}/" />`;
+      const headInjections = baseTag + darkStyle;
+
+      let finalStyledHtml = '';
+      if (isFullHtml) {
+        if (processedHtml.includes('</head>')) {
+          finalStyledHtml = processedHtml.replace('</head>', `${headInjections}</head>`);
+        } else if (processedHtml.includes('<body')) {
+          finalStyledHtml = processedHtml.replace('<body', `${headInjections}<body`);
+        } else {
+          finalStyledHtml = headInjections + processedHtml;
+        }
+      } else {
+        finalStyledHtml = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              ${headInjections}
+              <style>
+                body {
+                  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                  line-height: 1.6; padding: 0; padding-bottom: 20px; margin: 0; word-wrap: break-word; overflow-y: hidden;
+                }
+                img { max-width: 100%; height: auto; display: block; margin: 16px 0; border-radius: 8px; }
+              </style>
+            </head>
+            <body>${processedHtml}</body>
+          </html>
+        `;
+      }
+
+      const scriptBlock = `
+        <script>
+          const observer = new ResizeObserver(() => {
+            // Calculate height using documentElement to avoid body 100% height stretching issues
+            const height = document.documentElement.scrollHeight || document.body.scrollHeight;
+            window.parent.postMessage({ type: 'iframe_resize', height: height }, '*');
+          });
+          // Observe both body and documentElement for changes
+          observer.observe(document.body);
+          if (document.documentElement) observer.observe(document.documentElement);
+          
+          // Send initial height
+          window.parent.postMessage({ 
+            type: 'iframe_resize', 
+            height: document.documentElement.scrollHeight || document.body.scrollHeight 
+          }, '*');
+        </script>
+      `;
+
+      const htmlToWrite = finalStyledHtml.includes('</body>')
+        ? finalStyledHtml.replace('</body>', `${scriptBlock}</body>`)
+        : finalStyledHtml + scriptBlock;
+
+      doc.open();
+      doc.write(htmlToWrite);
+      doc.close();
     }
-  }, [showPlainText, htmlContent, isActualHtml]);
+
+    void renderFrame();
+
+    return () => {
+      cancelled = true;
+      blobUrls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [showPlainText, htmlContent, isActualHtml, isDark]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'iframe_resize') {
-        updateHeight();
+      if (event.data?.type === 'iframe_resize' && event.data.height) {
+        const newHeight = Math.max(100, event.data.height); // Removed +20 buffer here
+        setFrameHeight((prev) => {
+          if (Math.abs(newHeight - prev) > 5) {
+            return newHeight;
+          }
+          return prev;
+        });
       }
     };
     window.addEventListener('message', handleMessage);
@@ -396,7 +528,7 @@ function EmailSafeFrame({ content, htmlContent }: { content: string, htmlContent
   if (!htmlContent || showPlainText || !isActualHtml) {
     return (
       <div 
-        className="text-[14px] text-slate-700 leading-[1.6] break-words min-h-[60px] whitespace-pre-wrap font-sans tracking-tight"
+        className="text-[14px] text-slate-700 dark:text-slate-300 leading-[1.6] break-words min-h-[60px] whitespace-pre-wrap font-sans tracking-tight"
       >
         {(content || '(No content available)').replace(/__API_BASE_URL__/g, API_BASE_URL)}
       </div>
@@ -719,15 +851,15 @@ function EmailCard({
               </div>
 
               {email.attachmentContent && (
-                <div className="p-3 bg-amber-50/40 rounded-xl border border-amber-100/50 group/intel">
+                <div className="p-3 bg-amber-50/40 dark:bg-amber-950/30 rounded-xl border border-amber-100/50 dark:border-amber-900/50 group/intel">
                   <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2 text-[10px] font-bold text-amber-700 uppercase tracking-tighter">
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-amber-700 dark:text-amber-500 uppercase tracking-tighter">
                       <Maximize2 className="w-3 h-3" />
                       AI Vision Extraction
                     </div>
                   </div>
                   <div className="max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
-                    <p className="text-[11px] text-amber-800/80 leading-relaxed italic whitespace-pre-wrap font-mono">
+                    <p className="text-[11px] text-amber-800/80 dark:text-amber-200 leading-relaxed italic whitespace-pre-wrap font-mono">
                       {email.attachmentContent}
                     </p>
                   </div>

@@ -13,11 +13,12 @@ import { InitialSyncingView, EmptyInboxView } from '@/components/SyncStatusViews
 import GmailSettingsBanner from '@/components/GmailSettingsBanner';
 import { Email } from '@/types';
 import {
-  disconnectGoogleAuth,
+  disconnectAuth,
   fetchEmailsByCategory,
   fetchColleges,
-  fetchGmailAuthStatus,
+  fetchAuthStatus,
   getGoogleAuthStartUrl,
+  getMicrosoftAuthStartUrl,
   trashEmail,
   restoreEmail,
   fetchRefinementStats,
@@ -43,9 +44,9 @@ export default function App() {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [gmailConnected, setGmailConnected] = useState(false);
-  const [gmailIdentity, setGmailIdentity] = useState<string | null>(null);
-  const [gmailAuthMode, setGmailAuthMode] = useState<string>('none');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [authProvider, setAuthProvider] = useState<string>('none');
   const [error, setError] = useState<string | null>(null);
   const [showPolicyManagement, setShowPolicyManagement] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -58,6 +59,21 @@ export default function App() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
   const isPollingRef = useRef(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const errorParam = params.get('error');
+    if (errorParam) {
+      if (errorParam === 'invalid_provider_google') {
+        setError("You cannot use a Google account to sign in via Microsoft. Please click 'Continue with Google' instead.");
+      } else if (errorParam === 'invalid_provider_microsoft') {
+        setError("You cannot use a Microsoft account to sign in via Google. Please click 'Continue with Microsoft' instead.");
+      } else {
+        setError(decodeURIComponent(errorParam));
+      }
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -97,7 +113,7 @@ export default function App() {
       const message = err instanceof Error ? err.message.toLowerCase() : '';
       if (message.includes('unauthorized') || message.includes('not authenticated')) {
         setEmails([]); setLastSyncedAt(null); setError(null);
-        setGmailConnected(false); setGmailIdentity(null); setGmailAuthMode('none');
+        setIsAuthenticated(false); setUserEmail(null); setAuthProvider('none');
         return [];
       }
       setError('Failed to refresh emails from backend.');
@@ -106,24 +122,20 @@ export default function App() {
       // If server is still syncing and we got 0 emails, keep the spinner
       // Use a functional check to avoid stale closure on emails.length
       setEmails(prev => {
-        if (isServerSyncing && prev.length === 0) {
-          setIsRefreshing(true);
-        } else {
-          setIsRefreshing(false);
-        }
+        setIsRefreshing(false);
         return prev;
       });
       isPollingRef.current = false;
     }
   }, [activeView]);
 
-  const refreshGmailAuthStatus = useCallback(async () => {
+  const refreshAuthStatus = useCallback(async () => {
     try {
-      const status = await fetchGmailAuthStatus();
-      setGmailConnected(Boolean(status.connected));
-      setGmailIdentity(status.email || null);
-      setGmailAuthMode(status.auth_mode || 'none');
-    } catch (err) { console.warn('Failed to fetch Gmail auth status:', err); }
+      const status = await fetchAuthStatus();
+      setIsAuthenticated(Boolean(status.connected));
+      setUserEmail(status.email || null);
+      setAuthProvider(status.auth_mode || 'none');
+    } catch (err) { console.warn('Failed to fetch auth status:', err); }
   }, []);
 
   const refreshRefinementStats = useCallback(async () => {
@@ -134,13 +146,27 @@ export default function App() {
   useEffect(() => {
     async function loadData() {
       try {
-        setLoading(true); setError(null);
+        setLoading(true);
+        
+        // Preserve OAuth redirect errors instead of blindly clearing them
+        const params = new URLSearchParams(window.location.search);
+        const errorParam = params.get('error');
+        if (errorParam === 'invalid_provider_microsoft') {
+          setError("This domain is hosted by Microsoft. Please use 'Login with Microsoft'.");
+          window.history.replaceState({}, '', window.location.pathname);
+        } else if (errorParam === 'invalid_provider_google') {
+          setError("This domain is hosted by Google. Please use 'Login with Google'.");
+          window.history.replaceState({}, '', window.location.pathname);
+        } else {
+          setError(prev => prev ? prev : null);
+        }
+
         const colleges = await fetchColleges();
         initializeCollegeDatabase(colleges);
-        const status = await fetchGmailAuthStatus();
-        setGmailConnected(Boolean(status.connected));
-        setGmailIdentity(status.email || null);
-        setGmailAuthMode(status.auth_mode || 'none');
+        const status = await fetchAuthStatus();
+        setIsAuthenticated(Boolean(status.connected));
+        setUserEmail(status.email || null);
+        setAuthProvider(status.auth_mode || 'none');
         await refreshRefinementStats();
         
         try {
@@ -155,20 +181,21 @@ export default function App() {
       } catch (err) {
         const message = err instanceof Error ? err.message.toLowerCase() : '';
         if (message.includes('unauthorized') || message.includes('not authenticated')) {
-          setEmails([]); setLastSyncedAt(null); setError(null);
-          setGmailConnected(false); setGmailIdentity(null); setGmailAuthMode('none');
+          setEmails([]); setLastSyncedAt(null); 
+          setError(prev => prev ? prev : null);
+          setIsAuthenticated(false); setUserEmail(null); setAuthProvider('none');
         } else {
-          setError('Failed to load data. Backend API is unreachable.');
+          setError(prev => prev ? prev : 'Failed to load data. Backend API is unreachable.');
         }
       } finally { setLoading(false); }
     }
     loadData();
-  }, [loadEmails, refreshGmailAuthStatus, refreshRefinementStats]);
+  }, [loadEmails, refreshAuthStatus, refreshRefinementStats]);
 
   // Removed handleTestApiKeys
 
   useEffect(() => {
-    if (!gmailConnected) return;
+    if (!isAuthenticated) return;
 
     const apiBase = import.meta.env.VITE_API_URL || "";
     let eventSource: EventSource | null = null;
@@ -190,7 +217,7 @@ export default function App() {
             console.log("🔔 [SSE] Signal received: Sync Complete.");
             void loadEmails(false);
             void refreshRefinementStats();
-            void refreshGmailAuthStatus();
+            void refreshAuthStatus();
             setIsRefreshing(false);
           }
         } catch (e) {
@@ -208,18 +235,19 @@ export default function App() {
 
     setupSSE();
     return () => eventSource?.close();
-  }, [gmailConnected, loadEmails, refreshRefinementStats, refreshGmailAuthStatus]);
+  }, [isAuthenticated, loadEmails, refreshRefinementStats, refreshAuthStatus]);
 
   useEffect(() => {
     const pollInterval = Number(import.meta.env.VITE_AUTH_STATUS_POLLING_SECONDS || 60) * 1000;
-    const timer = window.setInterval(() => { void refreshGmailAuthStatus(); }, pollInterval);
+    const timer = window.setInterval(() => { void refreshAuthStatus(); }, pollInterval);
     return () => window.clearInterval(timer);
-  }, [refreshGmailAuthStatus]);
+  }, [refreshAuthStatus]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     isPollingRef.current = false;
     void loadEmails(false);
-  }, [activeView, loadEmails]);
+  }, [activeView, loadEmails, isAuthenticated]);
 
   // Removed high-frequency auto-refresh timer to prevent bot detection.
   // The system now relies exclusively on the push-based SSE stream.
@@ -267,7 +295,9 @@ export default function App() {
         email.sender.toLowerCase().includes(query) ||
         email.subject.toLowerCase().includes(query) ||
         email.content.toLowerCase().includes(query) ||
-        email.instituteName.toLowerCase().includes(query)
+        email.instituteName.toLowerCase().includes(query) ||
+        email.category.toLowerCase().includes(query) ||
+        (email.attachmentContent && email.attachmentContent.toLowerCase().includes(query))
       );
     }
     return filtered;
@@ -294,11 +324,13 @@ export default function App() {
     );
   }
 
-  if (!gmailConnected && !loading) {
+  if (!isAuthenticated && !loading) {
     return (
       <LoginPage 
-        onLogin={() => window.open(getGoogleAuthStartUrl(), '_blank', 'noopener,noreferrer')}
+        onLogin={() => { window.location.href = getGoogleAuthStartUrl(); }}
+        onMicrosoftLogin={() => { window.location.href = getMicrosoftAuthStartUrl(); }}
         isLoading={loading}
+        error={error}
       />
     );
   }
@@ -353,12 +385,12 @@ export default function App() {
           }
         }}
         isRefreshing={isRefreshing} lastSyncedAt={lastSyncedAt}
-        gmailConnected={gmailConnected} gmailIdentity={gmailIdentity} gmailAuthMode={gmailAuthMode}
-        onConnectGmail={() => window.open(getGoogleAuthStartUrl(), '_blank', 'noopener,noreferrer')}
-        onDisconnectGmail={() => {
-          setGmailConnected(false); setGmailIdentity(null); setGmailAuthMode('none');
+        isAuthenticated={isAuthenticated} userEmail={userEmail} authProvider={authProvider}
+        onConnect={() => { window.location.href = getGoogleAuthStartUrl(); }}
+        onDisconnect={() => {
+          setIsAuthenticated(false); setUserEmail(null); setAuthProvider('none');
           setEmails([]); setError(null);
-          void disconnectGoogleAuth().then(() => void refreshGmailAuthStatus());
+          void disconnectAuth().then(() => void refreshAuthStatus());
         }}
         refinementStats={refinementStats}
         onToggleSidebar={() => {
@@ -387,12 +419,12 @@ export default function App() {
         <main className="flex-1 overflow-y-auto bg-background flex flex-col">
           <GmailSettingsBanner />
           {emails.length === 0 ? (
-            // Priority 1: Backend or Frontend says we are syncing right now
-            isRefreshing ? (
+            // Priority 1: If we have never synced before, show the initial setup view
+            isRefreshing && !lastSyncedAt ? (
               <InitialSyncingView />
             ) : lastSyncedAt ? (
-              // Priority 2: Sync definitively finished and total emails are still zero
-              <EmptyInboxView onRefreshNow={async () => { await loadEmails(); await refreshRefinementStats(); }} />
+              // Priority 2: Sync definitively finished (or is background syncing) and total emails are still zero
+              <EmptyInboxView onRefreshNow={async () => { await loadEmails(); await refreshRefinementStats(); }} isRefreshing={isRefreshing} />
             ) : (
               // Initial boot-up state (before first sync call returns)
               <div className="flex-1 flex items-center justify-center">
@@ -430,7 +462,7 @@ export default function App() {
         />
       )}
       <Chatbot emails={filteredEmails} />
-      {showPolicyManagement && <PolicyManagementModal onClose={() => setShowPolicyManagement(false)} />}
+      {showPolicyManagement && <PolicyManagementModal onClose={() => setShowPolicyManagement(false)} customCategories={categories} />}
       {showSettingsModal && (
         <SettingsModal 
           isOpen={showSettingsModal} 
@@ -438,6 +470,9 @@ export default function App() {
           onCategoriesChanged={async () => {
             const cats = await fetchSettingsCategories(false);
             setCategories(cats);
+            
+            await loadEmails(false);
+            await refreshRefinementStats();
             
             // EDGE CASE: If current view is a category that was renamed or deleted, fallback to dashboard
             const mainViews = ['dashboard', 'all', 'Sent', 'trash', 'Miscellaneous'];

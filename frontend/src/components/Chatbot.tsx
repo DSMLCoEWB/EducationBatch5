@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, Bot, Maximize2, Minimize2, Sparkles, Database, FileText } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { Email } from '@/types';
 import { askChatbot } from '@/services/api';
 
@@ -147,7 +148,7 @@ export function Chatbot({ emails }: ChatbotProps) {
       {isOpen && (
         <div 
           className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 ${
-            isExpanded ? 'w-[calc(100vw-2rem)] sm:w-[800px] h-[80vh]' : 'w-[calc(100vw-2rem)] sm:w-[420px] h-[70vh] sm:h-[600px]'
+            isExpanded ? 'w-[calc(100vw-2rem)] sm:w-[800px] h-[80vh]' : 'w-[calc(100vw-2rem)] sm:w-[480px] h-[70vh] sm:h-[600px]'
           } bg-card/80 backdrop-blur-xl rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-50 flex flex-col border border-white/20 transition-all duration-500 ease-out animate-in slide-in-from-bottom-10`}
         >
           {/* Header */}
@@ -188,19 +189,19 @@ export function Chatbot({ emails }: ChatbotProps) {
                   }`}>
                     {message.type === 'user' ? 'YOU' : <Bot className="w-4 h-4" />}
                   </div>
-                  <div className="space-y-1">
-                    <div className={`rounded-2xl px-4 py-3 shadow-sm ${
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className={`rounded-2xl px-4 py-3 shadow-sm overflow-hidden ${
                       message.type === 'user'
                         ? 'bg-primary text-primary-foreground rounded-tr-none'
                         : 'bg-background dark:bg-muted border border-border rounded-tl-none'
                     }`}>
                       <div 
-                        className={`text-sm leading-relaxed prose prose-sm max-w-none chatbot-content ${
+                        className={`text-sm leading-relaxed prose prose-sm max-w-none chatbot-content break-words whitespace-pre-wrap overflow-hidden prose-pre:max-w-full prose-pre:overflow-x-auto prose-code:break-all prose-p:break-words ${
                           message.type === 'user' 
                             ? 'prose-invert text-primary-foreground' 
                             : 'dark:prose-invert text-foreground'
                         } prose-headings:text-primary`}
-                        dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
+                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(formatMessage(message.content)) }}
                       />
                     </div>
                     <span className={`text-[10px] font-medium opacity-50 px-1 block ${message.type === 'user' ? 'text-right' : 'text-left'}`}>

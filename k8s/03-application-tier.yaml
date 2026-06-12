@@ -1,0 +1,169 @@
+# ---------------------------------------------
+# SHARED PERSISTENT STORAGE
+# ---------------------------------------------
+# Required for Celery workers and FastAPI to share downloaded email attachments
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-storage-pvc
+  namespace: grievance-system
+spec:
+  accessModes:
+    - ReadWriteMany  # Requires NFS or similar provisioner on bare metal
+  resources:
+    requests:
+      storage: 20Gi
+---
+# ---------------------------------------------
+# BACKEND API (FastAPI)
+# ---------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: grievance-system
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - backend
+              topologyKey: "kubernetes.io/hostname"
+      initContainers:
+      - name: run-migrations
+        image: grievance-backend:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python", "run_migrations.py"]
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        - secretRef:
+            name: backend-secrets
+      containers:
+      - name: backend
+        # In a real environment, replace this with your private registry image path
+        image: grievance-backend:latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        - secretRef:
+            name: backend-secrets
+        ports:
+        - containerPort: 8000
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /app/storage
+      volumes:
+      - name: shared-storage
+        persistentVolumeClaim:
+          claimName: shared-storage-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: grievance-system
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+# ---------------------------------------------
+# CELERY WORKERS (AI & Sync)
+# ---------------------------------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: grievance-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: celery-worker
+        image: grievance-backend:latest
+        imagePullPolicy: IfNotPresent
+        command: ["celery", "-A", "core.celery_app", "worker", "--loglevel=info"]
+        envFrom:
+        - configMapRef:
+            name: backend-config
+        - secretRef:
+            name: backend-secrets
+        livenessProbe:
+          exec:
+            command:
+            - celery
+            - -A
+            - core.celery_app
+            - inspect
+            - ping
+          initialDelaySeconds: 60
+          periodSeconds: 60
+          timeoutSeconds: 15
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1500m"
+            memory: "2Gi"
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /app/storage
+      volumes:
+      - name: shared-storage
+        persistentVolumeClaim:
+          claimName: shared-storage-pvc

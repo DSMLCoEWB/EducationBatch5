@@ -158,7 +158,12 @@ Running the system natively lets the backend leverage host GPU architectures and
 
 ## 4. Method B: Containerized Installation (Docker Desktop)
 
-Using Docker simplifies cross-platform dependencies by packaging the backend and frontend into isolated, self-healing containers.
+Using Docker packages the entire ecosystem into a production-grade, distributed architecture:
+*   **PostgreSQL**: Handles persistent, concurrent transactional data with connection pooling.
+*   **Redis**: Serves as the high-throughput message broker and result backend for Celery.
+*   **FastAPI Backend**: Serves API queries and interacts with the DB pool.
+*   **Celery Worker**: Offloads heavy, asynchronous jobs (Gmail synchronisation, PDF parsing, vector indexing, and AI triage).
+*   **React Frontend**: Provides the administration and dashboard UI.
 
 ### 4.1 Create Environment Files
 1. Create `backend/.env` (configured as shown in [Section 3.3](#33-configure-environment-variables)).
@@ -174,11 +179,18 @@ Using Docker simplifies cross-platform dependencies by packaging the backend and
    ```bash
    docker compose up --build -d
    ```
-3. Verify both containers are running successfully:
+3. Verify all five services are running successfully:
    ```bash
    docker compose ps
    ```
+   *   `grievance-postgres` (Port 5432)
+   *   `grievance-redis` (Port 6379)
+   *   `grievance-backend` (Port 8000)
+   *   `grievance-celery-worker` (Background)
+   *   `grievance-frontend` (Port 3000)
+   
    Access the dashboard at `http://localhost:3000`.
+
 
 ---
 

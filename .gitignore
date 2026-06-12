@@ -40,11 +40,8 @@ Thumbs.db
 *.xlsx
 *.log
 logs/
-backend/data/
-backend/backend_data/
-backend/attachments/
-backend/files/
-backend/policies/
+backend/storage/*
+!backend/storage/demo_policies/
 *.sqlite3
 *.db
 *.enc
@@ -68,7 +65,11 @@ src_backup/
 backend_data/
 
 # Sensitive Credentials
-backend/scripts/service-account-credentials.json
+backend/storage/secrets/
+
+# Kubernetes Secrets (NEVER commit actual secrets to Git)
+# Copy k8s/00-secrets.example.yaml -> k8s/00-secrets.yaml and fill in real values
+k8s/00-secrets.yaml
 
 # Local Logs & Transitory Data
 backend/out_debug.txt

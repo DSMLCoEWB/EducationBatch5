@@ -1,40 +1,189 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: grievance-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: grievance
+      # Force SCRAM-SHA-256 password hashing from the very first initdb run.
+      # Without this, the superuser password would be stored as MD5 before
+      # our custom postgresql.conf (password_encryption=scram-sha-256) is loaded.
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    # Port 5432 is NOT exposed to the host. All connections must go through PgBouncer.
+    # Exposing postgres directly bypasses connection pooling and RLS context management.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Mount hardened server and auth configuration
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    # Tell postgres to use our custom config files instead of the defaults
+    command: >
+      postgres
+        -c config_file=/etc/postgresql/postgresql.conf
+        -c hba_file=/etc/postgresql/pg_hba.conf
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "grievance"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: grievance-pgbouncer
+    environment:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: postgres
+      DB_NAME: grievance
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  redis:
+    image: redis:7-alpine
+    container_name: grievance-redis
+    # Redis port NOT exposed to host — only accessible within the Docker network
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  db_migrator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: grievance-migrator
+    command: python run_migrations.py
+    env_file:
+      - ./backend/.env
+    environment:
+      - PYTHONPATH=/app/src
+      - DATABASE_TYPE=postgres
+      - DATABASE_URL=postgresql://postgres:postgres@pgbouncer:5432/grievance
+    depends_on:
+      - pgbouncer
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: grievance-backend
-    ports:
-      - "8000:8000"
+    # container_name removed for replicas to work
+    deploy:
+      replicas: 3
     env_file:
       - ./backend/.env
+    environment:
+      - PYTHONPATH=/app/src
+      - DATABASE_TYPE=postgres
+      - DATABASE_URL=postgresql://postgres:postgres@pgbouncer:5432/grievance
+      - TASK_QUEUE_TYPE=celery
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
-      - ./backend/data:/app/data
-      - ./backend/files:/app/files
-      - ./backend/policies:/app/policies
-      - ./backend/demo_policies:/app/demo_policies
-      - ./backend/attachments:/app/attachments
+      - ./backend/storage:/app/storage
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db_migrator:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 300s
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # container_name removed for replicas to work
+    deploy:
+      replicas: 2
+    command: celery -A core.celery_app worker --loglevel=info
+    env_file:
+      - ./backend/.env
+    environment:
+      - PYTHONPATH=/app/src
+      - DATABASE_TYPE=postgres
+      - DATABASE_URL=postgresql://postgres:postgres@pgbouncer:5432/grievance
+      - TASK_QUEUE_TYPE=celery
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./backend/storage:/app/storage
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db_migrator:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "celery", "-A", "core.celery_app", "inspect", "ping"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+
+  nginx:
+    image: nginx:alpine
+    container_name: grievance-nginx
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
-        VITE_REPLY_API_URL: ${VITE_REPLY_API_URL:-http://localhost:8000}
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_REPLY_API_URL: ${VITE_REPLY_API_URL:-/api}
     container_name: grievance-frontend
-    ports:
-      - "3000:80"
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

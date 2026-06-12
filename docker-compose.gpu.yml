@@ -1,0 +1,14 @@
+services:
+  backend:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+
+  celery_worker:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]

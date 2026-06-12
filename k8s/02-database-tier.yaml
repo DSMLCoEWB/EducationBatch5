@@ -1,0 +1,328 @@
+# =============================================================================
+# POSTGRESQL HARDENED CONFIGURATION — ConfigMap
+# Delivers custom postgresql.conf and pg_hba.conf to the Postgres StatefulSet.
+# Authentication is enforced at the DATABASE KERNEL level using SCRAM-SHA-256,
+# the strongest password protocol supported by PostgreSQL 15.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: grievance-system
+data:
+  # -------------------------------------------------------------------------
+  # pg_hba.conf — Client Authentication Rules
+  # POLICY: SCRAM-SHA-256 is the ONLY allowed authentication method.
+  # MD5 is cryptographically broken and is explicitly prohibited.
+  # -------------------------------------------------------------------------
+  pg_hba.conf: |
+    # TYPE  DATABASE  USER  ADDRESS       METHOD
+    local   all       all                 scram-sha-256
+    host    all       all   0.0.0.0/0    scram-sha-256
+    host    all       all   ::1/128      scram-sha-256
+
+  # -------------------------------------------------------------------------
+  # postgresql.conf — Server Configuration
+  # -------------------------------------------------------------------------
+  postgresql.conf: |
+    # --- AUTHENTICATION ---
+    # Enforce SCRAM-SHA-256 for ALL new passwords set on this server.
+    password_encryption = scram-sha-256
+    listen_addresses = '*'
+    max_connections = 100
+
+    # --- SECURITY AUDIT TRAIL (Mandatory for Government Systems) ---
+    log_connections = on
+    log_disconnections = on
+    log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+    # Log all queries slower than 1 second (anomaly / DoS detection)
+    log_min_duration_statement = 1000
+    # Log all DDL statements (CREATE, ALTER, DROP) for tamper detection
+    log_statement = 'ddl'
+    # Log failed authentication attempts
+    log_failed_connections = on
+
+    # --- QUERY TIMEOUT (Defense against runaway queries / DoS attacks) ---
+    # Kill any query that runs longer than 5 minutes
+    statement_timeout = 300000
+
+    # --- PERFORMANCE (Tuned for 2Gi memory limit) ---
+    shared_buffers = 256MB
+    effective_cache_size = 1GB
+    work_mem = 16MB
+    maintenance_work_mem = 64MB
+
+    # --- WAL DURABILITY ---
+    wal_level = replica
+    # Ensure every transaction is flushed to disk (zero data loss guarantee)
+    synchronous_commit = on
+
+---
+# =============================================================================
+# POSTGRESQL STATEFULSET (With Persistent Storage)
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: grievance-system
+spec:
+  serviceName: "postgres"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        fsGroup: 70
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DB_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DB_PASSWORD
+        - name: POSTGRES_DB
+          value: "grievance"
+        # Force SCRAM-SHA-256 from the very first initdb run.
+        # Without this flag, the superuser password would be hashed with MD5
+        # before our postgresql.conf is loaded, creating a security gap.
+        - name: POSTGRES_INITDB_ARGS
+          value: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+        # Point Postgres to our hardened config files via CLI flags.
+        # This is the most reliable way to override defaults in a container.
+        args:
+          - "-c"
+          - "config_file=/etc/postgresql/postgresql.conf"
+          - "-c"
+          - "hba_file=/etc/postgresql/pg_hba.conf"
+        ports:
+        - containerPort: 5432
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-U", "postgres", "-d", "grievance"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "postgres", "-d", "grievance"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2000m"
+            memory: "2Gi"
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        # Mount hardened configuration from the ConfigMap (read-only)
+        - name: postgres-config-vol
+          mountPath: /etc/postgresql/postgresql.conf
+          subPath: postgresql.conf
+          readOnly: true
+        - name: postgres-config-vol
+          mountPath: /etc/postgresql/pg_hba.conf
+          subPath: pg_hba.conf
+          readOnly: true
+      volumes:
+      - name: postgres-config-vol
+        configMap:
+          name: postgres-config
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: grievance-system
+spec:
+  clusterIP: None # Headless service for StatefulSet
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+
+# =============================================================================
+# PGBOUNCER (Connection Pooling — Transaction Mode for RLS compatibility)
+# =============================================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: grievance-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        fsGroup: 100
+      containers:
+      - name: pgbouncer
+        image: edoburu/pgbouncer:latest
+        env:
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: DB_PASSWORD
+        - name: DB_HOST
+          value: "postgres"
+        - name: DB_NAME
+          value: "grievance"
+        # CRITICAL: transaction mode is REQUIRED for SET LOCAL (RLS) to work correctly.
+        # In session mode, SET LOCAL would persist across connections, breaking tenant isolation.
+        - name: POOL_MODE
+          value: "transaction"
+        - name: MAX_CLIENT_CONN
+          value: "1000"
+        - name: DEFAULT_POOL_SIZE
+          value: "20"
+        # Must match the PostgreSQL server's password_encryption setting.
+        # Both are now correctly aligned to scram-sha-256.
+        - name: AUTH_TYPE
+          value: "scram-sha-256"
+        ports:
+        - containerPort: 5432
+        livenessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: grievance-system
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+    - port: 5432
+      targetPort: 5432
+
+# =============================================================================
+# REDIS (Message Broker & Distributed Locking)
+# =============================================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: grievance-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command: ["redis-server", "--appendonly", "yes"]
+        ports:
+        - containerPort: 6379
+        livenessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: grievance-system
+spec:
+  accessModes: [ "ReadWriteOnce" ]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: grievance-system
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

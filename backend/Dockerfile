@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -8,17 +8,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Install standard CPU PyTorch to avoid massive CUDA dependencies in Docker
+RUN pip install --default-timeout=100 --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies (no cache to reduce layer size)
+# Install remaining Python dependencies (this will skip torch since it's already installed)
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
 
 # Create required directories
-RUN mkdir -p /app/data /app/files /app/policies /app/demo_policies /app/attachments
+RUN mkdir -p /app/storage
+
+# Set PYTHONPATH so the container treats src/ as a package root
+ENV PYTHONPATH=/app/src
 
 # Expose port
 EXPOSE 8000
@@ -27,6 +33,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5)"
 
-# Use Uvicorn directly (single worker) for SQLite + SSE compatibility.
-# Gunicorn multi-worker mode breaks SQLite concurrent writes and SSE streams.
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "120"]
+# Enterprise Throughput: Use Gunicorn to manage multiple Uvicorn workers.
+# Since we migrated to PostgreSQL, we are no longer bound by SQLite concurrent write locks.
+CMD ["gunicorn", "app:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120"]

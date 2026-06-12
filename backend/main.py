@@ -1,4 +1,12 @@
 import os
+import sys
+from pathlib import Path
+
+# Inject src directory into PYTHONPATH
+src_path = str(Path(__file__).parent / "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
 import uvicorn
 from app import app
 from core.logging import get_logger

@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Send, Sparkles, CheckCircle2, X, Loader2 } from 'lucide-react';
 import { Email } from '@/types';
-import { GenerateReplyResult, generateReplyDetailed } from '@/services/api';
+import { GenerateReplyResult, generateReplyDetailed, fetchContacts } from '@/services/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MultiEmailInput } from './MultiEmailInput';
 
 interface ReplyModalProps {
   email: Email;
@@ -12,7 +13,7 @@ interface ReplyModalProps {
   initialBody?: string;
   initialRecipient?: string;
   onClose: () => void;
-  onSendReply: (replyText: string, recipient?: string, subject?: string) => Promise<void>;
+  onSendReply: (replyText: string, recipient?: string, subject?: string, cc?: string, bcc?: string) => Promise<void>;
 }
 
 export function ReplyModal({ 
@@ -20,9 +21,15 @@ export function ReplyModal({
   initialSubject, initialBody, initialRecipient 
 }: ReplyModalProps) {
   const [replyText, setReplyText] = useState(initialBody || '');
-  const [recipient, setRecipient] = useState(initialRecipient || email.senderEmail || '');
+  const [recipientChips, setRecipientChips] = useState<string[]>(
+    (initialRecipient || email.senderEmail) ? [initialRecipient || email.senderEmail!] : []
+  );
+  const [ccChips, setCcChips] = useState<string[]>([]);
+  const [bccChips, setBccChips] = useState<string[]>([]);
+  const [showCcBcc, setShowCcBcc] = useState(false);
   const [subject, setSubject] = useState(initialSubject || `Re: ${email.subject}`);
-  const isForward = !!initialRecipient === false && !!initialBody; // Simple heuristic for forward mode if initialBody exists but no recipient
+  const isForward = !!initialRecipient === false && !!initialBody;
+  const [contacts, setContacts] = useState<string[]>([]);
   
   const [usingSuggested, setUsingSuggested] = useState(!!initialBody);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -31,6 +38,10 @@ export function ReplyModal({
   const [isSending, setIsSending] = useState(false);
   const [ragEvidence, setRagEvidence] = useState<GenerateReplyResult | null>(null);
   const [showPolicyEvidence, setShowPolicyEvidence] = useState(false);
+
+  useEffect(() => {
+    fetchContacts().then(setContacts).catch(() => {});
+  }, []);
 
   const generateTemplateSuggestedReply = (): string => {
     const greetings = `Dear ${email.sender},\n\nThank you for your email regarding "${email.subject}".\n\n`;
@@ -87,7 +98,13 @@ export function ReplyModal({
     setIsSending(true);
     setSendError(null);
     try {
-      await onSendReply(replyText, recipient, subject);
+      await onSendReply(
+        replyText,
+        recipientChips.join(', '),
+        subject,
+        ccChips.join(', ') || undefined,
+        bccChips.join(', ') || undefined
+      );
       onClose();
     } catch (error: any) {
       setSendError(error?.message || 'Failed to send reply.');
@@ -118,15 +135,53 @@ export function ReplyModal({
             {/* Dynamic Headers */}
             <div className="px-6 py-4 bg-muted/30 border-b border-border space-y-3 shrink-0">
               <div className="grid grid-cols-[60px_1fr] items-center gap-3">
-                <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">To</span>
-                <input 
-                  type="text"
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  placeholder="recipient@example.com"
-                  className="bg-background border border-border/60 rounded-md px-2.5 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 w-full font-medium"
-                />
+                <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">
+                  To
+                </span>
+                <div className="relative flex items-center">
+                  <MultiEmailInput
+                    chips={recipientChips}
+                    onChange={setRecipientChips}
+                    suggestions={contacts}
+                    placeholder="recipient@example.com"
+                    disabled={isSending}
+                    className="flex-1 pr-20"
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowCcBcc(!showCcBcc)}
+                    className="absolute right-2 text-[10px] text-primary font-semibold hover:underline z-10"
+                  >
+                    {showCcBcc ? 'Hide CC/BCC' : 'Cc/Bcc'}
+                  </button>
+                </div>
               </div>
+
+              {showCcBcc && (
+                <>
+                  <div className="grid grid-cols-[60px_1fr] items-center gap-3 animate-in slide-in-from-top-2">
+                    <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">Cc</span>
+                    <MultiEmailInput
+                      chips={ccChips}
+                      onChange={setCcChips}
+                      suggestions={contacts}
+                      placeholder="Cc recipients..."
+                      disabled={isSending}
+                    />
+                  </div>
+                  <div className="grid grid-cols-[60px_1fr] items-center gap-3 animate-in slide-in-from-top-2">
+                    <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">Bcc</span>
+                    <MultiEmailInput
+                      chips={bccChips}
+                      onChange={setBccChips}
+                      suggestions={contacts}
+                      placeholder="Bcc recipients..."
+                      disabled={isSending}
+                    />
+                  </div>
+                </>
+              )}
+
               <div className="grid grid-cols-[60px_1fr] items-center gap-3">
                 <span className="text-xs font-bold text-muted-foreground uppercase text-right tracking-wider">Subject</span>
                 <input 

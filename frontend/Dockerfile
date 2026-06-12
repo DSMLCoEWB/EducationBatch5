@@ -1,10 +1,10 @@
 # Multi-stage build for optimized production frontend
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-ARG VITE_API_URL=http://localhost:8000
-ARG VITE_REPLY_API_URL=http://localhost:8000
+ARG VITE_API_URL=/api
+ARG VITE_REPLY_API_URL=/api
 ENV VITE_API_URL=${VITE_API_URL}
 ENV VITE_REPLY_API_URL=${VITE_REPLY_API_URL}
 
@@ -12,7 +12,7 @@ ENV VITE_REPLY_API_URL=${VITE_REPLY_API_URL}
 COPY package*.json ./
 
 # Install dependencies (dev deps required for Vite build)
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY . .

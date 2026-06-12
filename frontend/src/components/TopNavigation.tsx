@@ -20,11 +20,11 @@ interface TopNavigationProps {
   onRefreshNow: () => void;
   isRefreshing: boolean;
   lastSyncedAt: Date | null;
-  gmailConnected: boolean;
-  gmailIdentity: string | null;
-  gmailAuthMode: string;
-  onConnectGmail: () => void;
-  onDisconnectGmail: () => void;
+  isAuthenticated: boolean;
+  userEmail: string | null;
+  authProvider: string;
+  onConnect: () => void;
+  onDisconnect: () => void;
   refinementStats: RefinementStats;
   onToggleSidebar: () => void;
   isDarkMode: boolean;
@@ -35,8 +35,8 @@ export function TopNavigation({
   searchQuery, onSearchChange, dateRange, onDateRangeChange,
   refreshIntervalSeconds, onRefreshIntervalSecondsChange,
   onRefreshNow, isRefreshing, lastSyncedAt,
-  gmailConnected, gmailIdentity, gmailAuthMode,
-  onConnectGmail, onDisconnectGmail,
+  isAuthenticated, userEmail, authProvider,
+  onConnect, onDisconnect,
   refinementStats, onToggleSidebar, isDarkMode, onToggleDarkMode
 }: TopNavigationProps) {
   const [showMobileControls, setShowMobileControls] = useState(false);
@@ -135,16 +135,16 @@ export function TopNavigation({
           </button>
 
           <div className="inline-flex items-center gap-2 px-3 py-1.5 border border-primary-foreground/15 rounded-full bg-primary-foreground/10">
-            {gmailConnected ? <Wifi className="w-3.5 h-3.5 text-gov-green" /> : <WifiOff className="w-3.5 h-3.5 text-gov-amber" />}
+            {isAuthenticated ? <Wifi className="w-3.5 h-3.5 text-gov-green" /> : <WifiOff className="w-3.5 h-3.5 text-gov-amber" />}
             <span className="text-xs text-primary-foreground whitespace-nowrap max-w-[120px] truncate">
-              {gmailConnected ? (gmailIdentity || 'Connected') : 'Disconnected'}
+              {isAuthenticated ? (userEmail || 'Connected') : 'Disconnected'}
             </span>
-            {gmailConnected ? (
-              <button onClick={onDisconnectGmail} className="p-1 text-primary-foreground/50 hover:text-gov-red rounded transition-colors" title="Disconnect">
+            {isAuthenticated ? (
+              <button onClick={onDisconnect} className="p-1 text-primary-foreground/50 hover:text-gov-red rounded transition-colors" title="Disconnect">
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             ) : (
-              <button onClick={onConnectGmail} className="text-xs px-2 py-0.5 rounded-full gradient-primary text-primary-foreground hover:opacity-90 font-medium">Connect</button>
+              <button onClick={onConnect} className="text-xs px-2 py-0.5 rounded-full gradient-primary text-primary-foreground hover:opacity-90 font-medium">Connect</button>
             )}
           </div>
         </div>
@@ -205,16 +205,16 @@ export function TopNavigation({
           {/* Gmail status */}
           <div className="flex items-center gap-2">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 border border-primary-foreground/15 rounded-full bg-primary-foreground/10 flex-1">
-              {gmailConnected ? <Wifi className="w-3.5 h-3.5 text-gov-green" /> : <WifiOff className="w-3.5 h-3.5 text-gov-amber" />}
+              {isAuthenticated ? <Wifi className="w-3.5 h-3.5 text-gov-green" /> : <WifiOff className="w-3.5 h-3.5 text-gov-amber" />}
               <span className="text-xs text-primary-foreground whitespace-nowrap truncate">
-                {gmailConnected ? (gmailIdentity || 'Connected') : 'Disconnected'}
+                {isAuthenticated ? (userEmail || 'Connected') : 'Disconnected'}
               </span>
-              {gmailConnected ? (
-                <button onClick={onDisconnectGmail} className="p-1 text-primary-foreground/50 hover:text-gov-red rounded transition-colors ml-auto" title="Disconnect">
+              {isAuthenticated ? (
+                <button onClick={onDisconnect} className="p-1 text-primary-foreground/50 hover:text-gov-red rounded transition-colors ml-auto" title="Disconnect">
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
               ) : (
-                <button onClick={onConnectGmail} className="text-xs px-2 py-0.5 rounded-full gradient-primary text-primary-foreground hover:opacity-90 font-medium ml-auto">Connect</button>
+                <button onClick={onConnect} className="text-xs px-2 py-0.5 rounded-full gradient-primary text-primary-foreground hover:opacity-90 font-medium ml-auto">Connect</button>
               )}
             </div>
 

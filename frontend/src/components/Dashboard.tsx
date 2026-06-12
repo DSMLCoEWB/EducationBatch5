@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Mail, MailOpen, Reply, Paperclip, Clock, TrendingUp, LayoutList, MessageSquare, CheckCircle } from 'lucide-react';
-import { BarChart, Bar, AreaChart, Area, PieChart, Pie, Label, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { Mail, MailOpen, Reply, Paperclip, Clock, TrendingUp, LayoutList, MessageSquare, CheckCircle, Info } from 'lucide-react';
+import { Tooltip as RechartsTooltip, BarChart, Bar, AreaChart, Area, PieChart, Pie, Label, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Email } from '@/types';
 
 interface DashboardProps {
@@ -43,7 +44,14 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
       const sorted = [...group].sort((a, b) => new Date(b.emailDate).getTime() - new Date(a.emailDate).getTime());
       const absoluteLatest = sorted[0];
       const latestCitizen = sorted.find(e => !e.isSent) || absoluteLatest;
-      return { ...latestCitizen, replied: absoluteLatest.replied, is_resolved: absoluteLatest.is_resolved, manual_override: absoluteLatest.manual_override };
+      return {
+        ...latestCitizen,
+        replied: absoluteLatest.replied,
+        is_resolved: absoluteLatest.is_resolved,
+        manual_override: absoluteLatest.manual_override,
+        // Aggregate hasAttachment across entire thread — any message in thread having an attachment counts
+        hasAttachment: group.some(e => e.hasAttachment),
+      };
     });
 
     return [...threadGrievances, ...standalone];
@@ -115,12 +123,12 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
   const dailyVolumeData = getLast7DaysData();
 
   const statCards = [
-    { title: 'Total Conversations', value: stats.total, icon: <LayoutList className="w-5 h-5" />, variant: 'blue' as const },
-    { title: 'Unresolved', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}` },
-    { title: 'Resolved', value: stats.resolved, icon: <CheckCircle className="w-5 h-5" />, variant: 'green' as const },
-    { title: 'Fresh Threads', value: stats.fresh, icon: <Mail className="w-5 h-5" />, variant: 'cyan' as const },
-    { title: 'Ongoing Threads', value: stats.followUp, icon: <MessageSquare className="w-5 h-5" />, variant: 'orange' as const },
-    { title: 'Attachments', value: stats.withAttachments, icon: <Paperclip className="w-5 h-5" />, variant: 'purple' as const },
+    { title: 'Total Conversations', value: stats.total, icon: <LayoutList className="w-5 h-5" />, variant: 'blue' as const, tooltip: 'All unique email threads and standalone messages.' },
+    { title: 'Unresolved', value: stats.unreplied, icon: <Clock className="w-5 h-5" />, variant: 'red' as const, subtitle: `Avg: ${stats.avgPendingDuration}`, tooltip: 'Grievances waiting for a response or final resolution.' },
+    { title: 'Resolved', value: stats.resolved, icon: <CheckCircle className="w-5 h-5" />, variant: 'green' as const, tooltip: 'Grievances that have been successfully addressed or closed.' },
+    { title: 'Fresh Threads', value: stats.fresh, icon: <Mail className="w-5 h-5" />, variant: 'cyan' as const, tooltip: 'New grievances that have not yet been replied to.' },
+    { title: 'Ongoing Threads', value: stats.followUp, icon: <MessageSquare className="w-5 h-5" />, variant: 'orange' as const, tooltip: 'Active grievance threads with multiple back-and-forth emails.' },
+    { title: 'Attachments', value: stats.withAttachments, icon: <Paperclip className="w-5 h-5" />, variant: 'purple' as const, tooltip: 'Number of grievances that include files or documents.' },
   ];
 
   const cardStyles = {
@@ -182,7 +190,19 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
             >
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.15em]">{card.title}</p>
+                  <div className="flex items-center gap-1.5 w-fit">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.15em] cursor-help">{card.title}</p>
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="w-3.5 h-3.5 text-muted-foreground/60 cursor-help outline-none" />
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-[200px] text-xs font-medium z-50">
+                          {card.tooltip}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
                   <p className="text-2xl font-bold text-foreground tracking-tight">{card.value}</p>
                   {card.subtitle && (
                     <div className="flex items-center gap-1.5 mt-1">
@@ -217,7 +237,7 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
           </div>
         </div>
 
-        <ResponsiveContainer width="100%" height={500}>
+        <ResponsiveContainer width="100%" height={Math.max(100, categoryData.length * 40 + 20)}>
           <BarChart
             data={categoryData}
             layout="vertical"
@@ -233,7 +253,7 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
               axisLine={false}
               tickLine={false}
             />
-            <Tooltip
+            <RechartsTooltip
               cursor={{ fill: 'hsl(var(--muted) / 0.3)' }}
               content={({ active, payload }) => {
                 if (active && payload && payload.length) {
@@ -253,7 +273,7 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
             <Bar
               dataKey="count"
               radius={[0, 6, 6, 0]}
-              barSize={24}
+              barSize={28}
               onClick={(data) => onViewChange(data.id)}
               style={{ cursor: 'pointer' }}
             >
@@ -300,10 +320,11 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
                   style={{ fontFamily: 'inherit' }}
                 />
               </Pie>
-              <Tooltip
-                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '11px' }}
+              <RechartsTooltip
+                contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '11px', color: 'hsl(var(--foreground))' }}
+                itemStyle={{ color: 'hsl(var(--foreground))' }}
               />
-              <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: 600 }} />
+              <Legend verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: 600, color: 'hsl(var(--foreground))' }} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -329,7 +350,7 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
                 textAnchor={isMobile ? "end" : "middle"}
               />
               <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-              <Tooltip
+              <RechartsTooltip
                 contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '10px', fontSize: '12px' }}
                 itemStyle={{ color: 'hsl(var(--foreground))' }}
               />

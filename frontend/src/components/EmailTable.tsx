@@ -11,7 +11,7 @@ import {
 import { Email, MailType } from '@/types';
 import { getCategoryInfo } from '@/data/categories';
 import { ReplyModal, ReplyStatus } from './ReplyModal';
-import { sendReplyEmail, resolveEmail } from '@/services/api';
+import { sendReply, resolveEmail } from '@/services/api';
 
 interface EmailTableProps {
   emails: Email[];
@@ -121,7 +121,8 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
         threadCount: group.length,
         followUpCount: threadFollowUps,
         replied: absoluteLatest.replied,
-        is_resolved: absoluteLatest.is_resolved
+        is_resolved: absoluteLatest.is_resolved,
+        hasAttachment: group.some(e => e.hasAttachment)
       });
     });
 
@@ -524,11 +525,18 @@ function EmailRow({ email, categoryId, onClick, onUpdateEmail, onDeleteEmail, on
     setShowReplyModal(true);
   };
 
-  const handleSendReply = async (replyText: string) => {
-    if (!email.senderEmail) {
+  const handleSendReply = async (replyText: string, recipient?: string, subject?: string, cc?: string, bcc?: string) => {
+    if (!email.senderEmail && !recipient) {
       throw new Error('Recipient email is missing.');
     }
-    await sendReplyEmail(email.senderEmail, email.subject, replyText, email.id);
+    await sendReply(
+      email.id,
+      replyText,
+      recipient || email.senderEmail || '',
+      subject || email.subject,
+      cc,
+      bcc
+    );
     onUpdateEmail(email.id, { replied: true, replyText });
   };
 

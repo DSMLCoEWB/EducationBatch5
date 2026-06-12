@@ -76,7 +76,8 @@ export interface IndexedPolicy {
   chunk_count: number;
   status: string;
   extension?: string;
-  is_demo?: boolean;
+  is_demo: boolean;
+  category: string;
 }
 
 export interface UploadPolicyResult {
@@ -114,9 +115,10 @@ export interface SendReplyResult {
   subject: string;
 }
 
-export interface GmailAuthStatus {
+export interface AuthStatus {
   connected: boolean;
-  email: string | null;
+  email?: string;
+  provider?: string;
   auth_mode: 'oauth' | 'app_password' | 'none' | string;
 }
 
@@ -235,7 +237,7 @@ export async function fetchEmailsByCategory(
   category: string
 ): Promise<BackendEmail[]> {
   const response = await apiFetch(
-    `${API_BASE_URL}/emails?category=${encodeURIComponent(category)}`
+    `${API_BASE_URL}/emails/?category=${encodeURIComponent(category)}`
   );
   if (!response.ok) throw new Error("Failed to fetch emails");
   return response.json();
@@ -284,6 +286,13 @@ export async function fetchColleges(): Promise<string[]> {
   return data.colleges;
 }
 
+export async function fetchContacts(): Promise<string[]> {
+  const response = await apiFetch(`${API_BASE_URL}/emails/contacts`);
+  if (!response.ok) return [];
+  const data = await response.json();
+  return data.contacts ?? [];
+}
+
 /* ============================
    AI REPLY (RAG)
 ============================ */
@@ -308,7 +317,7 @@ export async function generateReplyDetailed(
   history?: any[],
   emailId?: string
 ): Promise<GenerateReplyResult> {
-  const response = await apiFetch(`${API_BASE_URL}/generate-reply`, {
+  const response = await apiFetch(`${API_GENERATE_URL}/generate-reply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ 
@@ -348,42 +357,15 @@ export async function resolveEmail(emailId: string, resolved: boolean = true): P
   }
 }
 
-export async function composeEmail(to: string, subject: string, body: string): Promise<{ success: boolean; message: string }> {
+export const composeEmail = async (to_email: string, subject: string, body: string, cc?: string, bcc?: string) => {
   const response = await apiFetch(`${API_BASE_URL}/emails/compose`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to_email: to, subject, body }),
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to_email, subject, body, cc, bcc }),
   });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Failed to compose email" }));
-    throw new Error(err.detail || "Failed to compose email");
-  }
+  if (!response.ok) throw new Error('Failed to compose email');
   return response.json();
-}
-
-export async function sendReply(
-  toEmail: string,
-  replyText: string,
-  emailId: string,
-  originalSubject: string = "",
-  threadId: string = "",
-  inReplyTo: string = ""
-): Promise<boolean> {
-  const response = await apiFetch(`${API_BASE_URL}/emails/send-reply`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      to_email: toEmail,
-      reply_text: replyText,
-      email_id: emailId,
-      original_subject: originalSubject,
-      thread_id: threadId,
-      in_reply_to: inReplyTo
-    }),
-  });
-  const data = await response.json();
-  return data.success;
-}
+};
 
 export async function restoreEmail(emailId: string): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/emails/${encodeURIComponent(emailId)}/untrash`, {
@@ -394,23 +376,11 @@ export async function restoreEmail(emailId: string): Promise<void> {
   }
 }
 
-export async function sendReplyEmail(
-  toEmail: string,
-  originalSubject: string,
-  replyText: string,
-  emailId: string
-): Promise<SendReplyResult> {
+export const sendReply = async (email_id: string, reply_text: string, to_email: string, original_subject: string, cc?: string, bcc?: string): Promise<SendReplyResult> => {
   const response = await apiFetch(`${API_BASE_URL}/emails/send-reply`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      to_email: toEmail,
-      original_subject: originalSubject,
-      reply_text: replyText,
-      email_id: emailId
-    }),
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email_id, reply_text, to_email, original_subject, cc, bcc }),
   });
 
   if (!response.ok) {
@@ -427,24 +397,28 @@ export async function sendReplyEmail(
   return (await response.json()) as SendReplyResult;
 }
 
-export async function fetchGmailAuthStatus(): Promise<GmailAuthStatus> {
+export async function fetchAuthStatus(): Promise<AuthStatus> {
   const response = await apiFetch(`${API_BASE_URL}/auth/google/status`);
   if (!response.ok) {
-    throw new Error('Failed to fetch Gmail auth status');
+    throw new Error('Failed to fetch auth status');
   }
-  return (await response.json()) as GmailAuthStatus;
+  return (await response.json()) as AuthStatus;
 }
 
 export function getGoogleAuthStartUrl(): string {
   return `${API_BASE_URL}/auth/google/start`;
 }
 
-export async function disconnectGoogleAuth(): Promise<void> {
+export function getMicrosoftAuthStartUrl(): string {
+  return `${API_BASE_URL}/auth/microsoft/start`;
+}
+
+export async function disconnectAuth(): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/auth/google/logout`, {
     method: 'POST',
   });
   if (!response.ok) {
-    throw new Error('Failed to disconnect Google auth');
+    throw new Error('Failed to disconnect auth');
   }
 }
 
@@ -453,7 +427,7 @@ export async function disconnectGoogleAuth(): Promise<void> {
 ============================ */
 
 export async function fetchPolicies(): Promise<IndexedPolicy[]> {
-  const response = await apiFetch(`${API_BASE_URL}/policies`);
+  const response = await apiFetch(`${API_BASE_URL}/policies/?_t=${Date.now()}`);
   if (!response.ok) {
     throw new Error('Failed to fetch policies');
   }

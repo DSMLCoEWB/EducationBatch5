@@ -56,16 +56,16 @@ def configure_event_stream(auth_token, receiver_endpoint, events_requested):
 
 if __name__ == "__main__":
     # CONFIGURATION
-    # Ensure we look in the same folder as this script for the credentials
+    # Ensure we look in the storage/secrets folder for the credentials
     script_dir = Path(__file__).parent
-    CREDENTIALS_PATH = script_dir / "service-account-credentials.json"
+    CREDENTIALS_PATH = script_dir.parent / "storage" / "secrets" / "service-account-credentials.json"
     # Replace this with your actual public HTTPS URL (e.g., https://your-app.com/risc/webhook)
     # Note: Google requires HTTPS for the receiver endpoint.
     WEBHOOK_URL = os.getenv("RISC_WEBHOOK_URL", "https://your-domain.com/risc/webhook")
 
     if not Path(CREDENTIALS_PATH).exists():
         print(f"⚠️ Error: {CREDENTIALS_PATH} not found.")
-        print("Please place your Service Account JSON key in the 'backend/scripts' folder.")
+        print("Please place your Service Account JSON key in the 'backend/storage/secrets' folder.")
         sys.exit(1)
 
     try:

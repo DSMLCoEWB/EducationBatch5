@@ -1,8 +1,8 @@
 # --- AI & LLM ---
 torch
 torchvision
-transformers
-sentence-transformers
+transformers<4.45.0
+sentence-transformers<3.0.0
 huggingface_hub
 accelerate
 ollama
@@ -34,3 +34,10 @@ python-docx
 openpyxl
 cryptography
 python-dateutil
+
+# --- Postgres & Celery Migration ---
+psycopg2-binary
+celery
+redis
+dnspython
+

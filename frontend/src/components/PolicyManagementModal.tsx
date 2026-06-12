@@ -14,14 +14,16 @@ import {
   UploadPolicyResult, 
   IndexedPolicy,
   DemoPolicySyncResult,
-  API_BASE_URL
+  API_BASE_URL,
+  SettingsCategory
 } from '@/services/api';
 
 interface PolicyManagementModalProps {
   onClose: () => void;
+  customCategories: SettingsCategory[];
 }
 
-export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
+export function PolicyManagementModal({ onClose, customCategories }: PolicyManagementModalProps) {
   const [view, setView] = useState<'list' | 'upload'>('list');
   const [policies, setPolicies] = useState<IndexedPolicy[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,45 +44,11 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
   const [activatingId, setActivatingId] = useState<string | null>(null);
   const [isPublishingAll, setIsPublishingAll] = useState(false);
 
-  const categories = [
-    'All', 
-    'Suspension / Disciplinary',
-    'Legal Issues',
-    'RTI Matters',
-    'CMO Issues',
-    'Semester / Examination',
-    'Scholarship & Fee Concession',
-    'Purchase / Procurement Issues',
-    'Cash Issues',
-    'Anti-Ragging Complaints',
-    'Accreditation & Ranking',
-    'Service Matters',
-    'Appointment Issues',
-    'Transfer Cases',
-    'Inspection Matters',
-    'Seat Matrix Issues',
-    'Miscellaneous'
-  ];
-
-  const getPolicyCategory = (id: string): string => {
-    const name = id.toLowerCase();
-    if (name.includes('scholarship') || name.includes('svmcm') || name.includes('k3') || name.includes('fellowship') || name.includes('fee')) return 'Scholarship & Fee Concession';
-    if (name.includes('exam') || name.includes('result') || name.includes('routine') || name.includes('schedule') || name.includes('semester') || name.includes('mark')) return 'Semester / Examination';
-    if (name.includes('suspension') || name.includes('disciplinary') || name.includes('showcause') || name.includes('memo') || name.includes('chargesheet')) return 'Suspension / Disciplinary';
-    if (name.includes('fir') || name.includes('arrest') || name.includes('police') || name.includes('legal') || name.includes('court') || name.includes('warrant')) return 'Legal Issues';
-    if (name.includes('rti') || name.includes('information')) return 'RTI Matters';
-    if (name.includes('cmo') || name.includes('chief minister')) return 'CMO Issues';
-    if (name.includes('purchase') || name.includes('tender') || name.includes('quotation') || name.includes('procurement')) return 'Purchase / Procurement Issues';
-    if (name.includes('cash') || name.includes('audit') || name.includes('financial') || name.includes('bill') || name.includes('misappropriation')) return 'Cash Issues';
-    if (name.includes('ragging') || name.includes('anti-ragging') || name.includes('bullying')) return 'Anti-Ragging Complaints';
-    if (name.includes('naac') || name.includes('nba') || name.includes('nirf') || name.includes('accreditation') || name.includes('ranking')) return 'Accreditation & Ranking';
-    if (name.includes('service') || name.includes('service book') || name.includes('pension') || name.includes('retirement')) return 'Service Matters';
-    if (name.includes('appointment') || name.includes('recruitment') || name.includes('joining')) return 'Appointment Issues';
-    if (name.includes('transfer')) return 'Transfer Cases';
-    if (name.includes('inspection')) return 'Inspection Matters';
-    if (name.includes('seat matrix') || name.includes('intake') || name.includes('seat')) return 'Seat Matrix Issues';
-    return 'Miscellaneous';
-  };
+  const categorySet = new Set(['All', ...customCategories.map(c => c.name)]);
+  if (!Array.from(categorySet).some(c => c.toLowerCase() === 'miscellaneous')) {
+    categorySet.add('Miscellaneous');
+  }
+  const categories = Array.from(categorySet);
 
   const loadPoliciesList = async () => {
     setLoading(true);
@@ -264,7 +232,7 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
               view === 'list' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            Official Guidelines ({policies.length})
+            Official Guidelines ({policies.filter(p => import.meta.env.VITE_SHOW_DEMO_BUTTON === 'true' || !p.is_demo).length})
           </button>
           <button
             onClick={() => { setView('upload'); setFiles([]); setError(null); setUploadStatuses({}); setUploadMessages({}); setCurrentUploadingIndex(null); }}
@@ -359,7 +327,8 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
                       if (!showDemo && p.is_demo) return false;
 
                       const matchesSearch = p.id.toLowerCase().includes(searchQuery.toLowerCase());
-                      const matchesCategory = activeCategory === 'All' || getPolicyCategory(p.id) === activeCategory;
+                      const cat = p.category || 'Miscellaneous';
+                      const matchesCategory = activeCategory === 'All' || cat.toLowerCase() === activeCategory.toLowerCase();
                       return matchesSearch && matchesCategory;
                     });
 
@@ -393,7 +362,7 @@ export function PolicyManagementModal({ onClose }: PolicyManagementModalProps) {
                             <p className="font-bold text-foreground text-sm truncate">{policy.id}.{policy.extension || 'pdf'}</p>
                             <div className="flex items-center gap-2 mt-1">
                               <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-tight text-primary bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10">
-                                {getPolicyCategory(policy.id)}
+                                {policy.category || 'Miscellaneous'}
                               </span>
                               <span className={`text-[9px] uppercase font-black tracking-widest px-1.5 py-0.5 rounded border flex items-center gap-1 ${
                                 policy.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100 shadow-sm' :

@@ -3,6 +3,7 @@ import { RefreshCw, MailCheck, ShieldCheck, MailSearch, Sparkles, Inbox } from '
 
 interface SyncStatusViewProps {
   onRefreshNow?: () => void;
+  isRefreshing?: boolean;
 }
 
 export function InitialSyncingView() {
@@ -16,21 +17,21 @@ export function InitialSyncingView() {
       </div>
 
       <div className="max-w-md space-y-4">
-        <h2 className="text-2xl font-bold text-foreground">Initialising Your Grievance Portal</h2>
+        <h2 className="text-2xl font-bold text-foreground">Setting up your Inbox</h2>
         <p className="text-muted-foreground leading-relaxed">
-          We're currently synchronising with your Gmail account to fetch the latest grievances and follow-ups.
+          We are connecting to your email to securely fetch and organize the latest messages.
         </p>
 
         <div className="grid grid-cols-1 gap-3 mt-8">
           <FeatureItem
             icon={<Sparkles className="w-4 h-4 text-gov-purple" />}
-            title="Categorisation"
-            desc="Identifying semester, scholarship, and legal issues."
+            title="Smart Sorting"
+            desc="After fetching your emails, our AI reads them to automatically figure out the topic, urgency, and key details."
           />
           <FeatureItem
             icon={<ShieldCheck className="w-4 h-4 text-gov-green" />}
-            title="Secure Processing"
-            desc="Your data is indexed locally within your project environment."
+            title="Privacy First"
+            desc="Your emails are processed securely and kept strictly private to your account."
           />
         </div>
 
@@ -43,7 +44,7 @@ export function InitialSyncingView() {
   );
 }
 
-export function EmptyInboxView({ onRefreshNow }: SyncStatusViewProps) {
+export function EmptyInboxView({ onRefreshNow, isRefreshing }: SyncStatusViewProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-background animate-fade-in min-h-[500px]">
       <div className="bg-gov-green-light p-6 rounded-full mb-6 border border-gov-green/20">
@@ -59,10 +60,11 @@ export function EmptyInboxView({ onRefreshNow }: SyncStatusViewProps) {
         <div className="pt-4">
           <button
             onClick={onRefreshNow}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-lg font-semibold hover:bg-primary/90 transition-all shadow-card hover:shadow-elevated text-sm"
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-lg font-semibold hover:bg-primary/90 transition-all shadow-card hover:shadow-elevated text-sm disabled:opacity-70 disabled:cursor-wait"
           >
-            <RefreshCw className="w-4 h-4" />
-            Check Again
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Syncing...' : 'Check Again'}
           </button>
         </div>
       </div>

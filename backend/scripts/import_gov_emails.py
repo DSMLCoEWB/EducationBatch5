@@ -25,9 +25,9 @@ load_dotenv()
 # --- Setup paths ---
 # Add parent directory of scripts (which is backend/) to sys.path so we can import config, db, services
 BASE_DIR = Path(__file__).resolve().parents[1]
-sys.path.append(str(BASE_DIR))
+sys.path.append(str(BASE_DIR / "src"))
 
-IMPORT_DIR = BASE_DIR / "import_emails"
+IMPORT_DIR = BASE_DIR / "storage" / "import_emails"
 USER_EMAIL = "coedsml.education@gmail.com"
 
 # --- Imports from project ---
