@@ -6,7 +6,7 @@ Welcome to the definitive setup and installation manual for the **AI Grievance I
 
 ## 🚦 Table of Contents
 1. [System Requirements](#1-system-requirements)
-2. [Google Cloud Platform Setup (API Keys & OAuth)](#2-google-cloud-platform-setup-api-keys--oauth)
+2. [Cloud Platform Setup (API Keys & OAuth)](#2-cloud-platform-setup-api-keys--oauth)
 3. [Method A: Native Installation (Highly Recommended for Host GPU/Ollama)](#3-method-a-native-installation-highly-recommended-for-host-gpuollama)
 4. [Method B: Containerized Installation (Docker Desktop)](#4-method-b-containerized-installation-docker-desktop)
 5. [Local Playground: Seeding & Initializing FAISS Index](#5-local-playground-seeding--initializing-faiss-index)
@@ -36,15 +36,15 @@ The system processes large policy documents and scans visual email attachments. 
 
 ---
 
-## 2. Google Cloud Platform Setup (API Keys & OAuth)
+## 2. Cloud Platform Setup (API Keys & OAuth)
 
-To unlock automated Gmail synchronization and LLM classification, you must configure two types of credentials in your Google Cloud Console.
+To unlock automated email synchronization and LLM classification, you must configure credentials in either Google Cloud Console (for Gmail) or Microsoft Azure AD (for Outlook/Office 365), along with Gemini AI keys.
 
 ### 2.1 Enable Google APIs
 1. Navigate to the [Google Cloud Library Console](https://console.cloud.google.com/apis/library).
 2. Create or select a Google Cloud project.
 3. Search for and enable the following APIs:
-   * **Gmail API**
+   * **Gmail API** (if syncing Gmail)
    * **Generative Language API** (required for Gemini)
 
 ### 2.2 Get a Gemini API Key
@@ -52,7 +52,7 @@ To unlock automated Gmail synchronization and LLM classification, you must confi
 2. Click **Create API Key**.
 3. Copy the generated key. You will configure this as `GOOGLE_API_KEY` and `GEMINI_API_KEY`.
 
-### 2.3 Create OAuth Client Credentials for Gmail Sync
+### 2.3 Create OAuth Client Credentials for Gmail Sync (Google)
 1. Go to the [Google Credentials Console](https://console.cloud.google.com/apis/credentials).
 2. Click **Create Credentials** → **OAuth client ID**.
 3. If prompted to configure the OAuth Consent Screen:
@@ -66,20 +66,33 @@ To unlock automated Gmail synchronization and LLM classification, you must confi
    * Add your target Gmail accounts as **Test Users** (mandatory while in testing mode).
 4. Select **Web Application** as the Application Type.
 5. Set the redirect and origin configurations:
-   * **Authorized JavaScript Origins:** `http://localhost:3000`
+   * **Authorized JavaScript Origins:** `http://localhost:3000` and `http://localhost:8000`
    * **Authorized Redirect URIs:** `http://localhost:8000/auth/google/callback`
 6. Click **Create** and safely record your **Client ID** and **Client Secret**.
 
-### 2.4 Generate Cryptographic Security Keys
+### 2.4 Create OAuth Client Credentials for Microsoft Graph Sync (Azure AD)
+1. Go to the [Microsoft Entra ID (Azure AD) Admin Center](https://entra.microsoft.com/).
+2. Navigate to **Applications** → **App registrations** → **New registration**.
+3. Name your application and select **Accounts in any organizational directory and personal Microsoft accounts** for supported account types.
+4. Set the Redirect URI type to **Web** and the URL to: `http://localhost:8000/auth/microsoft/callback`.
+5. Under **API permissions**, add the following Microsoft Graph delegated permissions:
+   * `Mail.Read`
+   * `Mail.ReadWrite`
+   * `Mail.Send`
+   * `User.Read`
+6. Under **Certificates & secrets**, create a **New client secret** and copy the Value (not the ID).
+7. Copy the **Application (client) ID** from the Overview page.
+
+### 2.5 Generate Cryptographic Security Keys
 For secure multi-user credential storage and session signing, the system requires two secure cryptographic keys.
 
-1. **OAuth Encryption Key (`GOOGLE_OAUTH_ENCRYPTION_KEY`)**:
-   * **What it does**: A symmetric Fernet key used to securely encrypt and decrypt Gmail API refresh tokens inside the database (protecting user credentials at rest).
+1. **OAuth Encryption Key (`OAUTH_ENCRYPTION_KEY`)**:
+   * **What it does**: A symmetric Fernet key used to securely encrypt and decrypt email API refresh tokens inside the database (protecting user credentials at rest).
    * **How to generate it**: Open a terminal and run the following Python command:
      ```bash
      python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
      ```
-   * **Usage**: Copy the printed 44-character string and paste it into `.env` as `GOOGLE_OAUTH_ENCRYPTION_KEY`.
+   * **Usage**: Copy the printed 44-character string and paste it into `.env` as `OAUTH_ENCRYPTION_KEY`.
 
 2. **Session Signature Secret (`APP_SESSION_SECRET`)**:
    * **What it does**: A cryptographically secure secret used to sign cookies and manage secure user sessions (preventing session hijacking).
@@ -89,7 +102,7 @@ For secure multi-user credential storage and session signing, the system require
      ```
    * **Usage**: Copy the printed string and paste it into `.env` as `APP_SESSION_SECRET`.
 
-### 2.5 Optional Dedicated LLM Keys (Quota Isolation)
+### 2.6 Optional Dedicated LLM Keys (Quota Isolation)
 Under high traffic, multiple background AI Triaging tasks can clash with the AI Reply Generator, causing Gemini API rate-limiting errors.
 To isolate these quotas, you can optionally configure up to three separate Gemini API keys:
 1. **`GOOGLE_API_KEY` / `GEMINI_API_KEY`**: The main key used for generating email responses in the reply modal.
@@ -166,11 +179,11 @@ Using Docker packages the entire ecosystem into a production-grade, distributed 
 *   **React Frontend**: Provides the administration and dashboard UI.
 
 ### 4.1 Create Environment Files
-1. Create `backend/.env` (configured as shown in [Section 3.3](#33-configure-environment-variables)).
-2. Create `frontend/.env` and verify the backend API endpoints:
+1. Create `backend/.env` (configured as shown in [Section 3.3](#33-configure-environment-variables)). Ensure `DATABASE_TYPE=postgres` and `TASK_QUEUE_TYPE=celery`.
+2. Create `frontend/.env` and configure the backend API endpoints for the unified domain architecture:
    ```ini
-   VITE_API_URL=http://localhost:8000
-   VITE_REPLY_API_URL=http://localhost:8000
+   VITE_API_URL=/api
+   VITE_REPLY_API_URL=/api
    ```
 
 ### 4.2 Start Containers
@@ -179,17 +192,20 @@ Using Docker packages the entire ecosystem into a production-grade, distributed 
    ```bash
    docker compose up --build -d
    ```
-3. Verify all five services are running successfully:
+3. Verify all services are running successfully:
    ```bash
    docker compose ps
    ```
-   *   `grievance-postgres` (Port 5432)
-   *   `grievance-redis` (Port 6379)
-   *   `grievance-backend` (Port 8000)
-   *   `grievance-celery-worker` (Background)
-   *   `grievance-frontend` (Port 3000)
+   *   `grievance-postgres` (Port 5432 is internal only)
+   *   `grievance-pgbouncer` (Port 6432)
+   *   `grievance-redis` (Internal only)
+   *   `grievance-migrator` (Runs migrations)
+   *   `backend` (3 replicas, Internal)
+   *   `celery_worker` (2 replicas, Background)
+   *   `grievance-nginx` (Port 8000, Master Gateway)
+   *   `grievance-frontend` (Internal)
    
-   Access the dashboard at `http://localhost:3000`.
+   Access the dashboard at `http://localhost:8000`.
 
 
 ---
@@ -260,11 +276,14 @@ The backend engine uses centralized `.env` configurations to dial in background 
 | :--- | :--- | :--- | :--- |
 | **Safeguards** | `SYNC_ENABLED` | `true` | **Global Sync Switch**: Instantly toggles the background Gmail synchronization worker on or off. |
 | | `GMAIL_CALLS_PER_MINUTE_LIMIT` | `50` | **Rate Limiting**: The maximum number of Gmail API calls the sync engine is allowed to perform per minute, preventing rate-limiting blocks. |
-| | `GMAIL_SYNC_INTERVAL_SECONDS` | `600` | **Polled Refresh Rate**: How frequently (in seconds) the background task checks for new incoming grievance emails. |
+| | `GLOBAL_SYNC_INTERVAL_SECONDS` | `600` | **Polled Refresh Rate**: How frequently (in seconds) the background task checks for new incoming grievance emails. |
 | | `MANUAL_SYNC_COOLDOWN_SECONDS` | `60` | **Cooldown Guard**: Prevents users from overloading Google's servers by limiting manual inbox refreshes on the UI. |
-| | `GMAIL_FULL_SYNC_DAYS` | `365` | **Sync Depth**: How far back in history (in days) the system crawls to build the initial inbox cache on first user login. |
+| | `FULL_SYNC_DAYS` | `365` | **Sync Depth**: How far back in history (in days) the system crawls to build the initial inbox cache on first user login. |
 | | `SYNC_JITTER_SECONDS` | `60` | **Anti-Bot Jitter**: Adds a random ± variance (in seconds) to background intervals so requests do not trigger bot detection systems. |
 | | `SYNC_MAX_BACKOFF_SECONDS` | `3600` | **Network Resiliency**: The upper cap (1 hour) for the exponential backoff delay during network disconnects. |
+| | `PRIORITY_LLM_MAX_CALLS` | `1` | **Rate Limiting**: Max LLM calls allowed per window for priority background tasks. |
+| | `PRIORITY_LLM_WINDOW_SECONDS` | `60` | **Rate Limiting**: Time window for priority LLM calls. |
+| | `AI_BATCH_SIZE` | `15` | **Processing Density**: How many emails for the AI to triage in a single background request. |
 | **AI / LLM Keys** | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | *(None)* | **Primary LLM Access**: The central Google AI Studio API key used to generate replies and interact with Gemini models. |
 | | `PRIORITY_GOOGLE_API_KEY` | *(None)* | **Classification Key**: Dedicated key to process high-volume background priority ratings, preventing quota clashes. |
 | | `CHATBOT_GEMINI_API_KEY` | *(None)* | **Assistant Key**: Dedicated key reserved for the real-time student grievance assistant chatbot in the UI. |
@@ -275,12 +294,22 @@ The backend engine uses centralized `.env` configurations to dial in background 
 | | `AI_FALLBACK_MODELS` | *(List)* | **Resiliency Fallbacks**: Comma-separated list of models the system steps through if primary local or API requests fail. |
 | | `VISION_FALLBACK_MODELS` | *(List)* | **OCR Fallbacks**: Vision-enabled models used to read scanned graphic PDF attachments and visual tickets. |
 | **RAG & Search** | `RAG_TOP_K` | `5` | **RAG Extraction**: Number of candidate chunks retrieved from the FAISS database for contextual re-ranking. |
-| | `RAG_MIN_SCORE` | `0.40` | **Similarity Cutoff**: The strict cosine similarity threshold (0.0 to 1.0) required for a policy clause to be deemed relevant. |
-| | `RAG_UNREPLIED_MAX` | `3` | **The "3" in 3+2 RAG**: The maximum number of recent, consecutive unreplied incoming citizen follow-up emails to crawl backwards. This captures the complete list of fresh unaddressed queries sent by the student since the last official department reply. |
-| | `RAG_ANCHOR_DEPTH` | `2` | **The "2" in 3+2 RAG**: The depth of the "Anchor Turn" representing the **last official Department Reply + its incoming Citizen Trigger** (the "handshake"). This establishes a perfect historical context of what was already officially answered and what prompted it. |
+| | `RAG_MIN_SCORE` | `0.30` | **Similarity Cutoff**: The strict cosine similarity threshold (0.0 to 1.0) required for a policy clause to be deemed relevant. |
+| | `RAG_FINAL_LIMIT` | `3` | **Context Limit**: Maximum chunks included in the final context. |
+| | `RAG_MAX_UNIQUE_SECTIONS` | `0` | **Consistency Filter**: Max unique document sections to keep in context (0 to disable). |
+| | `RAG_UNREPLIED_MAX` | `3` | **The "3" in 3+2 RAG**: The maximum number of recent, consecutive unreplied incoming citizen follow-up emails to crawl backwards. |
+| | `RAG_ANCHOR_DEPTH` | `2` | **The "2" in 3+2 RAG**: The depth of the "Anchor Turn" representing the **last official Department Reply + its incoming Citizen Trigger** (the "handshake"). |
+| | `RAG_SIMILARITY_THRESHOLD` | `0.30` | **Secondary Threshold**: Secondary semantic threshold for broader matches. |
+| **Database & Queue** | `DATABASE_TYPE` | `sqlite` | **DB Engine**: Database backend selection (`sqlite` or `postgres`). |
+| | `DATABASE_URL` | *(Local URL)* | **DB Connection**: Connection string to the database (PostgreSQL/SQLite). |
+| | `TASK_QUEUE_TYPE` | `threadpool` | **Queue Engine**: Task queue backend selection (`threadpool` or `celery`). |
+| | `CELERY_BROKER_URL` / `_RESULT_BACKEND` | `redis://...` | **Distributed Queue**: URLs pointing to the Redis broker and result backend. |
 | **OAuth & Security**| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | *(None)* | **Google OAuth Client**: Client keys from GCP Credentials for secure department-level user sign-in. |
-| | `GOOGLE_OAUTH_ENCRYPTION_KEY` | *(None)* | **Credential Guard**: A symmetric Fernet key used to securely encrypt and decrypt Gmail OAuth tokens inside the database at rest. |
+| | `MICROSOFT_OAUTH_CLIENT_ID` / `_SECRET`| *(None)* | **Microsoft OAuth Client**: Client keys from Azure AD for secure Microsoft user sign-in. |
+| | `OAUTH_ENCRYPTION_KEY` | *(None)* | **Credential Guard**: A symmetric Fernet key used to securely encrypt and decrypt OAuth tokens inside the database at rest. |
 | | `APP_SESSION_SECRET` | *(None)* | **Session Guard**: Cryptographic signature secret used to sign session cookies and prevent session hijacking. |
+| | `OAUTH_SUCCESS_REDIRECT_URL` | `http://localhost:3000` | **Auth Redirect**: Where to send users after successful authentication. |
+| | `OAUTH_COOKIE_SECURE` | `false` | **HTTPS Requirement**: Set to 'true' in production to enforce secure cookies. |
 
 ### 8.2 Frontend Environment Variables (`frontend/.env`)
 
@@ -288,8 +317,8 @@ The frontend application uses client-side Vite environment variables (prefixed w
 
 | Variable Name | Default Value | Purpose & Comprehensive Impact |
 | :--- | :--- | :--- |
-| `VITE_API_URL` | `http://localhost:8000` | **Backend API Base**: The central routing address pointing to your FastAPI backend gateway for general transactions (grievances, policy lists, etc.). |
-| `VITE_REPLY_API_URL` | `http://localhost:8000` | **Response Engine Gateway**: Pointing to the backend API router responsible for triggering RAG-contextual email generation. |
+| `VITE_API_URL` | `/api` | **Backend API Base**: The central routing address pointing to your FastAPI backend gateway for general transactions (grievances, policy lists, etc.). |
+| `VITE_REPLY_API_URL` | `/api` | **Response Engine Gateway**: Pointing to the backend API router responsible for triggering RAG-contextual email generation. |
 | `VITE_AUTH_STATUS_POLLING_SECONDS` | `60` | **Session Poller**: Frequency (in seconds) the UI queries the backend database to check if Google OAuth sync remains fully authenticated. |
 | `VITE_SHOW_DEMO_BUTTON` | `false` | **Demo Console Bypass**: Developer/QA override. Set to `true` to force-render the "Load Demo PDFs" option in a production/deployed environment. Otherwise, it is automatically protected and only displayed on localhost/dev nodes. |
 
