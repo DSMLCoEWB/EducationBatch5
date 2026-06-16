@@ -89,7 +89,7 @@ def remove_policy_chunks(policy_id: str, user_email: str) -> Tuple[List[Dict[str
         rebuild_index_from_chunks(retained, user_email)
     return retained, removed
 
-def resolve_policy_file_path(policy_id: str, user_email: str = None) -> Optional[Path]:
+def resolve_policy_file_path(policy_id: str, user_email: Optional[str] = None) -> Optional[Path]:
     """Resolves policy path (supporting PDF, DOCX, TXT, MD, Images), checking user directory first, then demo directory."""
     dirs = []
     if user_email:
@@ -113,9 +113,8 @@ def async_categorize_policy(policy_id: str, user_email: str):
     """Background task to asynchronously classify a policy document using the LLM and DB categories."""
     try:
         from db.repository import get_active_categories, get_system_role
-        from services.ai_utils import generate_content_with_fallback
+        from services.ai_utils import generate_content_with_fallback, get_genai_client
         from config import ULTIMATE_FALLBACK_LIST
-        from google import genai
         
         chunks = load_policy_chunks(user_email)
         policy_chunks = [c for c in chunks if str(c.get("policy_id", "")) == policy_id]
@@ -154,8 +153,8 @@ POLICY EXTRACT:
 
 Reply with ONLY the exact name of the category from the list above. Do not add any extra text or quotes."""
 
-        api_key = os.getenv("GOOGLE_API_KEY")
-        client = genai.Client(api_key=api_key) if api_key else None
+        from config import GEMINI_API_KEY
+        client = get_genai_client(api_key=GEMINI_API_KEY)
         
         assigned_category = "Miscellaneous"
         response = generate_content_with_fallback(

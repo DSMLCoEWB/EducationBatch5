@@ -31,8 +31,16 @@ The system processes large policy documents and scans visual email attachments. 
 | **Disk Space** | 5 GB free space | 15 GB free space (for AI model caching) |
 | **Internet** | Required for external API calls | High-speed Broadband |
 
+### 1.1 Software Prerequisites
+Before beginning, ensure you have the following installed on your machine:
+*   **Git**: To clone the repository.
+*   **Python 3.10 or higher**: Required to run the FastAPI backend.
+*   **Node.js 18 or higher**: Required to build and run the React frontend.
+*   **(Optional) Docker Desktop**: If you plan to run the system using containers instead of a native installation.
+*   **(Optional) Ollama**: If you plan to run open-source AI models locally.
+
 > [!IMPORTANT]
-> This application requires an active internet connection to communicate securely with Google Gmail and Google Gemini AI servers. It cannot run in an air-gapped network environment.
+> This application requires an active internet connection to communicate securely with Google Gmail, Microsoft Graph, and Google Gemini AI servers. It cannot run in an entirely air-gapped network environment.
 
 ---
 
@@ -40,50 +48,84 @@ The system processes large policy documents and scans visual email attachments. 
 
 To unlock automated email synchronization and LLM classification, you must configure credentials in either Google Cloud Console (for Gmail) or Microsoft Azure AD (for Outlook/Office 365), along with Gemini AI keys.
 
+> [!NOTE]
+> **Understanding Google Credentials in this System**
+> You will generate two completely different types of credentials from your Google Cloud Project:
+> 1. **Vertex AI Service Account (JSON):** Server-to-Server authentication for the backend to run Enterprise Gemini models.
+> 2. **OAuth 2.0 Client (ID & Secret):** User-to-Server authentication to power the "Sign in with Google" popup for Gmail sync.
+
 ### 2.1 Enable Google APIs
 1. Navigate to the [Google Cloud Library Console](https://console.cloud.google.com/apis/library).
 2. Create or select a Google Cloud project.
 3. Search for and enable the following APIs:
    * **Gmail API** (if syncing Gmail)
-   * **Generative Language API** (required for Gemini)
+   * **Vertex AI API** (if using Enterprise Vertex AI routing)
+   * **Generative Language API** (only if using Fallback/Developer Free-Tier API Keys)
 
-### 2.2 Get a Gemini API Key
-1. Go to the [Google AI Studio API Key Manager](https://aistudio.google.com/apikey).
-2. Click **Create API Key**.
-3. Copy the generated key. You will configure this as `GOOGLE_API_KEY` and `GEMINI_API_KEY`.
+### 2.2 Get an Enterprise Gemini API Key (Google Cloud)
+To ensure strict data privacy and compliance with government regulations, the system is engineered to route AI traffic through **Google Cloud Vertex AI** (Enterprise tier). This guarantees that citizen grievance data is **never** used to train Google's models.
 
-### 2.3 Create OAuth Client Credentials for Gmail Sync (Google)
-1. Go to the [Google Credentials Console](https://console.cloud.google.com/apis/credentials).
-2. Click **Create Credentials** → **OAuth client ID**.
-3. If prompted to configure the OAuth Consent Screen:
-   * Select **External** User Type.
-   * Add the following authorization scopes:
-     * `https://www.googleapis.com/auth/gmail.readonly`
-     * `https://www.googleapis.com/auth/gmail.send`
-     * `https://www.googleapis.com/auth/gmail.modify`
-     * `https://www.googleapis.com/auth/userinfo.email`
-     * `https://www.googleapis.com/auth/userinfo.profile`
-   * Add your target Gmail accounts as **Test Users** (mandatory while in testing mode).
-4. Select **Web Application** as the Application Type.
-5. Set the redirect and origin configurations:
-   * **Authorized JavaScript Origins:** `http://localhost:3000` and `http://localhost:8000`
-   * **Authorized Redirect URIs:** `http://localhost:8000/auth/google/callback`
-6. Click **Create** and safely record your **Client ID** and **Client Secret**.
+1. **Create a Project:** Go to the [Google Cloud Console](https://console.cloud.google.com/). If you are new to GCP, you will need to set up a billing account. Click the **Project Dropdown** at the top left to create a "New Project".
+2. **Set the Project ID:** On your Project Dashboard, locate the **Project ID** (e.g., `my-education-project-123`). Open your `backend/.env` file and set `VERTEX_AI_PROJECT=your-project-id`.
+3. **Enable the API:** Use the top search bar in the console to search for **"Vertex AI API"**. Click on it and hit the blue **Enable** button.
+4. **Set Data Residency:** To comply with Indian data sovereignty laws, open your `backend/.env` file and set `VERTEX_AI_LOCATION=asia-south1`. This forces the system to strictly route all AI processing to the Mumbai data centers.
+5. **Create a Service Account:** 
+   * In the left-hand navigation menu, go to **IAM & Admin > Service Accounts**.
+   * Click **+ CREATE SERVICE ACCOUNT** at the top. Give it a name (e.g., "vertex-ai-bot") and click **Create and Continue**.
+   * Under "Select a role", search for and select **Vertex AI User**. Click **Continue**, then **Done**.
+6. **Generate the JSON Key:**
+   * Click on the email address of the newly created Service Account in the list.
+   * Go to the **Keys** tab at the top.
+   * Click **Add Key > Create new key**. Select **JSON** and click **Create**. The key file will automatically download to your computer.
+7. **Secure the Key:** Move that downloaded JSON file into your server at `backend/storage/keys/` and rename it to exactly `vertex-key.json`. *(Create the `keys` folder if it doesn't exist).*
+8. **Link the Key:** Finally, in your `backend/.env` file, set `GOOGLE_APPLICATION_CREDENTIALS=storage/keys/vertex-key.json`. (This relative path works seamlessly for both Native Windows and Docker environments).
 
-### 2.4 Create OAuth Client Credentials for Microsoft Graph Sync (Azure AD)
-1. Go to the [Microsoft Entra ID (Azure AD) Admin Center](https://entra.microsoft.com/).
-2. Navigate to **Applications** → **App registrations** → **New registration**.
-3. Name your application and select **Accounts in any organizational directory and personal Microsoft accounts** for supported account types.
+> *(Fallback/Development Mode)*: If you do not have a full Vertex AI Service Account ready, you can still test the system by generating a standard API key. Navigate to **APIs & Services** > **Credentials** > **Create Credentials** > **API key**. Copy the key and configure it as `GOOGLE_API_KEY` and `GEMINI_API_KEY`. The system will automatically fall back to Developer API routing if `VERTEX_AI_PROJECT` is left blank.
+
+### 2.3 Configure the Google Auth Platform (OAuth Consent Screen)
+*Google requires configuring the consent screen before generating OAuth client keys.*
+1. Open the [Google Cloud Console](https://console.cloud.google.com/).
+2. In the left-hand navigation menu, click **APIs & Services**, then select **OAuth consent screen**.
+3. You will be redirected to the new **Google Auth Platform**. Click **Get started** in the center of the screen.
+4. You will be placed in a 4-step "Project configuration" wizard:
+   * **Step 1 (App Information):** Enter an App name and your User support email, then click **Next**.
+   * **Step 2 (Audience):** Select **External** User Type. Under Test Users, add your target Gmail accounts (mandatory while testing), then click **Next**.
+   * **Step 3 (Contact Information):** Enter a developer contact email, then click **Next**.
+   * **Step 4 (Finish):** Review and click the **Create** button at the bottom.
+5. Once the wizard finishes, select **Data Access** from the left sidebar.
+6. Click **Add or Remove Scopes** and add:
+   * `https://www.googleapis.com/auth/gmail.readonly`
+   * `https://www.googleapis.com/auth/gmail.send`
+   * `https://www.googleapis.com/auth/gmail.modify`
+   * `https://www.googleapis.com/auth/userinfo.email`
+   * `https://www.googleapis.com/auth/userinfo.profile`
+7. Save your data access scopes.
+
+### 2.4 Create OAuth Client Credentials for Gmail Sync (Google)
+1. Still under the **Google Auth Platform** menu in the left sidebar, click **Clients**.
+2. Click **Create Client** near the top of the page and select **Web application** as the Application Type.
+3. Set the redirect and origin configurations:
+   * **Authorized JavaScript origins:** `http://localhost:3000` and `http://localhost:8000`
+   * **Authorized redirect URIs:** `http://localhost:8000/auth/google/callback`
+4. Click **Create** and safely record your **Client ID** and **Client Secret**. You will assign these to `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` in your backend `.env` file.
+
+### 2.5 Create OAuth Client Credentials for Microsoft Graph Sync (Azure AD)
+1. Go to the [Microsoft Entra Admin Center](https://entra.microsoft.com/).
+2. In the left sidebar, under **Entra ID**, click **App registrations**, then click **New registration**.
+3. Name your application and select **Any Entra ID Tenant + Personal Microsoft accounts** for supported account types.
 4. Set the Redirect URI type to **Web** and the URL to: `http://localhost:8000/auth/microsoft/callback`.
-5. Under **API permissions**, add the following Microsoft Graph delegated permissions:
+5. Click the blue **Register** button at the bottom of the page to create the application.
+6. Once registered, you will be on the app's Overview page. Under **API permissions** in the left menu, click **Add a permission** → **Microsoft Graph** → **Delegated permissions** and add:
    * `Mail.Read`
    * `Mail.ReadWrite`
    * `Mail.Send`
    * `User.Read`
-6. Under **Certificates & secrets**, create a **New client secret** and copy the Value (not the ID).
-7. Copy the **Application (client) ID** from the Overview page.
+   * `offline_access` (Required for background sync / refresh tokens)
+7. *(Optional but recommended)* Click **Grant admin consent for <Your Directory>** and click **Yes** to confirm if you are an administrator.
+8. Under **Certificates & secrets** in the left menu, click **New client secret** and copy the **Value** (not the Secret ID). You will assign this to `MICROSOFT_OAUTH_CLIENT_SECRET` in your backend `.env` file.
+9. Go to the **Overview** page and copy the **Application (client) ID**. You will assign this to `MICROSOFT_OAUTH_CLIENT_ID` in your backend `.env` file.
 
-### 2.5 Generate Cryptographic Security Keys
+### 2.6 Generate Cryptographic Security Keys
 For secure multi-user credential storage and session signing, the system requires two secure cryptographic keys.
 
 1. **OAuth Encryption Key (`OAUTH_ENCRYPTION_KEY`)**:
@@ -102,8 +144,11 @@ For secure multi-user credential storage and session signing, the system require
      ```
    * **Usage**: Copy the printed string and paste it into `.env` as `APP_SESSION_SECRET`.
 
-### 2.6 Optional Dedicated LLM Keys (Quota Isolation)
-Under high traffic, multiple background AI Triaging tasks can clash with the AI Reply Generator, causing Gemini API rate-limiting errors.
+### 2.7 Optional Dedicated LLM Keys (Quota Isolation)
+> [!NOTE]
+> **Vertex AI Users:** If you are using Enterprise Vertex AI (by setting `VERTEX_AI_PROJECT`), you do **not** need these API keys. Quota is managed automatically through your Google Cloud Service Account.
+
+Under high traffic when using Developer APIs, multiple background AI Triaging tasks can clash with the AI Reply Generator, causing Gemini API rate-limiting errors.
 To isolate these quotas, you can optionally configure up to three separate Gemini API keys:
 1. **`GOOGLE_API_KEY` / `GEMINI_API_KEY`**: The main key used for generating email responses in the reply modal.
 2. **`PRIORITY_GOOGLE_API_KEY` / `PRIORITY_GEMINI_API_KEY`**: A secondary key used for high-volume background ticket classifications and priority triage.
@@ -113,7 +158,11 @@ To isolate these quotas, you can optionally configure up to three separate Gemin
 
 ---
 
-## 3. Method A: Native Installation (Highly Recommended for Host GPU/Ollama)
+## 3. Method A: Native Installation (Recommended for Local Development & Host GPU)
+
+> [!TIP]
+> **Ideal for Internal or Local Use**  
+> Native execution is streamlined and highly efficient for local analysis, development, and internal intranet environments. If you intend to deploy this system for public internet access at scale, we recommend using the Containerized method (Method B) or placing this native instance behind a standard reverse proxy (like NGINX or an enterprise load-balancer) to handle public traffic routing.
 
 Running the system natively lets the backend leverage host GPU architectures and connect to local Ollama nodes directly without virtualization overhead.
 
@@ -138,16 +187,34 @@ Running the system natively lets the backend leverage host GPU architectures and
 
 ### 3.3 Configure Environment Variables
 1. Navigate to the `backend/` folder.
-2. Rename `.env.example` to `.env`.
-3. Open `.env` and fill in your Google credentials from [Section 2](#2-google-cloud-platform-setup-api-keys--oauth):
+2. Copy `.env.example` to `.env`.
+3. Open `.env` and fill in your cloud credentials from [Section 2](#2-cloud-platform-setup-api-keys--oauth):
    ```ini
+   # Enterprise Vertex AI Routing (Leaves API Keys blank)
+   VERTEX_AI_PROJECT=your_google_cloud_project_id
+   GOOGLE_APPLICATION_CREDENTIALS=storage/keys/vertex-key.json
+   
+   # Or Developer API Fallbacks (If not using Vertex)
    GOOGLE_API_KEY=AIzaSy...your_gemini_key
    GEMINI_API_KEY=AIzaSy...your_gemini_key
+   
+   # Google OAuth Client
    GOOGLE_OAUTH_CLIENT_ID=your_id.apps.googleusercontent.com
    GOOGLE_OAUTH_CLIENT_SECRET=your_secret
+
+   # Microsoft OAuth Client (If syncing Outlook)
+   MICROSOFT_OAUTH_CLIENT_ID=your_microsoft_client_id
+   MICROSOFT_OAUTH_CLIENT_SECRET=your_microsoft_secret
+
+   # Security & Sessions (Generated in Section 2.6)
+   OAUTH_ENCRYPTION_KEY=your_generated_fernet_key
+   APP_SESSION_SECRET=your_generated_hex_secret
    ```
 
 ### 3.4 Launch Services Natively
+
+> [!NOTE]
+> **Important:** Always launch the backend using `python main.py`. This script is deliberately engineered to run a single safe worker. Do not attempt to run custom multi-worker commands (e.g., `uvicorn app:app --workers 4`) natively, as concurrent initialization will cause database deadlocks. Multi-worker scaling is handled exclusively by the Docker architecture.
 
 *   **Terminal 1 - Backend Server:**
     ```bash
@@ -171,6 +238,10 @@ Running the system natively lets the backend leverage host GPU architectures and
 
 ## 4. Method B: Containerized Installation (Docker Desktop)
 
+> [!TIP]
+> **Recommended for Public & Scaled Deployments**  
+> The Docker container stack automatically includes an NGINX Gateway, which provides built-in rate limiting, optimized routing, and secure handling of public internet traffic. This is the recommended path if you are deploying the application to be accessed by a large number of external users.
+
 Using Docker packages the entire ecosystem into a production-grade, distributed architecture:
 *   **PostgreSQL**: Handles persistent, concurrent transactional data with connection pooling.
 *   **Redis**: Serves as the high-throughput message broker and result backend for Celery.
@@ -180,7 +251,7 @@ Using Docker packages the entire ecosystem into a production-grade, distributed 
 
 ### 4.1 Create Environment Files
 1. Create `backend/.env` (configured as shown in [Section 3.3](#33-configure-environment-variables)). Ensure `DATABASE_TYPE=postgres` and `TASK_QUEUE_TYPE=celery`.
-2. Create `frontend/.env` and configure the backend API endpoints for the unified domain architecture:
+2. Copy `frontend/.env.example` to `frontend/.env` and configure the backend API endpoints for the unified domain architecture:
    ```ini
    VITE_API_URL=/api
    VITE_REPLY_API_URL=/api
@@ -207,6 +278,17 @@ Using Docker packages the entire ecosystem into a production-grade, distributed 
    
    Access the dashboard at `http://localhost:8000`.
 
+### 4.3 Updating the Docker Deployment
+
+> [!WARNING]
+> **Important NGINX Routing Quirk:** If you pull new code or need to rebuild the containers in the future, **do not** just run `docker compose up --build -d` by itself. You must tear down the network first:
+
+```bash
+docker compose down
+docker compose up --build -d
+```
+
+> **Why?** The NGINX reverse proxy infinitely caches the internal IP addresses of the `backend` and `frontend` containers on startup. If you rebuild containers without running `down` first, the new containers are assigned new IPs, but NGINX will stubbornly route your traffic to the old, dead IPs (causing a 502 Bad Gateway error).
 
 ---
 
@@ -215,31 +297,35 @@ Using Docker packages the entire ecosystem into a production-grade, distributed 
 To enable policy-grounded AI responses, the application requires building a semantic FAISS vector index of your institutional guidelines. This is handled completely dynamically via the running application:
 
 1. Start both the backend and frontend servers natively (described in [Section 3](#3-method-a-native-installation-highly-recommended-for-host-gpuollama)) or containerized (described in [Section 4](#4-method-b-containerized-installation-docker-desktop)).
-2. Open the React dashboard at `http://localhost:3000` and sign in using Google OAuth.
-3. Open the **"Administrative Policy Console"** from the top navigation bar or sidebar, and click the **"Load Demo PDFs"** button in the modal's footer. This dynamically parses all official policy documents stored in `backend/demo_policies/`, extracts their semantic chunks, and builds the local `rag_index.faiss` database.
-4. Alternatively, you can compile this index via a single HTTP API call:
-   ```bash
-   curl -X POST http://localhost:8000/policies/load-demo
-   ```
+2. Open the React dashboard at `http://localhost:8000` (if using Docker) or `http://localhost:3000` (if using Native) and sign in via your authorized OAuth account.
+3. Open the **"Administrative Policy Console"** from the top navigation bar or sidebar.
+4. Use the **Upload Policy** interface to upload your department's official PDF or Word document guidelines.
+5. Upon upload, the backend will automatically parse the document, extract semantic chunks, and build your department's isolated `index.faiss` vector database in real-time.
+
 
 ---
 
 ## 6. Maintenance, Backups & Data Folders
 
 ### 6.1 Data Locations
-Active application data is preserved outside of code directories to ensure update safety:
-*   **SQLite Database:** `backend/data/grievances.db`
-*   **OAuth Credentials Cache:** `backend/data/oauth_tokens/`
-*   **FAISS Vector Index:** `backend/rag/data/`
-*   **Extracted Attachments:** `backend/attachments/`
+Active application data is preserved centrally in the `backend/storage` directory to ensure update safety and easy backups:
+*   **Database (PostgreSQL):** Stored inside the Docker volume `postgres_data` (if containerized) or your native Postgres installation.
+*   **OAuth Credentials Cache:** `backend/storage/data/oauth_tokens/`
+*   **FAISS Vector Index:** `backend/storage/policies/<user_email>/index/index.faiss` (Isolated per department user)
+*   **Extracted Attachments:** `backend/storage/attachments/`
+*   **Policy Documents:** `backend/storage/policies/<user_email>/` (User-uploaded)
 
 ### 6.2 Manual Data Backup (Windows Command)
-To safely backup all user credentials, emails, and attachments, run:
+To safely backup the system, you must backup both the physical files and the PostgreSQL database. Run the following commands:
+
+1. **Backup the physical files (Attachments, OAuth, FAISS):**
 ```powershell
-# Stop services
-docker compose down
-# Copy data safely
-Copy-Item -Path ".\backend\data" -Destination ".\backup_data_$(Get-Date -Format 'yyyyMMdd')" -Recurse
+Copy-Item -Path ".\backend\storage" -Destination ".\backup_storage_$(Get-Date -Format 'yyyyMMdd')" -Recurse
+```
+
+2. **Backup the PostgreSQL Database (if running via Docker):**
+```powershell
+docker exec -t grievance-postgres pg_dumpall -c -U postgres > ".\backup_db_$(Get-Date -Format 'yyyyMMdd').sql"
 ```
 
 ---
@@ -260,7 +346,7 @@ Copy-Item -Path ".\backend\data" -Destination ".\backup_data_$(Get-Date -Format 
 
 ### ❌ FAISS Index / Retrieval Fails
 *   **Cause:** The FAISS index directory is empty or raw PDFs failed chunk ingestion.
-*   **Fix:** Open the **"Administrative Policy Console"** on the React dashboard and click **"Load Demo PDFs"** in the footer, or trigger it manually by running `curl -X POST http://localhost:8000/policies/load-demo` to build the `rag_index.faiss` vector database and policy chunks.
+*   **Fix:** Open the **"Administrative Policy Console"** on the React dashboard and upload official policy documents to trigger the generation of the `index.faiss` vector database and policy chunks.
 
 ---
 
@@ -270,7 +356,10 @@ The system utilizes separate environment files for the FastAPI backend and React
 
 ### 8.1 Backend Environment Variables (`backend/.env`)
 
-The backend engine uses centralized `.env` configurations to dial in background sync behavior, local AI support, and RAG retrieval settings. Below is a comprehensive reference table of every parameter exposed in `backend/.env.example`:
+The backend engine uses centralized `.env` configurations to dial in background sync behavior, local AI support, and RAG retrieval settings. Below is a comprehensive reference table of every parameter exposed in `backend/.env.example`.
+
+> [!NOTE]
+> **Docker Automates Infrastructure:** If you deploy using Docker (Method B), you do not need to worry about manually configuring Redis or PostgreSQL databases. Docker Compose will automatically spin up the required infrastructure and forcefully override the `DATABASE_TYPE` (to `postgres`) and `TASK_QUEUE_TYPE` (to `celery`) variables for you.
 
 | Category | Variable Name | Default Value | Purpose & Comprehensive Impact |
 | :--- | :--- | :--- | :--- |
@@ -285,24 +374,30 @@ The backend engine uses centralized `.env` configurations to dial in background 
 | | `PRIORITY_LLM_WINDOW_SECONDS` | `60` | **Rate Limiting**: Time window for priority LLM calls. |
 | | `AI_BATCH_SIZE` | `15` | **Processing Density**: How many emails for the AI to triage in a single background request. |
 | **AI / LLM Keys** | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | *(None)* | **Primary LLM Access**: The central Google AI Studio API key used to generate replies and interact with Gemini models. |
+| | `VERTEX_AI_PROJECT` | *(None)* | **Enterprise Routing**: Google Cloud Project ID to mandate Vertex AI (zero-data-training) models instead of standard developer APIs. |
+| | `VERTEX_AI_LOCATION` | `asia-south1` | **Data Residency**: The geographical region for Vertex AI to strictly enforce Indian data residency laws. |
+| | `GOOGLE_APPLICATION_CREDENTIALS` | `storage/keys/vertex-key.json` | **Vertex JSON Key**: Absolute or relative path to the Service Account JSON key for Vertex authentication. |
 | | `PRIORITY_GOOGLE_API_KEY` | *(None)* | **Classification Key**: Dedicated key to process high-volume background priority ratings, preventing quota clashes. |
 | | `CHATBOT_GEMINI_API_KEY` | *(None)* | **Assistant Key**: Dedicated key reserved for the real-time student grievance assistant chatbot in the UI. |
-| **AI Models** | `AI_PREFER_LOCAL` | `false` | **Local Mode Switch**: Set to `true` to route classification and parsing tasks to a local Ollama model instead of Gemini. |
-| | `PRIMARY_LOCAL_MODEL` | `gemma3:4b` | **Ollama Model**: The target local LLM to load and execute via your local Ollama node. |
+| **AI Models** | `AI_PREFER_LOCAL` | `false` | **Local Mode Switch**: Set to `true` to strictly route tasks to a local Ollama model (completely skipping and disabling any cloud API fallbacks). |
+| | `PRIMARY_LOCAL_MODEL` | `llama3.2:3b` | **Ollama Model**: The target local LLM to load and execute via your local Ollama node. |
 | | `OLLAMA_CONTEXT_LENGTH` | `16384` | **Local Token Cap**: The maximum context window loaded into local VRAM (recommended 8k-16k for complex grievances). |
-| | `OLLAMA_VULKAN` / `OLLAMA_FLASH_ATTENTION` | `1` / `1` | **Acceleration**: Activates AMD/Intel Vulkan and Flash Attention optimizations inside Ollama for rapid inference. |
-| | `AI_FALLBACK_MODELS` | *(List)* | **Resiliency Fallbacks**: Comma-separated list of models the system steps through if primary local or API requests fail. |
-| | `VISION_FALLBACK_MODELS` | *(List)* | **OCR Fallbacks**: Vision-enabled models used to read scanned graphic PDF attachments and visual tickets. |
-| **RAG & Search** | `RAG_TOP_K` | `5` | **RAG Extraction**: Number of candidate chunks retrieved from the FAISS database for contextual re-ranking. |
-| | `RAG_MIN_SCORE` | `0.30` | **Similarity Cutoff**: The strict cosine similarity threshold (0.0 to 1.0) required for a policy clause to be deemed relevant. |
-| | `RAG_FINAL_LIMIT` | `3` | **Context Limit**: Maximum chunks included in the final context. |
+| **Server / CORS**| `PORT` | `8000` | **Listening Port**: The port on which the FastAPI backend will run. |
+| | `APP_ENV` | `development` | **Environment**: Sets the execution environment (`development`, `production`). Setting this to `production` **automatically disables and wipes the interactive API documentation (/docs)** to eliminate that attack surface. |
+| | `CORS_ORIGINS` | *(Localhost defaults)* | **Cross-Origin**: Comma-separated list of allowed frontend origins to interact with the API. |
+| | `AI_FALLBACK_MODELS` | *(List)* | **Resiliency Fallbacks**: Comma-separated list of models the system steps through. **Must use prefixes (`ollama/` for local, `models/` for Google).** |
+| | `VISION_FALLBACK_MODELS` | *(List)* | **OCR Fallbacks**: Vision-enabled models used to read scanned attachments. **Must use prefixes (`ollama/` or `models/`).** |
+| **RAG & Search** | `RAG_TOP_K` | `15` | **RAG Extraction**: Number of candidate chunks retrieved from the FAISS database for contextual re-ranking. |
+| | `RAG_MIN_SCORE` | `0.35` | **Similarity Cutoff**: The strict cosine similarity threshold (0.0 to 1.0) required for a policy clause to be deemed relevant. |
+| | `RAG_FINAL_LIMIT` | `12` | **Context Limit**: Maximum chunks included in the final context. |
+| | `REPLY_SENDER_NAME` | `Grievance Support Desk` | **Reply Signature**: Configurable sender name used to sign off automated AI email replies. |
 | | `RAG_MAX_UNIQUE_SECTIONS` | `0` | **Consistency Filter**: Max unique document sections to keep in context (0 to disable). |
 | | `RAG_UNREPLIED_MAX` | `3` | **The "3" in 3+2 RAG**: The maximum number of recent, consecutive unreplied incoming citizen follow-up emails to crawl backwards. |
 | | `RAG_ANCHOR_DEPTH` | `2` | **The "2" in 3+2 RAG**: The depth of the "Anchor Turn" representing the **last official Department Reply + its incoming Citizen Trigger** (the "handshake"). |
-| | `RAG_SIMILARITY_THRESHOLD` | `0.30` | **Secondary Threshold**: Secondary semantic threshold for broader matches. |
-| **Database & Queue** | `DATABASE_TYPE` | `sqlite` | **DB Engine**: Database backend selection (`sqlite` or `postgres`). |
+| | `RAG_SIMILARITY_THRESHOLD` | `0.35` | **Secondary Threshold**: Secondary semantic threshold for broader matches. |
+| **Database & Queue** | `DATABASE_TYPE` | `sqlite` | **DB Engine**: Database backend selection (`sqlite` or `postgres`). *Warning: Setting this to `postgres` natively requires a running PostgreSQL server and a valid `DATABASE_URL`.* |
 | | `DATABASE_URL` | *(Local URL)* | **DB Connection**: Connection string to the database (PostgreSQL/SQLite). |
-| | `TASK_QUEUE_TYPE` | `threadpool` | **Queue Engine**: Task queue backend selection (`threadpool` or `celery`). |
+| | `TASK_QUEUE_TYPE` | `threadpool` | **Queue Engine**: Task queue backend selection (`threadpool` or `celery`). *Warning: Setting this to `celery` natively without a running Redis server and a separate Celery worker terminal will break background processing.* |
 | | `CELERY_BROKER_URL` / `_RESULT_BACKEND` | `redis://...` | **Distributed Queue**: URLs pointing to the Redis broker and result backend. |
 | **OAuth & Security**| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | *(None)* | **Google OAuth Client**: Client keys from GCP Credentials for secure department-level user sign-in. |
 | | `MICROSOFT_OAUTH_CLIENT_ID` / `_SECRET`| *(None)* | **Microsoft OAuth Client**: Client keys from Azure AD for secure Microsoft user sign-in. |
@@ -319,6 +414,7 @@ The frontend application uses client-side Vite environment variables (prefixed w
 | :--- | :--- | :--- |
 | `VITE_API_URL` | `/api` | **Backend API Base**: The central routing address pointing to your FastAPI backend gateway for general transactions (grievances, policy lists, etc.). |
 | `VITE_REPLY_API_URL` | `/api` | **Response Engine Gateway**: Pointing to the backend API router responsible for triggering RAG-contextual email generation. |
+| `VITE_DEV_PROXY_TARGET` | *(None)* | **Dev Proxy**: Used when running frontend natively via `npm run dev` to proxy requests to your local backend server (e.g. `http://localhost:8000`). Ignored in production. |
 | `VITE_AUTH_STATUS_POLLING_SECONDS` | `60` | **Session Poller**: Frequency (in seconds) the UI queries the backend database to check if Google OAuth sync remains fully authenticated. |
-| `VITE_SHOW_DEMO_BUTTON` | `false` | **Demo Console Bypass**: Developer/QA override. Set to `true` to force-render the "Load Demo PDFs" option in a production/deployed environment. Otherwise, it is automatically protected and only displayed on localhost/dev nodes. |
+
 

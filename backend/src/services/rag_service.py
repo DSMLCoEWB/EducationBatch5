@@ -7,15 +7,15 @@ import re
 from typing import List, Dict, Any, Optional
 import torch
 from sentence_transformers import SentenceTransformer
-from google import genai
 
 from config import (
     INDEX_PATH, CHUNKS_PATH, RAG_TOP_K, 
     RAG_MIN_SCORE, RAG_FINAL_LIMIT, ULTIMATE_FALLBACK_LIST,
-    RAG_UNREPLIED_MAX, RAG_ANCHOR_DEPTH, RAG_MAX_UNIQUE_SECTIONS
+    RAG_UNREPLIED_MAX, RAG_ANCHOR_DEPTH, RAG_MAX_UNIQUE_SECTIONS,
+    REPLY_SENDER_NAME
 )
 from core.logging import get_logger
-from services.ai_utils import generate_content_with_fallback
+from services.ai_utils import generate_content_with_fallback, get_genai_client
 
 logger = get_logger("services.rag")
 
@@ -149,8 +149,8 @@ def generate_suggested_reply_with_evidence(
     sender: str = "",
     category: str = "",
     attachment_content: str = "",
-    history: List[Dict[str, Any]] = [],
-    email_id: str = None
+    history: Optional[List[Dict[str, Any]]] = None,
+    email_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Generates a policy-grounded reply using Surgical RAG context."""
     
@@ -161,7 +161,7 @@ def generate_suggested_reply_with_evidence(
     if email_id and safe_history:
         found_idx = -1
         for i, m in enumerate(safe_history):
-            if str(m.get('id', '')) == str(email_id) or str(m.get('email_id', '')) == str(email_id):
+            if str(m.get('id', '')) == email_id or str(m.get('email_id', '')) == email_id:
                 found_idx = i
                 break
         if found_idx != -1:
@@ -224,7 +224,7 @@ def generate_suggested_reply_with_evidence(
             history_lines.append(f"[{role}]: {m.get('content', '')[:300]}")
     
     history_text = "\n".join(history_lines)
-    citizen_name = str(sender).split('<')[0].strip() if sender and str(sender).lower() != "nan" else "Sir/Madam"
+    citizen_name = sender.split('<')[0].strip() if sender and sender.lower() != "nan" else "Sir/Madam"
 
     # 4. Final Generation Prompt
     context_text = "\n\n".join([f"[Clause {c['metadata']['clause_id']}] {c['text']}" for c in chunks])
@@ -242,7 +242,7 @@ Rules:
 3. NO REDUNDANT SUBJECT: DO NOT include a "Subject:" line in your response.
 4. NO HARD WRAPPING: Do NOT insert line breaks within paragraphs. Use double newlines between paragraphs.
 5. Minimum Length: The body must be 3-5 sentences minimum.
-6. Policy Citation: You MUST explicitly mention specific clause IDs (e.g., "As per MSC-06...") to support your statements.
+6. Policy Citation: You MUST explicitly cite specific clauses (e.g., "As per Clause 7...") from the provided context to support your statements.
 7. Delay Handling: If the query is about a delay, mention the specific escalation path (e.g., nodal officer) or response timelines.
 8. Tone: Professional, authoritative yet respectful.
 9. Language: Formal English.
@@ -267,13 +267,14 @@ If context is insufficient, state that no relevant policy clause is available.
     
     TASK:
     Write a professional reply to {citizen_name}. 
-    - Respond directly to the inquiry using the policy context.
-    - Reference specific Clause IDs (e.g., EXM-01).
-    - Start with 'Dear {citizen_name},' and end with 'Sincerely, Grievance Support Desk'.
+    - Select ONLY the policy clauses that are directly relevant to the inquiry and IGNORE the rest.
+    - Respond directly to the inquiry using ONLY the relevant policy context.
+    - Reference specific Clause IDs (e.g., Clause 7) of the clauses you selected.
+    - Start with 'Dear {citizen_name},' and end with 'Sincerely, {REPLY_SENDER_NAME}'.
     """
 
-    api_key = os.getenv("GOOGLE_API_KEY")
-    client = genai.Client(api_key=api_key) if api_key else None
+    from config import GEMINI_API_KEY
+    client = get_genai_client(api_key=GEMINI_API_KEY)
 
     from config import ULTIMATE_FALLBACK_LIST
     response = generate_content_with_fallback(

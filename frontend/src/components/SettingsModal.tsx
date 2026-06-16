@@ -468,8 +468,8 @@ export function SettingsModal({ isOpen, onClose, onCategoriesChanged }: Settings
                             const val = e.target.value;
                             setDraftPriorityRules(prev => prev.map(r => r.priority === rule.priority ? { ...r, description: val } : r));
                           }}
-                          rows={2}
-                          className="w-full px-3 py-2 bg-background border border-border rounded-xl text-xs outline-none focus:ring-1 focus:ring-foreground transition-all shadow-inner custom-scrollbar resize-y min-h-[50px]"
+                          rows={6}
+                          className="w-full px-3 py-2 bg-background border border-border rounded-xl text-xs outline-none focus:ring-1 focus:ring-foreground transition-all shadow-inner custom-scrollbar resize-y min-h-[150px]"
                         />
                       </div>
 

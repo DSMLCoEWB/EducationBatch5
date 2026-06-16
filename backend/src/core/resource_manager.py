@@ -25,7 +25,7 @@ logger = get_logger("core.resources")
 class AIResourceManager:
     def __init__(self):
         self._cooldown_seconds = 60 # Keep GPU reserved for 60s after last message
-        self.use_redis = str(os.getenv("TASK_QUEUE_TYPE", "threadpool")).lower() == "celery"
+        self.use_redis = os.getenv("TASK_QUEUE_TYPE", "threadpool").lower() == "celery"
         self.redis = None
         
         if self.use_redis:
@@ -39,8 +39,7 @@ class AIResourceManager:
         # Fallback local state if redis is disabled or unavailable
         self._local_lock = threading.Lock()
         self._local_human_active = False
-        self._local_last_activity = 0
-
+        self._local_last_activity: float = 0.0
     def acquire_high_priority(self):
         """Called by Chatbot or Manual Reply drafting to claim the GPU globally or locally."""
         if self.redis:

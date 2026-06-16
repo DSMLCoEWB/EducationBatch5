@@ -12,6 +12,31 @@ IS_PRODUCTION = APP_ENV in {"prod", "production"}
 BASE_DIR = Path(__file__).resolve().parent.parent
 STORAGE_DIR = BASE_DIR / "storage"
 
+# --- BULLETPROOF GOOGLE CREDENTIALS ---
+# If a relative path is provided for GCP credentials (e.g. storage/keys/...),
+# resolve it absolutely against the backend root so the Google SDK never crashes
+# regardless of what folder the user runs the `python` command from.
+_gcp_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+if _gcp_creds:
+    _gcp_creds_path = Path(_gcp_creds)
+    if not _gcp_creds_path.is_absolute():
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(BASE_DIR / _gcp_creds_path)
+
+# --- STRICT ENTERPRISE PRIVACY ENFORCEMENT ---
+# If Enterprise Vertex AI is mandated, we MUST crash immediately on boot if the
+# JSON service account key is missing, rather than lazily failing API calls later.
+VERTEX_AI_PROJECT = os.getenv("VERTEX_AI_PROJECT", "").strip()
+if VERTEX_AI_PROJECT:
+    _creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    if not _creds_path or not Path(_creds_path).exists():
+        raise RuntimeError(
+            f"\n\n[CRITICAL SECURITY ERROR] VERTEX_AI_PROJECT is enabled for Enterprise Privacy, "
+            f"but the Service Account JSON key was not found at:\n{_creds_path}\n"
+            f"Please check your GOOGLE_APPLICATION_CREDENTIALS path in .env or disable VERTEX_AI_PROJECT.\n"
+        )
+
+VERTEX_AI_LOCATION = os.getenv("VERTEX_AI_LOCATION", "asia-south1").strip()
+
 FILES_DIR = STORAGE_DIR / "files"
 EXCEL_FILE = STORAGE_DIR / "data" / "grievances.xlsx"
 POLICY_DIR = STORAGE_DIR / "policies"
@@ -93,9 +118,13 @@ GLOBAL_SYNC_INTERVAL_SECONDS = int(os.getenv("GLOBAL_SYNC_INTERVAL_SECONDS", os.
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", GOOGLE_API_KEY).strip()
 CHATBOT_GEMINI_API_KEY = os.getenv("CHATBOT_GEMINI_API_KEY", GEMINI_API_KEY).strip()
-PRIORITY_GOOGLE_API_KEY = os.getenv("PRIORITY_GOOGLE_API_KEY", GEMINI_API_KEY).strip()
+PRIORITY_GEMINI_API_KEY = os.getenv("PRIORITY_GEMINI_API_KEY", GEMINI_API_KEY).strip()
+PRIORITY_GOOGLE_API_KEY = os.getenv("PRIORITY_GOOGLE_API_KEY", PRIORITY_GEMINI_API_KEY).strip()
+
+# VERTEX_AI_PROJECT and VERTEX_AI_LOCATION are handled during strict enforcement above.
+
 AI_PREFER_LOCAL = os.getenv("AI_PREFER_LOCAL", "true").lower() == "true"
-PRIMARY_LOCAL_MODEL = os.getenv("PRIMARY_LOCAL_MODEL", "qwen3.5:2b").strip()
+PRIMARY_LOCAL_MODEL = os.getenv("PRIMARY_LOCAL_MODEL", "llama3.2:3b").strip()
 
 # --- AI MODEL HANDSHAKE ---
 _fallback_models_raw = os.getenv("AI_FALLBACK_MODELS", "").strip()
@@ -108,13 +137,6 @@ else:
         "models/gemini-3-flash-preview",
         "models/gemini-2.5-flash",
         "models/gemini-2.5-flash-lite",
-        "models/gemma-4-31b-it",
-        "models/gemma-4-26b-a4b-it",
-        "models/gemma-3-27b-it",
-        "models/gemma-3-12b-it",
-        "models/gemma-3-4b-it",
-        "models/gemma-3n-e2b-it",
-        "models/gemma-3-1b-it",
         "models/gemini-robotics-er-1.6-preview",
         "models/gemini-robotics-er-1.5-preview"
     ]
@@ -130,6 +152,10 @@ else:
         "models/gemini-3-flash-preview", 
         "models/gemini-2.5-flash-lite"
     ]
+
+
+# --- REPLY GENERATION ---
+REPLY_SENDER_NAME = os.getenv("REPLY_SENDER_NAME", "Grievance Support Desk").strip()
 
 # --- GRIEVANCE TAXONOMY ---
 CATEGORIES = {
@@ -342,7 +368,7 @@ PRIORITY_KEYWORDS = {
 INDEX_PATH = DATA_DIR / "rag_index.faiss"
 CHUNKS_PATH = DATA_DIR / "policy_chunks.json"
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "15"))
-RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.30"))
+RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.35"))
 RAG_SIMILARITY_THRESHOLD = float(os.getenv("RAG_SIMILARITY_THRESHOLD", RAG_MIN_SCORE))
 RAG_FINAL_LIMIT = int(os.getenv("RAG_FINAL_LIMIT", "12"))
 RAG_MAX_UNIQUE_SECTIONS = int(os.getenv("RAG_MAX_UNIQUE_SECTIONS", "3"))

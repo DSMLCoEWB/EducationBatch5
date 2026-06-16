@@ -17,6 +17,7 @@ interface SidebarProps {
   onCloseMobile?: () => void;
   onOpenSettings: () => void;
   categories?: { id: string; name: string; color: string; icon?: string }[];
+  isCollapsed?: boolean;
 }
 
 

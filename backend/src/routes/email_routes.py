@@ -228,9 +228,12 @@ def get_sync_status(user_email: str = Depends(get_authenticated_user)):
                 is_active = user_locks[user_email].locked()
                 
     history = get_user_sync_history(user_email)
-    is_first_sync = history.get("last_sync_completed") is None if history else False
+    is_first_sync = True if not history else (history.get("last_sync_completed") is None)
     
-    return {"syncing": is_active or is_first_sync}
+    return {
+        "syncing": is_active or is_first_sync,
+        "is_first_sync": is_first_sync
+    }
 
 
 @router.get("/stats/refinement")
@@ -509,10 +512,13 @@ async def email_events(request: Request, user_email: str = Depends(get_authentic
             yield f"data: {json.dumps({'event': 'connected'})}\n\n"
             
             while True:
-                # Wait for broadcast from background workers
-                event_type = await queue.get()
-                yield f"data: {json.dumps({'event': event_type})}\n\n"
-                queue.task_done()
+                # Wait for broadcast, but yield a heartbeat ping every 15 seconds to prevent Proxy/NGINX timeouts
+                try:
+                    event_type = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps({'event': event_type})}\n\n"
+                    queue.task_done()
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'event': 'ping'})}\n\n"
         except asyncio.CancelledError:
             pass
         finally:
@@ -598,17 +604,26 @@ def reprocess_attachment(
     user_email: str = Depends(get_authenticated_user)
 ):
     """Force downloads and OCR-processes a specific attachment."""
-    from integrations.gmail.sync_engine import _fetch_and_save_attachment_locally
+    from integrations.gmail.sync_engine import _fetch_and_save_attachment_locally as gmail_fetch_att
     from services.ocr_service import extract_attachment_text
-    from db.repository import update_email_attachment_content, reset_refinement_status
+    from db.repository import update_email_attachment_content, reset_refinement_status, get_user_sync_history
     from cache.manager import get_user_lock
     import sqlite3
     
     # 1. Thread-safety: Lock the user to prevent background worker interference
     with get_user_lock(user_email):
-        service = get_gmail_api_service(user_email)
-        if not service:
-            raise HTTPException(status_code=401, detail="Gmail service unauthorized")
+        history = get_user_sync_history(user_email)
+        provider = history.get("auth_provider", "google") if history else "google"
+        service = None
+        if provider == "google":
+            service = get_gmail_api_service(user_email)
+            if not service:
+                raise HTTPException(status_code=401, detail="Gmail service unauthorized")
+        elif provider == "microsoft":
+            from integrations.microsoft.sync_engine import get_ms_headers
+            service = get_ms_headers(user_email)
+            if not service:
+                raise HTTPException(status_code=401, detail="Microsoft service unauthorized")
             
         # 1. Resolve attachment metadata from DB
     with get_db_conn(tenant_email=user_email) as conn:
@@ -644,7 +659,12 @@ def reprocess_attachment(
     # 2. Force Download (Use 20MB limit as requested for manual processing)
     # Note: 20MB is the practical limit for raw files in Gmail's 25MB encoded limit
     limit = 20 * 1024 * 1024
-    local_path = _fetch_and_save_attachment_locally(service, msg_id, target_att, user_email, limit_bytes=limit)
+    local_path = None
+    if provider == "microsoft":
+        from integrations.microsoft.sync_engine import _fetch_and_save_attachment_locally as ms_fetch_att
+        local_path = ms_fetch_att(service, msg_id, target_att, user_email, limit_bytes=limit)
+    else:
+        local_path = gmail_fetch_att(service, msg_id, target_att, user_email, limit_bytes=limit)
     
     if not local_path:
         raise HTTPException(status_code=500, detail="Failed to download attachment (might exceed size limit)")

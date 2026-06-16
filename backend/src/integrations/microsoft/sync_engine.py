@@ -245,6 +245,51 @@ def sync_microsoft_incremental(user_email: str) -> Dict[str, Any]:
         logger.error(f"❌ [Sync] MS sync failed for {user_email}: {e}")
         return {"status": "failed", "error": str(e)}
 
+def _fetch_and_save_attachment_locally(headers: Dict[str, str], msg_id: str, target_att: Dict[str, Any], user_email: str, limit_bytes: int = 20 * 1024 * 1024) -> Optional[str]:
+    """Downloads a specific attachment from MS Graph and saves it locally. Returns the local path."""
+    try:
+        att_id = target_att.get("attachment_id") or target_att.get("id")
+        if not att_id:
+            return None
+            
+        url = f"https://graph.microsoft.com/v1.0/me/messages/{msg_id}/attachments/{att_id}"
+        res = requests.get(url, headers=headers, timeout=(5, 30))
+        res.raise_for_status()
+        att = res.json()
+        
+        size = att.get("size", 0)
+        if size > limit_bytes:
+            logger.warning(f"⚠️ [Sync] Skipping large attachment for reprocessing: {size} bytes.")
+            return None
+            
+        content_bytes = att.get("contentBytes", "")
+        if not content_bytes:
+            return None
+            
+        import base64, hashlib, re
+        from config import ATTACHMENTS_DIR
+        from utils.email_utils import normalize_email_address
+        
+        payload = base64.b64decode(content_bytes)
+        file_hash = hashlib.md5(payload).hexdigest()[:8]
+        filename = att.get("name", "unnamed_attachment")
+        safe_fname = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+        unique_fname = f"{file_hash}_{safe_fname}"
+        
+        slug = re.sub(r'[^a-z0-9]', '_', normalize_email_address(user_email).lower())
+        user_att_dir = os.path.join(ATTACHMENTS_DIR, slug)
+        os.makedirs(user_att_dir, exist_ok=True)
+        
+        path = os.path.join(user_att_dir, unique_fname)
+        if not os.path.exists(path):
+            with open(path, "wb") as f:
+                f.write(payload)
+                
+        return path
+    except Exception as e:
+        logger.error(f"❌ [Sync] Failed to download MS attachment: {e}")
+        return None
+
 def _fetch_and_save_ms_attachments(headers: Dict[str, str], msg_id: str, user_email: str) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """Downloads attachments from MS Graph and saves them locally."""
     try:

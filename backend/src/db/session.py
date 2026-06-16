@@ -2,12 +2,13 @@ import sqlite3
 import psycopg2
 import re
 from contextlib import contextmanager
+from typing import Optional
 from config import DB_PATH, DATABASE_TYPE, DATABASE_URL
 
 # Rebind sqlite3 exceptions to psycopg2 exceptions when running on Postgres
 # so that repository.py's 'except sqlite3.OperationalError:' blocks work on both backends.
 if DATABASE_TYPE == "postgres":
-    sqlite3.OperationalError = psycopg2.DatabaseError
+    sqlite3.OperationalError = psycopg2.DatabaseError  # type: ignore
 
 BOOLEAN_COLS = [
     "is_inbox", "is_sent", "is_trashed", "is_priority_refined", "is_ocr_processed",
@@ -179,7 +180,7 @@ class PostgresRow(dict):
             return self._values[key]
         return super().__getitem__(key)
 
-    def keys(self):
+    def keys(self):  # type: ignore
         return self._keys
         
     def __iter__(self):
@@ -266,7 +267,7 @@ class PostgresConnectionProxy:
         return getattr(self._conn, name)
 
 @contextmanager
-def get_db_conn(tenant_email: str = None):
+def get_db_conn(tenant_email: Optional[str] = None):
     """Context manager for SQLite or PostgreSQL connections with proper pool recycling, transaction defaults, and Row-Level Security (RLS)."""
     if DATABASE_TYPE == "postgres":
         pool = _get_pg_pool()

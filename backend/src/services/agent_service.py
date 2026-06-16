@@ -2,13 +2,11 @@ import os
 import json
 import math
 import re
-from datetime import datetime, timedelta
-from google import genai
-from google.genai import types
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.prebuilt import create_react_agent
+from langgraph.prebuilt import create_react_agent  # type: ignore
 from langgraph.errors import GraphRecursionError
 from langchain_core.tools import tool
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -21,7 +19,7 @@ from config import (
 )
 from db.session import get_db_conn
 from db.repository import save_chat_message, get_chat_history
-from services.ai_utils import generate_content_with_fallback
+from services.ai_utils import generate_content_with_fallback, get_genai_client
 from services.rag_service import retrieve_policy_chunks
 from core.logging import get_logger
 
@@ -65,7 +63,7 @@ class CustomChatOllama(BaseChatModel):
     def _llm_type(self) -> str:
         return "ollama-custom"
         
-    def bind_tools(self, tools: List[Any], **kwargs: Any) -> Any:
+    def bind_tools(self, tools: Any, *, tool_choice: Any = None, **kwargs: Any) -> Any:  # type: ignore
         self.tools = tools
         return self
 
@@ -94,11 +92,11 @@ class CustomChatOllama(BaseChatModel):
             else:
                 role = "user"
             
-            ollama_msg = {"role": role, "content": str(msg.content)}
+            ollama_msg: Dict[str, Any] = {"role": role, "content": str(msg.content)}
             
-            if role == "assistant" and msg.tool_calls:
+            if role == "assistant" and getattr(msg, "tool_calls", None):
                 tcs = []
-                for tc in msg.tool_calls:
+                for tc in getattr(msg, "tool_calls", []):
                     tcs.append({
                         "function": {
                             "name": tc["name"],
@@ -206,7 +204,6 @@ class CustomChatOllama(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=ai_msg)])
 
 API_KEY = CHATBOT_GEMINI_API_KEY or GOOGLE_API_KEY
-client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 # --- AGENT TOOLS ---
 
@@ -368,7 +365,7 @@ def query_emails_sql(sql_query: Any, user_email: str) -> str:
         
         with get_db_conn(tenant_email=user_email) as conn:
             import sqlite3
-            conn.row_factory = sqlite3.Row
+            conn.row_factory = sqlite3.Row  # type: ignore
             cursor = conn.cursor()
             
             # TABLE-AWARE SAFETY INJECTION:
@@ -414,11 +411,11 @@ def query_system_health(user_email: str) -> str:
     try:
         with get_db_conn(tenant_email=user_email) as conn:
             import sqlite3
-            conn.row_factory = sqlite3.Row
+            conn.row_factory = sqlite3.Row  # type: ignore
             cursor = conn.cursor()
             
             cursor.execute("SELECT MAX(last_synced) FROM emails WHERE user_email = ?", (user_email,))
-            last_sync = cursor.fetchone()[0]
+            last_sync = cursor.fetchone()[0]  # type: ignore
             sync_string = "Never"
             if last_sync:
                 try:
@@ -450,7 +447,7 @@ def query_system_health(user_email: str) -> str:
             # --- DASHBOARD KPI ENGINE (Synchronized with v_threads) ---
             # 1. Total Unique Conversations
             cursor.execute("SELECT COUNT(*) FROM v_threads WHERE user_email = ?", (user_email,))
-            total_convs = cursor.fetchone()[0] or 0
+            total_convs = cursor.fetchone()[0] or 0  # type: ignore
 
             # 2. Unresolved Threads
             cursor.execute("""
@@ -459,7 +456,7 @@ def query_system_health(user_email: str) -> str:
                 ((manual_override = 1 AND is_resolved = 0) 
                  OR (COALESCE(manual_override, 0) = 0 AND replied = 0 AND is_resolved = 0))
             """, (user_email,))
-            unresolved_count = cursor.fetchone()[0] or 0
+            unresolved_count = cursor.fetchone()[0] or 0  # type: ignore
 
             # 3. Resolved/Actioned Threads
             resolved_count = total_convs - unresolved_count
@@ -471,7 +468,7 @@ def query_system_health(user_email: str) -> str:
                 AND ((manual_override = 1 AND is_resolved = 0) 
                   OR (COALESCE(manual_override, 0) = 0 AND replied = 0 AND is_resolved = 0))
             """, (user_email,))
-            fresh_threads = cursor.fetchone()[0] or 0
+            fresh_threads = cursor.fetchone()[0] or 0  # type: ignore
 
             # 5. Ongoing Threads
             cursor.execute("""
@@ -480,7 +477,7 @@ def query_system_health(user_email: str) -> str:
                 AND ((manual_override = 1 AND is_resolved = 0) 
                   OR (COALESCE(manual_override, 0) = 0 AND replied = 0 AND is_resolved = 0))
             """, (user_email,))
-            ongoing_threads = cursor.fetchone()[0] or 0
+            ongoing_threads = cursor.fetchone()[0] or 0  # type: ignore
 
             # 6. Avg Pending Duration
             cursor.execute("""
@@ -522,14 +519,14 @@ def query_system_health(user_email: str) -> str:
 
             # 7. Attachments Count (Threads with attachments)
             cursor.execute("SELECT COUNT(DISTINCT thread_id) FROM emails WHERE user_email = ? AND has_attachment = 1 AND is_inbox = 1 AND is_trashed = 0", (user_email,))
-            attachment_threads = cursor.fetchone()[0] or 0
+            attachment_threads = cursor.fetchone()[0] or 0  # type: ignore
 
             # 8. Activity Volume (Last 7 Days)
             activity_volume = []
             for i in range(6, -1, -1):
-                day = (datetime.utcnow() - timedelta(days=i)).strftime("%Y-%m-%d")
+                day = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=i)).strftime("%Y-%m-%d")
                 cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND date LIKE ?", (user_email, f"{day}%"))
-                activity_volume.append({"date": day, "count": cursor.fetchone()[0] or 0})
+                activity_volume.append({"date": day, "count": cursor.fetchone()[0] or 0})  # type: ignore
 
             # Sync Audit
             cursor.execute("SELECT status, timestamp FROM sync_audit WHERE user_email = ? ORDER BY timestamp DESC LIMIT 1", (user_email,))
@@ -584,7 +581,7 @@ def get_thread_narrative(user_email: str, thread_id: str) -> str:
     try:
         with get_db_conn(tenant_email=user_email) as conn:
             import sqlite3
-            conn.row_factory = sqlite3.Row
+            conn.row_factory = sqlite3.Row  # type: ignore
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT date, sender, sender_email, content, is_sent, mail_type 
@@ -613,7 +610,7 @@ def get_attachment_text(user_email: str, email_id: str) -> str:
     try:
         with get_db_conn(tenant_email=user_email) as conn:
             import sqlite3
-            conn.row_factory = sqlite3.Row
+            conn.row_factory = sqlite3.Row  # type: ignore
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT subject, attachment_content, is_ocr_processed 
@@ -782,18 +779,33 @@ def get_chatbot_response(user_message: str, user_email: str, session_id: str = "
                 # which may not be available on all models (e.g. gemma3:4b does not support tools in Ollama).
                 llm = CustomChatOllama(model_name=model_name)
             else:
-                # Initialize LangChain LLM
-                llm = ChatGoogleGenerativeAI(
-                    model=model_name,
-                    google_api_key=API_KEY,
-                    temperature=0.2
-                )
+                # Dynamic Enterprise Routing for LangChain Chatbot
+                from config import VERTEX_AI_PROJECT, VERTEX_AI_LOCATION
+                if VERTEX_AI_PROJECT:
+                    try:
+                        from langchain_google_vertexai import ChatVertexAI
+                        logger.info(f"🔒 Initializing Enterprise Vertex AI Chatbot (Project: {VERTEX_AI_PROJECT})")
+                        llm = ChatVertexAI(
+                            model_name=model_name,
+                            project=VERTEX_AI_PROJECT,
+                            location=VERTEX_AI_LOCATION,
+                            temperature=0.2
+                        )
+                    except ImportError:
+                        logger.error("❌ langchain-google-vertexai not installed but VERTEX_AI_PROJECT is configured. Enterprise privacy cannot be guaranteed.")
+                        raise RuntimeError("Strict Enterprise Privacy Mode failed: langchain-google-vertexai is missing.")
+                else:
+                    llm = ChatGoogleGenerativeAI(
+                        model=model_name,
+                        google_api_key=API_KEY,
+                        temperature=0.2
+                    )
             
             from db.repository import get_system_role
             custom_role = get_system_role(user_email)
 
             # Create LangGraph ReAct Agent Loop
-            agent = create_react_agent(
+            agent = create_react_agent(  # type: ignore
                 model=llm,
                 tools=tools,
                 prompt=SYSTEM_INSTRUCTION.format(

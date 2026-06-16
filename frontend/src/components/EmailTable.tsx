@@ -33,6 +33,7 @@ interface Filters {
   categories: string[];
   institutes: string[];
   repliedStatus: ('replied' | 'pending')[];
+  resolvedStatus: ('resolved' | 'unresolved')[];
   hasAttachment: boolean | null;
   isUrgent: boolean;       // Pending > 3 days
   searchQuery: string;
@@ -48,6 +49,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
     categories: [],
     institutes: [],
     repliedStatus: [],
+    resolvedStatus: [],
     hasAttachment: null,
     isUrgent: false,
     searchQuery: ''
@@ -181,6 +183,12 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
         if (!filters.repliedStatus.includes(isReplied)) return false;
       }
 
+      // Resolved Status Filter
+      if (filters.resolvedStatus.length > 0) {
+        const isResolved = e.is_resolved ? 'resolved' : 'unresolved';
+        if (!filters.resolvedStatus.includes(isResolved)) return false;
+      }
+
       // Urgency Filter (> 3 days pending)
       if (filters.isUrgent && !e.replied) {
         const now = new Date();
@@ -266,6 +274,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
       categories: [],
       institutes: [],
       repliedStatus: [],
+      resolvedStatus: [],
       hasAttachment: null,
       isUrgent: false,
       searchQuery: ''
@@ -327,7 +336,7 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Column 1: Priority & Status */}
+            {/* Column 1: Priority & Response Status */}
             <div className="space-y-4">
               <div>
                 <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Priority Level</label>
@@ -350,26 +359,35 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
               </div>
             </div>
 
-            {/* Column 2: Institute (Searchable behavior) */}
-            <div>
-              <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Institute / College</label>
-              <div className="max-h-32 overflow-y-auto pr-1 space-y-1.5 custom-scrollbar">
-                {dynamicOptions.institutes.length > 0 ? (
-                  dynamicOptions.institutes.map(inst => (
-                    <FilterChip 
-                      key={inst} label={inst} 
-                      active={filters.institutes.includes(inst)} 
-                      onClick={() => toggleMultiFilter('institutes', inst)} 
-                      truncate 
-                    />
-                  ))
-                ) : (
-                  <p className="text-[10px] text-muted-foreground italic">No institutes found</p>
-                )}
+            {/* Column 2: Resolution & Institute */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Resolution Status</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <FilterChip label="Unresolved" active={filters.resolvedStatus.includes('unresolved')} onClick={() => toggleMultiFilter('resolvedStatus', 'unresolved')} />
+                  <FilterChip label="Resolved" active={filters.resolvedStatus.includes('resolved')} onClick={() => toggleMultiFilter('resolvedStatus', 'resolved')} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Institute / College</label>
+                <div className="max-h-32 overflow-y-auto pr-1 space-y-1.5 custom-scrollbar">
+                  {dynamicOptions.institutes.length > 0 ? (
+                    dynamicOptions.institutes.map(inst => (
+                      <FilterChip 
+                        key={inst} label={inst} 
+                        active={filters.institutes.includes(inst)} 
+                        onClick={() => toggleMultiFilter('institutes', inst)} 
+                        truncate 
+                      />
+                    ))
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground italic">No institutes found</p>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Column 3: Category & Type */}
+            {/* Column 3: Category & Message Type */}
             <div className="space-y-4">
               <div>
                 <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Category</label>
@@ -384,17 +402,22 @@ export function EmailTable({ emails, categoryId, onEmailClick, onUpdateEmail, on
                   ))}
                 </div>
               </div>
-            </div>
-
-            {/* Column 4: Features & SLA */}
-            <div className="space-y-4">
               <div>
-                <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Technical</label>
-                <div className="space-y-1.5">
-                  <FilterChip label="Has Attachment" active={filters.hasAttachment === true} onClick={() => setFilters(prev => ({ ...prev, hasAttachment: prev.hasAttachment === true ? null : true }))} />
+                <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Message Type</label>
+                <div className="flex flex-wrap gap-1.5">
                   <FilterChip label="Fresh Messages" active={filters.mailTypes.includes('fresh')} onClick={() => toggleMultiFilter('mailTypes', 'fresh')} />
                   <FilterChip label="Follow-ups" active={filters.mailTypes.includes('follow-up')} onClick={() => toggleMultiFilter('mailTypes', 'follow-up')} />
                   <FilterChip label="Replies" active={filters.mailTypes.includes('reply')} onClick={() => toggleMultiFilter('mailTypes', 'reply')} />
+                </div>
+              </div>
+            </div>
+
+            {/* Column 4: Attachments & Urgency */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Attachments</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <FilterChip label="Has Attachment" active={filters.hasAttachment === true} onClick={() => setFilters(prev => ({ ...prev, hasAttachment: prev.hasAttachment === true ? null : true }))} />
                 </div>
               </div>
               <div className="pt-2">

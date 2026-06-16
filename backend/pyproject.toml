@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "aicoe-backend"
+version = "1.0.0"
+description = "AICOE Education Grievance Intelligence Backend"
+requires-python = ">=3.12"
+
+# Runtime dependencies (mirrors requirements.txt)
+dependencies = [
+    # AI & LLM
+    "torch",
+    "torchvision",
+    "transformers<4.45.0",
+    "sentence-transformers<3.0.0",
+    "huggingface_hub",
+    "accelerate",
+    "ollama",
+    "scikit-learn",
+    # API & Backend
+    "fastapi",
+    "uvicorn",
+    "gunicorn",
+    "python-multipart",
+    "python-dotenv",
+    "requests",
+    "google-genai",
+    "google-auth",
+    "google-auth-oauthlib",
+    "google-api-python-client",
+    "PyJWT",
+    "langgraph",
+    "langchain-google-genai",
+    "langchain-core",
+    "psutil",
+    # Data & RAG
+    "faiss-cpu",
+    "numpy",
+    "pandas",
+    "pdfplumber",
+    "python-docx",
+    "openpyxl",
+    "cryptography",
+    "python-dateutil",
+    # Postgres & Celery
+    "psycopg2-binary",
+    "celery",
+    "redis",
+    "dnspython",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyright>=1.1",
+    "black",
+    "ruff",
+    "pytest",
+    "pytest-asyncio",
+    "httpx",  # for FastAPI TestClient
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+# --- Black (code formatter) ---
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+# --- Ruff (fast linter, replaces flake8/isort) ---
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "F401",  # unused import (Pylance already catches this)
+]
+
+# --- Pyright (type checker) ---
+# Pyright reads from pyrightconfig.json at the project root.
+# See: backend/pyrightconfig.json

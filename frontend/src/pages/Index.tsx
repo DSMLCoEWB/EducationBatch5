@@ -92,9 +92,11 @@ export default function App() {
     
     // Check if a background sync is currently active before clearing overlay
     let isServerSyncing = false;
+    let isFirstSync = false;
     try {
       const syncStatus = await fetchSyncStatus();
       isServerSyncing = syncStatus.syncing;
+      isFirstSync = syncStatus.is_first_sync || false;
     } catch { /* Fail silent */ }
 
     if (showOverlay) setIsRefreshing(true);
@@ -106,7 +108,15 @@ export default function App() {
       const transformedEmails = transformBackendEmails(backendEmails);
       
       setEmails(transformedEmails);
-      setLastSyncedAt(new Date());
+      
+      // If the server explicitly told us this is the very first sync, 
+      // don't pretend we are fully synced. This guarantees InitialSyncingView will show!
+      if (isFirstSync) {
+        setIsRefreshing(true);
+      } else {
+        setLastSyncedAt(new Date());
+      }
+      
       setError(null);
       return transformedEmails;
     } catch (err) {
@@ -161,23 +171,25 @@ export default function App() {
           setError(prev => prev ? prev : null);
         }
 
-        const colleges = await fetchColleges();
-        initializeCollegeDatabase(colleges);
         const status = await fetchAuthStatus();
         setIsAuthenticated(Boolean(status.connected));
         setUserEmail(status.email || null);
         setAuthProvider(status.auth_mode || 'none');
-        await refreshRefinementStats();
-        
-        try {
-          const cats = await fetchSettingsCategories(false);
-          setCategories(cats);
-        } catch (e) {
-          console.warn("Failed to load custom categories:", e);
+        if (status.connected) {
+          const colleges = await fetchColleges();
+          initializeCollegeDatabase(colleges);
+          await refreshRefinementStats();
+          try {
+            const cats = await fetchSettingsCategories(false);
+            setCategories(cats);
+          } catch (e) {
+            console.warn("Failed to load custom categories:", e);
+          }
+          await loadEmails(false);
+        } else { 
+          setEmails([]); 
+          setLastSyncedAt(null); 
         }
-
-        if (status.connected) await loadEmails(false);
-        else { setEmails([]); setLastSyncedAt(null); }
       } catch (err) {
         const message = err instanceof Error ? err.message.toLowerCase() : '';
         if (message.includes('unauthorized') || message.includes('not authenticated')) {
@@ -218,6 +230,10 @@ export default function App() {
             void loadEmails(false);
             void refreshRefinementStats();
             void refreshAuthStatus();
+            
+            // Reload categories in case the initial sync just auto-provisioned them!
+            fetchSettingsCategories(false).then(cats => setCategories(cats)).catch(() => {});
+            
             setIsRefreshing(false);
           }
         } catch (e) {
@@ -350,7 +366,7 @@ export default function App() {
             <button onClick={() => window.location.reload()} className="w-full bg-primary text-primary-foreground font-semibold py-2.5 px-6 rounded-lg hover:bg-primary/90 transition-all text-sm">
               Retry
             </button>
-            <button onClick={() => { setGmailConnected(false); setError(null); }} className="w-full bg-muted text-foreground font-medium py-2.5 px-6 rounded-lg hover:bg-accent transition-all text-sm">
+            <button onClick={() => { setIsAuthenticated(false); setError(null); }} className="w-full bg-muted text-foreground font-medium py-2.5 px-6 rounded-lg hover:bg-accent transition-all text-sm">
               Back to Login
             </button>
           </div>
@@ -417,7 +433,7 @@ export default function App() {
           categories={categories}
         />
         <main className="flex-1 overflow-y-auto bg-background flex flex-col">
-          <GmailSettingsBanner />
+          {authProvider === 'google' && <GmailSettingsBanner />}
           {emails.length === 0 ? (
             // Priority 1: If we have never synced before, show the initial setup view
             isRefreshing && !lastSyncedAt ? (

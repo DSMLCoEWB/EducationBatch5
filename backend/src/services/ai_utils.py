@@ -16,13 +16,29 @@ DESIGN PRINCIPLES:
 import os
 import time
 from core.logging import get_logger
-from config import ULTIMATE_FALLBACK_LIST, VISION_FALLBACK_LIST, AI_PREFER_LOCAL, PRIMARY_LOCAL_MODEL
+from config import ULTIMATE_FALLBACK_LIST, VISION_FALLBACK_LIST, AI_PREFER_LOCAL, PRIMARY_LOCAL_MODEL, VERTEX_AI_PROJECT, VERTEX_AI_LOCATION
+from google import genai
 
 import ollama
 from ollama import Client
 from core.resource_manager import AI_RESOURCE_MANAGER
 
 logger = get_logger("ai_utils")
+
+from typing import Optional
+
+def get_genai_client(api_key: Optional[str] = None):
+    """
+    Returns a configured google.genai Client.
+    If VERTEX_AI_PROJECT is configured, it forces Enterprise Vertex AI routing
+    (zero-data-training). Otherwise, it falls back to the standard developer API key.
+    """
+    if VERTEX_AI_PROJECT:
+        logger.info(f"🔒 Initializing Enterprise Vertex AI Client (Project: {VERTEX_AI_PROJECT})")
+        return genai.Client(vertexai=True, project=VERTEX_AI_PROJECT, location=VERTEX_AI_LOCATION)
+    elif api_key:
+        return genai.Client(api_key=api_key)
+    return None
 
 # Connect to Ollama (Docker-aware host detection)
 IN_DOCKER = os.path.exists('/.dockerenv')
@@ -101,8 +117,12 @@ def generate_content_with_fallback(client, contents, model_list=ULTIMATE_FALLBAC
             if not client: 
                 continue
 
+            from config import VERTEX_AI_PROJECT
+            # Vertex AI prefers the raw model name, Developer API can keep the user's exact string
+            cloud_model = model_name.replace("models/", "") if (VERTEX_AI_PROJECT and model_name.startswith("models/")) else model_name
+            
             response = client.models.generate_content(
-                model=model_name,
+                model=cloud_model,
                 contents=contents,
                 **kwargs
             )

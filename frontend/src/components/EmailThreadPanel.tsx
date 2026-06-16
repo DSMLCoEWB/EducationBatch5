@@ -84,12 +84,10 @@ export function EmailThreadPanel({ email, onClose, onUpdateEmail, isTrashView = 
   const handleReplyInThread = async (emailToReply: Email, replyText: string, recipient?: string, subject?: string, cc?: string, bcc?: string) => {
     try {
       const success = await sendReply(
-        recipient || emailToReply.senderEmail || '',
-        replyText,
         emailToReply.id,
+        replyText,
+        recipient || emailToReply.senderEmail || '',
         subject || emailToReply.subject,
-        emailToReply.threadId,
-        '',
         cc,
         bcc
       );
@@ -570,7 +568,6 @@ function EmailCard({
   const historyCount = Array.isArray(history) ? history.length : 0;
   const [isCollapsed, setIsCollapsed] = useState(!isCurrentEmail && !isParent && historyCount > 2);
   const [reprocessing, setReprocessing] = useState<string | null>(null);
-  const [showReplyModal, setShowReplyModal] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
 
   const handleReprocess = async (filename: string) => {
@@ -872,7 +869,7 @@ function EmailCard({
         {/* Actions Footer */}
         <div className="px-5 py-3 bg-muted/10 border-t border-border/50 flex justify-end gap-2">
           <button
-            onClick={() => setShowReplyModal(true)}
+            onClick={() => onReply(email)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10 rounded-lg transition-all"
           >
             <Reply className="w-3.5 h-3.5" />
@@ -887,14 +884,6 @@ function EmailCard({
           </button>
         </div>
 
-        {showReplyModal && (
-          <ReplyModal
-            email={email}
-            history={history}
-            onClose={() => setShowReplyModal(false)}
-            onSendReply={(text) => onReply(email, text)}
-          />
-        )}
       </div>
     </div>
   );

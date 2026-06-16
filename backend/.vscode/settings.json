@@ -1,0 +1,23 @@
+{
+  // Interpreter path for VS Code's Python extension (local dev with venv)
+  "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe",
+
+  // Pylance defers type-checking configuration to pyrightconfig.json (industry standard).
+  // Do NOT duplicate extraPaths here — pyrightconfig.json is the single source of truth.
+  "python.analysis.useLibraryCodeForTypes": true,
+  "python.analysis.typeCheckingMode": "off",
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingModuleSource": "none",
+    "reportMissingImports": "none",
+    "reportGeneralTypeIssues": "none",
+    "reportAttributeAccessIssue": "none"
+  },
+
+  // Editor UX
+  "editor.formatOnSave": true,
+  "python.formatting.provider": "none",
+  "[python]": {
+    "editor.defaultFormatter": "meta.pyrefly",
+    "editor.formatOnSave": true
+  }
+}

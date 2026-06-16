@@ -88,6 +88,13 @@ def run_background_sync_task(user_email: str, consecutive_errors: int = 0):
             logger.warning(f"🚨 [CelerySync] Sync cycle returned error status ({consecutive_errors} errors). Backing off for {next_countdown}s.")
 
         # 5. Enqueue the next sync cycle recursively
+        from config import TASK_QUEUE_TYPE
+        if TASK_QUEUE_TYPE == "celery":
+            from cache.manager import redis_client
+            if redis_client:
+                # Renew the lock to cover the countdown wait time plus an execution buffer
+                redis_client.set(f"sync_loop_active_{user_email}", "1", ex=int(next_countdown + 1200))
+                
         run_background_sync_task.apply_async((user_email, consecutive_errors), countdown=next_countdown)
         logger.info(f"😴 [CelerySync] Cycle complete. Next sync scheduled in {next_countdown:.1f}s.")
 
@@ -96,6 +103,13 @@ def run_background_sync_task(user_email: str, consecutive_errors: int = 0):
         consecutive_errors += 1
         from config import SYNC_MAX_BACKOFF_SECONDS
         next_countdown = min(300 * (2 ** (consecutive_errors - 1)), SYNC_MAX_BACKOFF_SECONDS)
+        
+        from config import TASK_QUEUE_TYPE
+        if TASK_QUEUE_TYPE == "celery":
+            from cache.manager import redis_client
+            if redis_client:
+                redis_client.set(f"sync_loop_active_{user_email}", "1", ex=int(next_countdown + 1200))
+                
         run_background_sync_task.apply_async((user_email, consecutive_errors), countdown=next_countdown)
 
 

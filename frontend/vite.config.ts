@@ -20,12 +20,16 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: backendTarget,
           changeOrigin: true,
-          // Note: We do NOT rewrite (strip) the /api prefix here.
-          // The Master NGINX Gateway on port 8000 expects the /api prefix to correctly route traffic to the backend.
+          rewrite: (path) => path.replace(/^\/api/, ''),
+          // Note: If you run NGINX locally, you may need to disable this rewrite
+          // or point VITE_DEV_PROXY_TARGET directly to the FastAPI container instead of NGINX.
         },
       },
     },
     plugins: [react()],
+    build: {
+      target: 'esnext',
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

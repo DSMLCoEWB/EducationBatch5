@@ -2,8 +2,8 @@ import os
 import pdfplumber
 import pandas as pd
 from docx import Document
-from google.genai import Client, types
-from services.ai_utils import generate_content_with_fallback
+from google.genai import types
+from services.ai_utils import generate_content_with_fallback, get_genai_client
 from config import ATTACHMENTS_DIR
 from core.logging import get_logger
 
@@ -12,26 +12,47 @@ logger = get_logger("services.ocr")
 def extract_text_from_attachment_ai(path: str) -> str:
     """Uses Gemini Vision to extract text from images and scanned PDFs via fallback-safe generation."""
     try:
-        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        if not api_key:
+        from config import GEMINI_API_KEY
+        client = get_genai_client(api_key=GEMINI_API_KEY)
+        if not client:
             return ""
-
-        client = Client(api_key=api_key)
         
         with open(path, "rb") as f:
             file_data = f.read()
 
+        contents = []
         mime_type = "image/jpeg"
         if path.lower().endswith(".pdf"):
             mime_type = "application/pdf"
+            
+            # Ollama Vision models cannot ingest PDFs natively. Convert to images.
+            from config import AI_PREFER_LOCAL
+            if AI_PREFER_LOCAL:
+                try:
+                    import pdfplumber
+                    import io
+                    with pdfplumber.open(path) as pdf:
+                        # Process up to 5 pages (to prevent OOM on local GPUs)
+                        for page in pdf.pages[:5]:
+                            img = page.to_image(resolution=150).original
+                            img_byte_arr = io.BytesIO()
+                            img.save(img_byte_arr, format='JPEG', quality=85)
+                            contents.append(types.Part.from_bytes(data=img_byte_arr.getvalue(), mime_type="image/jpeg"))
+                        # We've already added the pages, skip the default single-file addition
+                        file_data = None
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to convert PDF to images for local OCR: {e}")
+                    
         elif path.lower().endswith(".png"):
             mime_type = "image/png"
 
-        contents = [
-            types.Part.from_bytes(data=file_data, mime_type=mime_type),
+        if file_data is not None:
+            contents.append(types.Part.from_bytes(data=file_data, mime_type=mime_type))
+            
+        contents.append(
             "Extract all legible text from this document for archival purposes. "
             "If it is an official document, preserve core facts like names, dates, and status."
-        ]
+        )
 
         from services.ai_utils import generate_content_with_fallback, VISION_FALLBACK_LIST
         
@@ -44,22 +65,25 @@ def extract_text_from_attachment_ai(path: str) -> str:
 
         if response:
             try:
-                return response.text.strip()
+                text = response.text
+                if text is not None:
+                    return text.strip()
             except Exception as e:
                 logger.warning(f"⚠️ Response text extraction failed for {path}: {e}")
-                try:
-                    parts = []
-                    if response.candidates:
-                        for cand in response.candidates:
-                            if cand.content and cand.content.parts:
-                                for part in cand.content.parts:
-                                    if part.text:
-                                        parts.append(part.text)
-                    if parts:
-                        return "".join(parts).strip()
-                except Exception as inner_e:
-                    logger.warning(f"Failed to extract partial text from candidates: {inner_e}")
-                return ""
+                
+            try:
+                parts = []
+                if hasattr(response, "candidates") and response.candidates:
+                    for cand in response.candidates:
+                        if cand.content and cand.content.parts:
+                            for part in cand.content.parts:
+                                if part.text:
+                                    parts.append(part.text)
+                if parts:
+                    return "".join(parts).strip()
+            except Exception as inner_e:
+                logger.warning(f"Failed to extract partial text from candidates: {inner_e}")
+            return ""
     except Exception as e:
         logger.error(f"⚠️ AI OCR failed for {path}: {e}")
     return ""

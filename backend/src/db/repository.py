@@ -74,7 +74,7 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
         db_category = category_map.get(category, category)
         
         query = "SELECT * FROM emails WHERE user_email = ?"
-        params = [user_email]
+        params: List[Any] = [user_email]
         
         if category == 'trash':
             query += " AND is_trashed = 1"
@@ -772,7 +772,7 @@ def get_emails_from_db(user_email: str, category: str = 'all', is_demo: Optional
         cursor = conn.cursor()
         
         query = "SELECT * FROM emails WHERE user_email = ?"
-        params = [user_email]
+        params: List[Any] = [user_email]
         
         if category == 'trash':
             query += " AND is_trashed = 1"
@@ -915,9 +915,11 @@ def get_refinement_stats(user_email: str) -> Dict[str, int]:
         cursor = conn.cursor()
         # Count individual messages for higher precision
         cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0", (user_email,))
-        total = cursor.fetchone()[0] or 0
+        total_row = cursor.fetchone()
+        total = total_row[0] if total_row else 0
         cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_priority_refined = 1 AND is_inbox = 1 AND is_trashed = 0", (user_email,))
-        refined = cursor.fetchone()[0] or 0
+        refined_row = cursor.fetchone()
+        refined = refined_row[0] if refined_row else 0
         return {"refined": refined, "total": total}
 
 def save_chat_message(user_email: str, session_id: str, role: str, message: str):
@@ -998,7 +1000,7 @@ def update_user_sync_history(user_email: str, history_id: Optional[str] = None, 
                 """, (user_email, history_id, now))
         conn.commit()
 
-def log_sync_audit(user_email: str, sync_type: str, status: str, duration_ms: int, added: int = 0, deleted: int = 0, error: str = None):
+def log_sync_audit(user_email: str, sync_type: str, status: str, duration_ms: int, added: int = 0, deleted: int = 0, error: Optional[str] = None):
     with get_db_conn(tenant_email=user_email) as conn:
         cursor = conn.cursor()
         cursor.execute("INSERT INTO sync_audit (user_email, sync_type, status, duration_ms, messages_added, messages_deleted, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)", (user_email, sync_type, status, duration_ms, added, deleted, error))
@@ -1030,7 +1032,7 @@ def get_pending_ocr_emails(user_email: str, limit: int = 10) -> List[Dict[str, A
             result.append(d)
         return result
 
-def update_email_attachment_content(user_email: str, email_id: str, text: str, filename: str = None, original_filename: str = None):
+def update_email_attachment_content(user_email: str, email_id: str, text: str, filename: Optional[str] = None, original_filename: Optional[str] = None):
     with get_db_conn(tenant_email=user_email) as conn:
         cursor = conn.cursor()
         
@@ -1085,7 +1087,7 @@ def update_email_attachment_content(user_email: str, email_id: str, text: str, f
             target_norm = normalize_name(filename)
             orig_norm = normalize_name(original_filename) if original_filename else None
             # Fuzzy base: e.g. '5d0f47d2_Image.jpg' -> normalized 'imagejpg'
-            target_base_norm = normalize_name(filename.split('_', 1)[1]) if '_' in filename else target_norm
+            target_base_norm = normalize_name(filename.split('_', 1)[1]) if filename and '_' in filename else target_norm
             
             for k in list(blocks.keys()):
                 k_norm = normalize_name(k)
@@ -1154,7 +1156,7 @@ def update_email_refinement(user_email: str, email_id: str, priority: int, categ
         row = cursor.fetchone()
         if row and row[0] is not None:
             # Priority values are 0 (Critical) to 3 (Low). Keeping the minimum ensures we preserve the highest priority.
-            priority = min(int(row[0]), int(priority))
+            priority = min(int(row[0]), priority)
             
         cursor.execute("""
             UPDATE emails 
@@ -1260,7 +1262,8 @@ def ensure_user_categories(user_email: str):
     with get_db_conn(tenant_email=user_email) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM categories WHERE user_email = ?", (user_email,))
-        if cursor.fetchone()[0] == 0:
+        row = cursor.fetchone()
+        if not row or row[0] == 0:
             logger.info(f"🌱 Provisioning default categories for {user_email}")
             default_categories = [
                 ("Suspension / Disciplinary", "hsl(25, 95%, 53%)", "Gavel"),
@@ -1609,19 +1612,23 @@ def get_dashboard_stats(user_email: str) -> Dict[str, int]:
         
         # Total active grievances
         cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0", (user_email,))
-        total = cursor.fetchone()[0] or 0
+        r1 = cursor.fetchone()
+        total = r1[0] if r1 else 0
         
         # Fresh (not yet refined by AI)
         cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0 AND is_priority_refined = 0", (user_email,))
-        fresh = cursor.fetchone()[0] or 0
+        r2 = cursor.fetchone()
+        fresh = r2[0] if r2 else 0
         
         # Followups (Detected by thread depth)
         cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0 AND followup_count > 0", (user_email,))
-        followup = cursor.fetchone()[0] or 0
+        r3 = cursor.fetchone()
+        followup = r3[0] if r3 else 0
         
         # Unresolved (manual or automated)
         cursor.execute("SELECT COUNT(*) FROM emails WHERE user_email = ? AND is_inbox = 1 AND is_trashed = 0 AND replied = 0 AND is_resolved = 0", (user_email,))
-        unresolved = cursor.fetchone()[0] or 0
+        r4 = cursor.fetchone()
+        unresolved = r4[0] if r4 else 0
         
         return {
             "total": total,

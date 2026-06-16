@@ -35,7 +35,8 @@ async def upload_policy(
 ):
     """Uploads and indexes a new policy document with Intelligent Collision Guard."""
     allowed_exts = {".pdf", ".docx", ".txt", ".md", ".png", ".jpg", ".jpeg"}
-    ext = Path(file.filename).suffix.lower()
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
     if ext not in allowed_exts:
         raise HTTPException(status_code=400, detail=f"Unsupported format. Allowed: {', '.join(allowed_exts)}")
         
@@ -43,7 +44,7 @@ async def upload_policy(
     content = await file.read()
     new_hash = hashlib.sha256(content).hexdigest()
     
-    policy_id = slugify_policy_id(file.filename)
+    policy_id = slugify_policy_id(filename)
     
     # User-Specific Path Resolution
     from services.policy_service import get_user_policy_paths

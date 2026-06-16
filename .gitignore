@@ -26,7 +26,10 @@ frontend/build/
 frontend/dist/
 
 # IDE
-.vscode/
+# .vscode/ is intentionally tracked — it contains pyrightconfig.json paths
+# and shared editor settings that improve team DX.
+# Only user-specific overrides should go in .vscode/*.local.json (ignored below).
+.vscode/*.local.json
 .idea/
 *.swp
 *.swo
@@ -76,7 +79,9 @@ backend/out_debug.txt
 backend/test_rag_out.txt
 backend/demo_emails_from_chunks.json
 frontend/build_log.txt
-*.txt
+# Root-level log dumps (large files generated during debugging)
+*_logs.txt
+*_logs2.txt
 *.tex
 
 # Development Scratchpads
@@ -84,6 +89,9 @@ backend/scratch/
 
 # Exceptions to text file ignores
 !backend/requirements.txt
+!backend/pyproject.toml
+!**/README*.txt
+!INSTALLATION_MANUAL.md
 
 backend/brain/
 

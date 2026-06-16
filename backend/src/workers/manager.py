@@ -27,13 +27,19 @@ class WorkerManager:
 
 
     def _is_sync_running_nolock(self, user_email: str) -> bool:
+        if TASK_QUEUE_TYPE == "celery":
+            from cache.manager import redis_client
+            if redis_client:
+                # Distributed check to prevent multiple Nginx replicas from starting loops
+                return bool(redis_client.get(f"sync_loop_active_{user_email}"))
+
         state = self.sync_workers.get(user_email)
         if not state:
             return False
         if state.get("is_celery"):
             return not state.get("stop_flag", False)
         thread = state.get("thread")
-        return thread and thread.is_alive() and not state.get("stop_flag", False)
+        return bool(thread and thread.is_alive() and not state.get("stop_flag", False))
 
     def is_sync_running(self, user_email: str) -> bool:
         with self._lock:
@@ -52,6 +58,8 @@ class WorkerManager:
                 
                 if redis_client:
                     redis_client.delete(f"stop_sync_{user_email}")
+                    # Immediately claim the distributed lock so other replicas don't overlap
+                    redis_client.set(f"sync_loop_active_{user_email}", "1", ex=1200)
                     
                 self.sync_workers[user_email] = {"is_celery": True}
                 run_background_sync_task.delay(user_email)
@@ -82,6 +90,7 @@ class WorkerManager:
                     from cache.manager import redis_client
                     if redis_client:
                         redis_client.set(f"stop_sync_{user_email}", "1")
+                        redis_client.delete(f"sync_loop_active_{user_email}")
                         
                 logger.info(f"🛑 [WorkerManager] Sent stop signal to sync worker for {user_email}")
                 

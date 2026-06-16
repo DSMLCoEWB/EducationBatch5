@@ -100,6 +100,9 @@ services:
       - TASK_QUEUE_TYPE=celery
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FASTAPI_ROOT_PATH=/api
+      - OAUTH_SUCCESS_REDIRECT_URL=/
+      - AUTO_INIT_DB=false
     volumes:
       - ./backend/storage:/app/storage
     extra_hosts:
@@ -136,6 +139,8 @@ services:
       - TASK_QUEUE_TYPE=celery
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - OAUTH_SUCCESS_REDIRECT_URL=/
+      - AUTO_INIT_DB=false
     volumes:
       - ./backend/storage:/app/storage
     depends_on:

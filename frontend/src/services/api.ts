@@ -545,6 +545,7 @@ export async function updateSyncInterval(seconds: number): Promise<void> {
 
 export interface SyncStatus {
   syncing: boolean;
+  is_first_sync?: boolean;
 }
 
 export async function fetchSyncStatus(): Promise<SyncStatus> {

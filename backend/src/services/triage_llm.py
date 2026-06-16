@@ -4,19 +4,16 @@ import re
 import threading
 import time
 from collections import deque
-from google import genai
+from typing import Optional
 from dotenv import load_dotenv
-from services.ai_utils import generate_content_with_fallback, ULTIMATE_FALLBACK_LIST
+from services.ai_utils import generate_content_with_fallback, ULTIMATE_FALLBACK_LIST, get_genai_client
 from core.logging import get_logger
+from config import PRIORITY_GOOGLE_API_KEY
 
 load_dotenv()
 logger = get_logger("triage_llm")
 
-_api_key = (
-    os.getenv("PRIORITY_GOOGLE_API_KEY")
-    or os.getenv("PRIORITY_GEMINI_API_KEY")
-)
-client = genai.Client(api_key=_api_key) if _api_key else None
+client = get_genai_client(api_key=PRIORITY_GOOGLE_API_KEY)
 _LLM_PRIORITY_MAX_CALLS = int(os.getenv("PRIORITY_LLM_MAX_CALLS", "1"))
 _LLM_PRIORITY_WINDOW_SECONDS = int(os.getenv("PRIORITY_LLM_WINDOW_SECONDS", "60"))
 _llm_call_timestamps: deque[float] = deque()
@@ -109,7 +106,7 @@ Rules:
 """
 
 
-def get_batch_triage(emails, user_email: str = None):
+def get_batch_triage(emails, user_email: Optional[str] = None):
     """Sends a batch of emails to the LLM for high-precision triage using numeric mapping."""
     if not emails or client is None: return {}
     
@@ -144,7 +141,7 @@ def get_batch_triage(emails, user_email: str = None):
         try:
             from db.repository import get_priority_rules, get_global_rules
             rules = get_priority_rules(user_email)
-            global_rules = get_global_rules(user_email)
+            global_rules = get_global_rules(user_email) if user_email else ""
             rubric_parts = []
             for r in sorted(rules, key=lambda x: x["priority"]):
                 keywords_str = ", ".join(r["keywords"])
@@ -164,7 +161,7 @@ def get_batch_triage(emails, user_email: str = None):
     if not global_rules:
         try:
             from db.repository import get_global_rules
-            global_rules = get_global_rules(user_email)
+            global_rules = get_global_rules(user_email) if user_email else ""
         except Exception:
             global_rules = ""
 

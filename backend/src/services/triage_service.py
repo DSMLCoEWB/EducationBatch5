@@ -14,12 +14,12 @@ logger = get_logger("services.triage")
 
 # --- HEURISTIC ENGINE (Instant) ---
 
-def classify_grievance_heuristic(text: str, subject: str = "", attachment_content: str = "", user_email: str = None) -> str:
+def classify_grievance_heuristic(text: str, subject: str = "", attachment_content: str = "", user_email: Optional[str] = None) -> str:
     """Keyword-based classification for instant categorization in the sync path."""
     if not text and not subject and not attachment_content:
         return "Miscellaneous"
 
-    clean_text = re.sub(r'<[^>]+>', ' ', str(text or ''))
+    clean_text = re.sub(r'<[^>]+>', ' ', text or '')
     composite_text = f"{subject} {subject}\n{clean_text}\n{attachment_content or ''}".lower()
     text_normalized = re.sub(r'\s+', ' ', composite_text).strip()
     
@@ -72,7 +72,7 @@ def classify_grievance_heuristic(text: str, subject: str = "", attachment_conten
 
     return "Miscellaneous"
 
-def calculate_priority_heuristic(content: str, subject: str, user_email: str = None) -> int:
+def calculate_priority_heuristic(content: str, subject: str, user_email: Optional[str] = None) -> int:
     """Assigns 0-3 priority level based on keyword weightings (user-configurable)."""
     text = f"{subject} {content}".lower()
     
@@ -113,9 +113,9 @@ def detect_followup(email: Dict[str, Any], df: Optional[pd.DataFrame], user_emai
     """
     is_sent = bool(email.get("is_sent_by_me") or email.get("is_sent"))
     
-    user_norm = normalize_email_address(user_email)
-    sender_norm = normalize_email_address(email.get("sender_email") or email.get("sender"))
-    recipient_norm = normalize_email_address(email.get("recipient_email"))
+    user_norm = normalize_email_address(user_email or "")
+    sender_norm = normalize_email_address(email.get("sender_email") or email.get("sender") or "")
+    recipient_norm = normalize_email_address(email.get("recipient_email") or "")
 
     tid = email.get("thread_id")
     eid = email.get("email_id")
@@ -164,7 +164,7 @@ def detect_followup(email: Dict[str, Any], df: Optional[pd.DataFrame], user_emai
 
 # --- AI REFINEMENT (Delegated) ---
 
-def get_batch_triage_ai(emails: List[Dict[str, Any]], user_email: str = None) -> Dict[str, Dict[str, Any]]:
+def get_batch_triage_ai(emails: List[Dict[str, Any]], user_email: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """
     Delegates to triage_llm.py for official batch processing and rate-limiting.
     """
@@ -175,7 +175,7 @@ def get_batch_triage_ai(emails: List[Dict[str, Any]], user_email: str = None) ->
 def apply_thread_escalation(priority: int, followup_count: int) -> int:
     """Escalates priority by 1 unit (capped at High / level 1) if followup threshold (>3) is breached."""
     # Ensure priority defaults to 3 if completely None, but preserve 0 explicitly (avoiding falsiness bugs)
-    p = 3 if priority is None else int(priority)
+    p = 3 if priority is None else priority
     if (followup_count or 0) > 3 and p > 1:
         return max(1, p - 1)  # Escalates by 1 unit, capped at High (level 1)
     return p

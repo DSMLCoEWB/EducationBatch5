@@ -42,8 +42,13 @@ async def lifespan(app: FastAPI):
     
     logger.info("🚀 Starting backend lifecycle...")
     
-    # 0. Database should be initialized externally via run_migrations.py
-    # We no longer call init_db() here to prevent deadlocks in distributed clusters.
+    # 0. Database initialization
+    # To prevent deadlocks in distributed clusters, Docker sets AUTO_INIT_DB=false and relies on run_migrations.py.
+    # Native execution (default) safely auto-initializes the DB for both SQLite and local Postgres!
+    if os.getenv("AUTO_INIT_DB", "true").lower() == "true":
+        from db.repository import init_db
+        init_db()
+        logger.info(f"✅ {os.getenv('DATABASE_TYPE', 'sqlite').upper()} Database auto-initialized for local development.")
     
     # 1. Warmup AI models
     try:
@@ -71,6 +76,7 @@ app = FastAPI(
     title="Education Grievance AI Backend",
     docs_url=None if IS_PRODUCTION else "/docs",
     redoc_url=None if IS_PRODUCTION else "/redoc",
+    root_path=os.getenv("FASTAPI_ROOT_PATH", ""),
     lifespan=lifespan
 )
 
