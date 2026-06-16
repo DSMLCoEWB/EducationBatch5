@@ -28,67 +28,9 @@ Powered by a high-precision, hybrid architecture combining **rule-based expert h
 
 ## 🛠️ System Architecture
 
-```mermaid
-graph LR
-    %% Subgraphs act as architectural layers (Left to Right)
-    
-    subgraph L1 [External]
-        Mail["Gmail and Microsoft APIs"]:::external
-        UI["React Frontend (UI)"]:::frontend
-    end
-    
-    subgraph L2 [API & Processing]
-        API["FastAPI and Resource Manager"]:::gateway
-        Sync["Multi-Tenant Sync Engine (Celery & Redis)"]:::async
-    end
-    
-    subgraph L3 [Intelligence & Analysis]
-        Replies["One-Click RAG Replies"]:::ai
-        Agent["Executive LangGraph AI Agent"]:::ai
-        OCR["Multimodal AI OCR Pipeline"]:::ai
-        Triage["Hybrid Classifier and Priority Engine"]:::async
-    end
-    
-    subgraph L4 [Data & Models]
-        RAG["FAISS RAG and Policy Console"]:::ai
-        Models["Hybrid Execution (Gemini and Ollama)"]:::ai
-        DB["PostgreSQL (Zero-Trust RLS Enforced)"]:::data
-    end
-
-    %% Email Ingestion Flow
-    Mail <-->|OAuth| Sync
-    Sync <-->|Attachment Text Extraction| OCR
-    Sync -->|Raw Emails and Text| Triage
-    
-    %% Policy Ingestion Flow
-    API -->|Uploads Policy Docs| OCR
-    
-    %% User Interaction Flow
-    UI <-->|HTTP and Live SSE| API
-    API <-->|Generates| Replies
-    API <-->|Executes Tasks| Agent
-    
-    %% Cross-Layer RAG Connections
-    Replies <-->|Fetches Context| RAG
-    Agent <-->|Tool: Context| RAG
-    OCR -->|Parsed Text| RAG
-
-    %% Cross-Layer Model Connections
-    Replies <-->|Drafts| Models
-    Agent <-->|Reasoning| Models
-    Triage <-->|Inference| Models
-
-    %% Cross-Layer DB Connections
-    Agent <-->|Tool: Secure SQL| DB
-    Triage -->|Saves Categorized Data| DB
-    
-    classDef frontend fill:#3b82f6,stroke:#1e3a8a,stroke-width:2px,color:#fff,rx:8,ry:8
-    classDef gateway fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff,rx:8,ry:8
-    classDef async fill:#8b5cf6,stroke:#5b21b6,stroke-width:2px,color:#fff,rx:8,ry:8
-    classDef ai fill:#ec4899,stroke:#be185d,stroke-width:2px,color:#fff,rx:8,ry:8
-    classDef data fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff,rx:8,ry:8
-    classDef external fill:#64748b,stroke:#334155,stroke-width:2px,color:#fff,rx:8,ry:8
-```
+<div align="center">
+  <img src="figures/architecture.png" alt="AICOE Education System Architecture" width="100%">
+</div>
 
 ---
 
@@ -100,6 +42,8 @@ AICOE_EDUCATION/
 │   ├── main.py                # Uvicorn compatibility bridge
 │   ├── Dockerfile             # Container image definition
 │   ├── requirements.txt       # Python dependencies
+│   ├── scripts/               # Utility scripts for Google RISC registration & data import
+│   ├── storage/               # FAISS indexes, policy docs, attachments, & encrypted tokens
 │   └── src/
 │       ├── app.py             # Core application setup & lifespan
 │       ├── config.py          # System configuration & environment tokens
@@ -127,6 +71,7 @@ AICOE_EDUCATION/
 ├── postgres/                  # Hardened PostgreSQL configs & pg_hba rules
 ├── nginx/                     # Reverse proxy & API Gateway routing
 ├── k8s/                       # Kubernetes deployment manifests
+├── figures/                   # System architecture diagram
 ├── setup_coe.bat              # Native OS installation script
 └── docker-compose.yml         # Distributed enterprise orchestration
 ```

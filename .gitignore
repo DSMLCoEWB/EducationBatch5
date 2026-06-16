@@ -100,3 +100,4 @@ backend/import_emails/
 
 # Figures
 figures/
+!figures/architecture.png
