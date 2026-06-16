@@ -99,5 +99,5 @@ backend/brain/
 backend/import_emails/
 
 # Figures
-figures/
+figures/*
 !figures/architecture.png
