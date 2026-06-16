@@ -56,31 +56,31 @@ graph LR
     end
 
     %% Email Ingestion Flow
-    Mail <--->|OAuth| Sync
-    Sync <--->|Attachment Text Extraction| OCR
-    Sync --->|Raw Emails and Text| Triage
+    Mail <-->|OAuth| Sync
+    Sync <-->|Attachment Text Extraction| OCR
+    Sync -->|Raw Emails and Text| Triage
     
     %% Policy Ingestion Flow
-    API --->|Uploads Policy Docs| OCR
+    API -->|Uploads Policy Docs| OCR
     
     %% User Interaction Flow
-    UI <--->|HTTP and Live SSE| API
-    API <--->|Generates| Replies
-    API <--->|Executes Tasks| Agent
+    UI <-->|HTTP and Live SSE| API
+    API <-->|Generates| Replies
+    API <-->|Executes Tasks| Agent
     
     %% Cross-Layer RAG Connections
-    Replies <--->|Fetches Context| RAG
-    Agent <--->|Tool: Context| RAG
-    OCR --->|Parsed Text| RAG
+    Replies <-->|Fetches Context| RAG
+    Agent <-->|Tool: Context| RAG
+    OCR -->|Parsed Text| RAG
 
     %% Cross-Layer Model Connections
-    Replies <--->|Drafts| Models
-    Agent <--->|Reasoning| Models
-    Triage <--->|Inference| Models
+    Replies <-->|Drafts| Models
+    Agent <-->|Reasoning| Models
+    Triage <-->|Inference| Models
 
     %% Cross-Layer DB Connections
-    Agent <--->|Tool: Secure SQL| DB
-    Triage --->|Saves Categorized Data| DB
+    Agent <-->|Tool: Secure SQL| DB
+    Triage -->|Saves Categorized Data| DB
     
     classDef frontend fill:#3b82f6,stroke:#1e3a8a,stroke-width:2px,color:#fff,rx:8,ry:8
     classDef gateway fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff,rx:8,ry:8
