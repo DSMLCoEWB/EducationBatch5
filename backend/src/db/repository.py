@@ -955,6 +955,26 @@ def get_user_sync_history(user_email: str) -> Optional[Dict[str, Any]]:
         row = cursor.fetchone()
         return dict(row) if row else None
 
+def get_all_active_users() -> List[str]:
+    """Returns all user emails that are currently active (logged in and not revoked).
+    Uses is_user_revoked() which correctly handles both Postgres and SQLite multi-tenant
+    modes.
+    """
+    from db.session import get_db_conn as _get_conn
+    with _get_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT user_email FROM user_sync_history WHERE user_email IS NOT NULL")
+        rows = cursor.fetchall()
+
+    # Filter revoked (logged-out) users using is_user_revoked() which uses
+    # get_db_conn(tenant_email=...) and works correctly in both Postgres and
+    # SQLite multi-tenant mode (where revoked_sessions may be in a separate file).
+    return [
+        row["user_email"] for row in rows
+        if not is_user_revoked(row["user_email"])
+    ]
+
 def update_user_sync_history(user_email: str, history_id: Optional[str] = None, reset_errors: bool = True, microsoft_delta_link: Optional[str] = None, microsoft_delta_link_sent: Optional[str] = None, microsoft_delta_link_trash: Optional[str] = None):
     with get_db_conn(tenant_email=user_email) as conn:
         cursor = conn.cursor()
@@ -1146,17 +1166,32 @@ def get_unrefined_emails(user_email: str, limit: int = 5) -> List[Dict[str, Any]
         """, (user_email, limit))
         return [dict(row) for row in cursor.fetchall()]
 
-def update_email_refinement(user_email: str, email_id: str, priority: int, category: str):
+def update_email_refinement(user_email: str, email_id: str, priority: int | None, category: str | None):
     """Updates an email with AI-refined priority and category labels with casing safety and downgrade protection."""
     with get_db_conn(tenant_email=user_email) as conn:
         cursor = conn.cursor()
         
-        # Enforce downgrade protection: do not allow LLM to downgrade priority established by heuristics/escalation
-        cursor.execute("SELECT priority FROM emails WHERE id = ? AND LOWER(user_email) = LOWER(?)", (email_id, user_email.strip()))
+        # Fetch existing values to handle None and enforce downgrade protection
+        cursor.execute("SELECT priority, category FROM emails WHERE id = ? AND LOWER(user_email) = LOWER(?)", (email_id, user_email.strip()))
         row = cursor.fetchone()
-        if row and row[0] is not None:
-            # Priority values are 0 (Critical) to 3 (Low). Keeping the minimum ensures we preserve the highest priority.
-            priority = min(int(row[0]), priority)
+        
+        if row:
+            db_priority = row[0]
+            db_category = row[1]
+            
+            # Handle priority fallback and downgrade protection
+            if priority is None:
+                priority = db_priority if db_priority is not None else 3
+            elif db_priority is not None:
+                # Priority values are 0 (Critical) to 3 (Low). Keeping the minimum ensures we preserve the highest priority.
+                priority = min(int(db_priority), priority)
+                
+            # Handle category fallback
+            if category is None:
+                category = db_category if db_category is not None else "Miscellaneous"
+        else:
+            if priority is None: priority = 3
+            if category is None: category = "Miscellaneous"
             
         cursor.execute("""
             UPDATE emails 
@@ -1637,13 +1672,6 @@ def get_dashboard_stats(user_email: str) -> Dict[str, int]:
             "unresolved": unresolved
         }
 
-def get_all_active_users() -> List[str]:
-    """Retrieves all distinct user emails that have been registered/synced."""
-    from db.session import get_db_conn
-    with get_db_conn() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT user_email FROM user_sync_history")
-        return [row[0] for row in cursor.fetchall()]
 
 def permanently_delete_email_locally(user_email: str, gmail_id: str):
     """Deletes an email record from the local database when it's permanently removed from Gmail."""

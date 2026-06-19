@@ -113,11 +113,20 @@ def run_background_sync_loop(user_email: str):
                 
             # 6. Standard randomized sleep
             logger.debug(f"😴 [StealthSync] Cycle complete. Sleeping {wait_time:.1f}s for {user_email}")
+            
+            from cache.manager import redis_client
+            if redis_client:
+                # Refresh distributed lock for duration of sleep plus buffer
+                redis_client.set(f"sync_loop_active_{user_email}", "1", ex=int(wait_time + 1200))
+                
             if stop_event.wait(timeout=wait_time): break # Interrupted by stop event
             
         except Exception as e:
             logger.error(f"❌ [StealthSync] Loop error for {user_email}: {e}")
             consecutive_errors += 1
+            from cache.manager import redis_client
+            if redis_client:
+                redis_client.set(f"sync_loop_active_{user_email}", "1", ex=1500)
             if stop_event.wait(timeout=300): break
 
 def trigger_intelligence_suite(user_email: str):

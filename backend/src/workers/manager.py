@@ -27,11 +27,15 @@ class WorkerManager:
 
 
     def _is_sync_running_nolock(self, user_email: str) -> bool:
-        if TASK_QUEUE_TYPE == "celery":
-            from cache.manager import redis_client
-            if redis_client:
-                # Distributed check to prevent multiple Nginx replicas from starting loops
-                return bool(redis_client.get(f"sync_loop_active_{user_email}"))
+        from config import TASK_QUEUE_TYPE
+        from cache.manager import redis_client
+        if redis_client:
+            try:
+                # Distributed check to prevent multiple Nginx/Gunicorn replicas from starting concurrent loops
+                if redis_client.get(f"sync_loop_active_{user_email}"):
+                    return True
+            except Exception as e:
+                logger.warning(f"⚠️ [WorkerManager] Redis error in _is_sync_running_nolock: {e}")
 
         state = self.sync_workers.get(user_email)
         if not state:
@@ -51,18 +55,26 @@ class WorkerManager:
                 logger.debug(f"🔁 [WorkerManager] Sync worker already alive for {user_email}. Skipping.")
                 return
             
+            from cache.manager import redis_client
+            if redis_client:
+                try:
+                    # Try to claim the lock ATOMICALLY. If it already exists, another replica beat us to it.
+                    # [SAFETY]: We lowered this from 1200s (20m) to 30s. The only purpose of this lock is 
+                    # to debounce rapid-fire clicks or concurrent Gunicorn bootups. Celery's internal lock 
+                    # natively destroys actual duplicate tasks, so this outer lock doesn't need to be long!
+                    lock_acquired = redis_client.set(f"sync_loop_active_{user_email}", "1", ex=30, nx=True)
+                    if not lock_acquired:
+                        logger.debug(f"🔁 [WorkerManager] Distributed lock held by another replica for {user_email}. Skipping.")
+                        return
+                except Exception as e:
+                    logger.warning(f"⚠️ [WorkerManager] Redis error in start_sync_worker lock: {e}")
+
             if TASK_QUEUE_TYPE == "celery":
                 # Send Celery task
                 from workers.tasks import run_background_sync_task
-                from cache.manager import redis_client
                 
-                if redis_client:
-                    redis_client.delete(f"stop_sync_{user_email}")
-                    # Immediately claim the distributed lock so other replicas don't overlap
-                    redis_client.set(f"sync_loop_active_{user_email}", "1", ex=1200)
-                    
                 self.sync_workers[user_email] = {"is_celery": True}
-                run_background_sync_task.delay(user_email)
+                run_background_sync_task.delay(user_email)  # type: ignore
                 logger.info(f"🚀 [WorkerManager] Dispatched sync task to Celery for {user_email}.")
                 return
 
@@ -86,13 +98,14 @@ class WorkerManager:
             if user_email in self.sync_workers:
                 worker_info = self.sync_workers.pop(user_email)
                 
+                from cache.manager import redis_client
+                if redis_client:
+                    redis_client.delete(f"sync_loop_active_{user_email}")
+                    
                 if TASK_QUEUE_TYPE == "celery":
-                    from cache.manager import redis_client
-                    if redis_client:
-                        redis_client.set(f"stop_sync_{user_email}", "1")
-                        redis_client.delete(f"sync_loop_active_{user_email}")
-                        
-                logger.info(f"🛑 [WorkerManager] Sent stop signal to sync worker for {user_email}")
+                    logger.info(f"🛑 [WorkerManager] Sent stop signal to Celery sync worker for {user_email}")
+                else:
+                    logger.info(f"🛑 [WorkerManager] Sent stop signal to sync worker for {user_email}")
                 
                 if "stop_event" in worker_info:
                     worker_info["stop_event"].set()
@@ -119,7 +132,7 @@ class WorkerManager:
         with self._lock:
             if TASK_QUEUE_TYPE == "celery":
                 from workers.tasks import process_intelligence_backlog_task
-                process_intelligence_backlog_task.delay(user_email)
+                process_intelligence_backlog_task.delay(user_email)  # type: ignore
                 logger.info(f"🚀 [WorkerManager] Dispatched intelligence task to Celery for {user_email}.")
                 return
 

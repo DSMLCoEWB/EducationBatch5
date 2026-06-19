@@ -102,10 +102,22 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
     { name: 'Resolved', value: stats.resolved, fill: 'hsl(152, 60%, 40%)' }
   ];
 
-  const getLast7DaysData = () => {
+  const [chartPeriod, setChartPeriod] = useState<number>(7);
+
+  const getActivityData = (days: number) => {
     const data = [];
     const now = new Date();
-    for (let i = 6; i >= 0; i--) {
+    
+    let effectiveDays = days;
+    if (days === 0 && emails.length > 0) {
+      // Calculate days between now and oldest email
+      const oldestDate = new Date(Math.min(...emails.map(e => new Date(e.emailDate).getTime())));
+      effectiveDays = Math.max(7, Math.ceil((now.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    } else if (days === 0) {
+      effectiveDays = 7;
+    }
+
+    for (let i = effectiveDays - 1; i >= 0; i--) {
       const date = new Date(now);
       date.setDate(date.getDate() - i);
       date.setHours(0, 0, 0, 0);
@@ -120,7 +132,7 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
     return data;
   };
 
-  const dailyVolumeData = getLast7DaysData();
+  const dailyVolumeData = getActivityData(chartPeriod);
 
   const statCards = [
     { title: 'Total Conversations', value: stats.total, icon: <LayoutList className="w-5 h-5" />, variant: 'blue' as const, tooltip: 'All unique email threads and standalone messages.' },
@@ -330,8 +342,23 @@ export function Dashboard({ emails, onViewChange, customCategories = [] }: Dashb
         </div>
 
         {/* Area Chart with Gradient */}
-        <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow lg:col-span-7">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Activity Volume (7 Days)</h3>
+        <div className="bg-card rounded-xl border border-border p-5 shadow-card hover:shadow-elevated transition-shadow lg:col-span-7 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-foreground">Activity Volume</h3>
+            <select 
+              value={chartPeriod}
+              onChange={(e) => setChartPeriod(Number(e.target.value))}
+              className="text-xs bg-background border border-border rounded px-2 py-1 text-muted-foreground outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+            >
+              <option value={7}>Last 7 Days</option>
+              <option value={14}>Last 14 Days</option>
+              <option value={30}>Last 30 Days</option>
+              <option value={90}>Last 90 Days</option>
+              <option value={180}>Last 6 Months</option>
+              <option value={365}>Last 1 Year</option>
+              <option value={0}>All Time</option>
+            </select>
+          </div>
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={dailyVolumeData} margin={{ bottom: isMobile ? 30 : 10 }}>
               <defs>

@@ -212,14 +212,52 @@ export default function App() {
     const apiBase = import.meta.env.VITE_API_URL || "";
     let eventSource: EventSource | null = null;
     let retryCount = 0;
+    let pingTimeout: number;
+    let reconnectTimeout: number;
 
     const setupSSE = () => {
       // Connect to the hardened SSE stream
       eventSource = new EventSource(`${apiBase}/emails/events`, { withCredentials: true });
 
+      const resetWatchdog = () => {
+        window.clearTimeout(pingTimeout);
+        // Server pings every 15s. If we don't hear anything for 25s, connection is dead.
+        pingTimeout = window.setTimeout(() => {
+          console.warn("⚠️ [SSE] Watchdog timeout: No ping received. Forcing reconnect...");
+          eventSource?.close();
+          const backoff = Math.min(1000 * Math.pow(2, retryCount), 30000);
+          reconnectTimeout = window.setTimeout(setupSSE, backoff);
+          retryCount++;
+        }, 25000);
+      };
+
+      eventSource.onopen = () => {
+        console.log("🟢 [SSE] Connection established.");
+        retryCount = 0; // Reset backoff
+        resetWatchdog();
+        // State Reconciliation: Fetch truth from server in case we missed events while disconnected
+        fetchSyncStatus()
+          .then(res => {
+            if (typeof res.syncing === 'boolean') {
+              setIsRefreshing(res.syncing);
+            }
+          })
+          .catch(err => console.warn("Failed to reconcile sync status", err));
+        
+        void loadEmails(false);
+      };
+
       eventSource.onmessage = (event) => {
+        resetWatchdog();
         try {
           const data = JSON.parse(event.data);
+          if (data.event === 'ping') {
+            if (typeof data.is_syncing === 'boolean') {
+              setIsRefreshing(data.is_syncing);
+            }
+            return; // Watchdog already reset
+          }
+          
           if (data.event === 'sync_started') {
             setIsRefreshing(true);
           } else if (data.event === 'refinement_progress') {
@@ -242,15 +280,20 @@ export default function App() {
       };
 
       eventSource.onerror = () => {
+        window.clearTimeout(pingTimeout);
         eventSource?.close();
         const backoff = Math.min(1000 * Math.pow(2, retryCount), 30000);
-        setTimeout(setupSSE, backoff);
+        reconnectTimeout = window.setTimeout(setupSSE, backoff);
         retryCount++;
       };
     };
 
     setupSSE();
-    return () => eventSource?.close();
+    return () => {
+      window.clearTimeout(pingTimeout);
+      window.clearTimeout(reconnectTimeout);
+      eventSource?.close();
+    };
   }, [isAuthenticated, loadEmails, refreshRefinementStats, refreshAuthStatus]);
 
   useEffect(() => {

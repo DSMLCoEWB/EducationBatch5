@@ -59,27 +59,34 @@ def sync_gmail_incremental(user_email: str) -> Dict[str, Any]:
 
     try:
         # 1. Fetch History Updates
-        request = service.users().history().list(
-            userId="me", 
-            startHistoryId=last_history_id, 
-            historyTypes=["messageAdded", "labelAdded", "labelRemoved", "messageDeleted"]
-        )
+        # NOTE: We use manual pageToken pagination here instead of list_next() because
+        # list_next() has a known bug where it duplicates repeated query params (like
+        # historyTypes), causing the Gmail API to reject the request with a 400 error.
+        HISTORY_TYPES = ["messageAdded", "labelAdded", "labelRemoved", "messageDeleted"]
         
         changes = []
         new_history_id = None
         pages_fetched = 0
         max_pages = 5  # Anti-Ban API Cap (max ~500 events per background cycle)
+        page_token = None
         
-        while request is not None and pages_fetched < max_pages:
-            history_response = request.execute()
+        while pages_fetched < max_pages:
+            history_response = service.users().history().list(
+                userId="me",
+                startHistoryId=last_history_id,
+                historyTypes=HISTORY_TYPES,
+                **({"pageToken": page_token} if page_token else {})
+            ).execute()
             pages_fetched += 1
             
             if "history" in history_response:
                 changes.extend(history_response["history"])
                 
-            request = service.users().history().list_next(request, history_response)
+            page_token = history_response.get("nextPageToken")
+            if not page_token:
+                break
             
-        if request is not None and changes:
+        if page_token and changes:
             # Break early to protect limits. Cursor anchors to the LAST processed event.
             new_history_id = str(changes[-1]["id"])
             logger.info(f"⏳ [Sync] API Cap reached. Backlog remains. Anchor: {new_history_id}")

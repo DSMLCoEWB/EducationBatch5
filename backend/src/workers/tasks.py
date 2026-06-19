@@ -16,19 +16,29 @@ def run_background_sync_task(user_email: str, consecutive_errors: int = 0):
     
     # When using Celery, the stop flag is managed via Redis to support multi-process environments.
     from config import TASK_QUEUE_TYPE
-    if TASK_QUEUE_TYPE == "celery":
-        from cache.manager import redis_client
-        if redis_client:
-            stop_flag = redis_client.get(f"stop_sync_{user_email}")
-            if stop_flag == "1":
-                logger.info(f"🛑 [CelerySync] Sync loop stopped for {user_email}. Exiting worker task.")
-                return
-    else:
-        if not worker_manager.is_sync_running(user_email):
-            logger.info(f"🛑 [CelerySync] Sync loop stopped for {user_email}. Exiting worker task.")
-            return
+    from db.repository import is_user_revoked
+    
+    # 1. Permanent Revocation Guard
+    if is_user_revoked(user_email):
+        logger.info(f"🛑 [CelerySync] Sync loop stopped because {user_email} is revoked. Exiting worker task.")
+        return
 
     try:
+        if TASK_QUEUE_TYPE == "celery":
+            from cache.manager import redis_client
+            if redis_client:
+                # --- DUPLICATE GUARD ---
+                # Try to atomically claim the "I am the active sync task" token.
+                # Only ONE task can hold this at a time. Duplicates from old queue entries exit here.
+                active_token = redis_client.set(f"celery_sync_running_{user_email}", "1", ex=300, nx=True)
+                if not active_token:
+                    logger.debug(f"🔁 [CelerySync] Duplicate task detected for {user_email}. Exiting silently.")
+                    return
+        else:
+            if not worker_manager.is_sync_running(user_email):
+                logger.info(f"🛑 [CelerySync] Sync loop stopped for {user_email}. Exiting worker task.")
+                return
+
         # 1. Fetch user intervals and preferences
         history = get_user_sync_history(user_email)
         from config import GLOBAL_SYNC_INTERVAL_SECONDS
@@ -78,7 +88,7 @@ def run_background_sync_task(user_email: str, consecutive_errors: int = 0):
             # Trigger enrichment if there is work to do
             if result.get("added", 0) > 0 or has_enrichment_work(user_email):
                 logger.info(f"📩 [CelerySync] Backlog detected. Triggering Celery intelligence suite.")
-                process_intelligence_backlog_task.delay(user_email)
+                process_intelligence_backlog_task.delay(user_email)  # type: ignore
                 SSE_NOTIFIER.notify(user_email)
         else:
             consecutive_errors += 1
@@ -92,10 +102,15 @@ def run_background_sync_task(user_email: str, consecutive_errors: int = 0):
         if TASK_QUEUE_TYPE == "celery":
             from cache.manager import redis_client
             if redis_client:
-                # Renew the lock to cover the countdown wait time plus an execution buffer
-                redis_client.set(f"sync_loop_active_{user_email}", "1", ex=int(next_countdown + 1200))
+                try:
+                    # Release the "I am running" token so the next scheduled task can claim it.
+                    redis_client.delete(f"celery_sync_running_{user_email}")
+                    # Renew the distributed lock to cover the full countdown wait time.
+                    redis_client.set(f"sync_loop_active_{user_email}", "1", ex=int(next_countdown + 1200))
+                except Exception as ex:
+                    logger.warning(f"⚠️ [CelerySync] Redis error cleaning up locks in success block: {ex}")
                 
-        run_background_sync_task.apply_async((user_email, consecutive_errors), countdown=next_countdown)
+        run_background_sync_task.apply_async((user_email, consecutive_errors), countdown=next_countdown)  # type: ignore
         logger.info(f"😴 [CelerySync] Cycle complete. Next sync scheduled in {next_countdown:.1f}s.")
 
     except Exception as e:
@@ -108,9 +123,13 @@ def run_background_sync_task(user_email: str, consecutive_errors: int = 0):
         if TASK_QUEUE_TYPE == "celery":
             from cache.manager import redis_client
             if redis_client:
-                redis_client.set(f"sync_loop_active_{user_email}", "1", ex=int(next_countdown + 1200))
+                try:
+                    redis_client.delete(f"celery_sync_running_{user_email}")
+                    redis_client.set(f"sync_loop_active_{user_email}", "1", ex=int(next_countdown + 1200))
+                except Exception as ex:
+                    logger.warning(f"⚠️ [CelerySync] Redis error cleaning up locks in error block: {ex}")
                 
-        run_background_sync_task.apply_async((user_email, consecutive_errors), countdown=next_countdown)
+        run_background_sync_task.apply_async((user_email, consecutive_errors), countdown=next_countdown)  # type: ignore
 
 
 @shared_task(name="workers.tasks.process_intelligence_backlog_task")

@@ -100,6 +100,7 @@ services:
       - TASK_QUEUE_TYPE=celery
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - TZ=Asia/Kolkata
       - FASTAPI_ROOT_PATH=/api
       - OAUTH_SUCCESS_REDIRECT_URL=/
       - AUTO_INIT_DB=false
@@ -132,6 +133,7 @@ services:
     command: celery -A core.celery_app worker --loglevel=info
     env_file:
       - ./backend/.env
+    stop_grace_period: 60s
     environment:
       - PYTHONPATH=/app/src
       - DATABASE_TYPE=postgres
@@ -139,6 +141,7 @@ services:
       - TASK_QUEUE_TYPE=celery
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - TZ=Asia/Kolkata
       - OAUTH_SUCCESS_REDIRECT_URL=/
       - AUTO_INIT_DB=false
     volumes:

@@ -81,6 +81,8 @@ AICOE_EDUCATION/
 ## 🔌 Quick Start & Installation
 
 > [!IMPORTANT]
+> **Branch Notice:** Please ensure you are cloning and operating from the `main` branch, as it contains the most up-to-date and verified codebase.
+> 
 > **Full Installation Guide:** This Quick Start covers running the code. Before the application will function, you **MUST** configure your Google Cloud and Microsoft Entra ID credentials. 
 > Please read the detailed **[INSTALLATION MANUAL](INSTALLATION_MANUAL.md)** for step-by-step instructions on setting up OAuth, security keys, and environment variables.
 

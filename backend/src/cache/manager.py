@@ -6,8 +6,11 @@ from config import CELERY_BROKER_URL, TASK_QUEUE_TYPE
 # --- REDIS CLIENT ---
 # We use the same Redis broker as Celery to store distributed locks
 redis_client = None
-if TASK_QUEUE_TYPE == "celery":
-    redis_client = redis.Redis.from_url(CELERY_BROKER_URL, decode_responses=True)
+if CELERY_BROKER_URL:
+    try:
+        redis_client = redis.Redis.from_url(CELERY_BROKER_URL, decode_responses=True)
+    except Exception as e:
+        pass
 
 # --- LOCKING ---
 # [SINGLETONS]

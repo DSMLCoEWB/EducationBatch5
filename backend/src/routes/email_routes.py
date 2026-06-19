@@ -518,7 +518,12 @@ async def email_events(request: Request, user_email: str = Depends(get_authentic
                     yield f"data: {json.dumps({'event': event_type})}\n\n"
                     queue.task_done()
                 except asyncio.TimeoutError:
-                    yield f"data: {json.dumps({'event': 'ping'})}\n\n"
+                    try:
+                        status_dict = get_sync_status(user_email)
+                        is_syncing = status_dict.get("syncing", False)
+                    except Exception:
+                        is_syncing = False
+                    yield f"data: {json.dumps({'event': 'ping', 'is_syncing': is_syncing})}\n\n"
         except asyncio.CancelledError:
             pass
         finally:
