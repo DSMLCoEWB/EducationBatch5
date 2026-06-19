@@ -1,6 +1,6 @@
-# 📋 Comprehensive Installation Manual — AI Grievance Intelligence System
+# 📋 Comprehensive Installation Manual — EPIC (Email & Policy Intelligence Copilot)
 
-Welcome to the definitive setup and installation manual for the **AI Grievance Intelligence System**. This document outlines how to install, configure, secure, and run the application natively on **any operating system** (Windows, Linux, macOS) or inside **Docker containers**.
+Welcome to the definitive setup and installation manual for the **EPIC (Email & Policy Intelligence Copilot)**. This document outlines how to install, configure, secure, and run the application natively on **any operating system** (Windows, Linux, macOS) or inside **Docker containers**.
 
 > [!IMPORTANT]
 > **Branch Notice:** Please ensure you are cloning and operating from the `main` branch, as it contains the most up-to-date and verified codebase.

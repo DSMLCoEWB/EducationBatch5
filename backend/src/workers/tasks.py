@@ -135,8 +135,8 @@ def run_background_sync_task(user_email: str, consecutive_errors: int = 0):
 @shared_task(name="workers.tasks.process_intelligence_backlog_task")
 def process_intelligence_backlog_task(user_email: str):
     """Celery task running the intelligence suite backlog (OCR & Triage) for a user."""
-    from cache.manager import get_user_lock
-    lock = get_user_lock(user_email)
+    from cache.manager import get_intel_lock
+    lock = get_intel_lock(user_email)
     
     # Try to acquire lock. If another worker is already processing this user, skip!
     if not lock.acquire(blocking=False):

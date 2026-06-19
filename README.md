@@ -1,4 +1,4 @@
-# 🎓 AI Grievance Intelligence System (AICOE)
+# 🎓 EPIC (Email & Policy Intelligence Copilot)
 
 A full-stack, state-of-the-art enterprise web application for **synchronizing, parsing, categorizing, prioritizing, and generating policy-compliant replies** for Education Department grievance emails. 
 
@@ -29,7 +29,7 @@ Powered by a high-precision, hybrid architecture combining **rule-based expert h
 ## 🛠️ System Architecture
 
 <div align="center">
-  <img src="figures/architecture.png" alt="AICOE Education System Architecture" width="100%">
+  <img src="figures/architecture.png" alt="EPIC System Architecture" width="100%">
 </div>
 
 ---

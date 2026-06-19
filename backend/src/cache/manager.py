@@ -37,3 +37,19 @@ def get_user_lock(user_email: str):
 def user_key(user_email: str) -> str:
     """Helper to ensure consistent keys for user-specific data."""
     return user_email.strip().lower()
+
+intel_locks: Dict[str, threading.Lock] = {}
+intel_locks_main_lock = threading.Lock()
+
+def get_intel_lock(user_email: str):
+    """
+    Gets a lock for the AI intelligence worker, decoupled from the main sync worker.
+    """
+    if TASK_QUEUE_TYPE == "celery" and redis_client:
+        lock_key = f"intel_lock_{user_key(user_email)}"
+        return redis_client.lock(lock_key, timeout=900)
+    else:
+        with intel_locks_main_lock:
+            if user_email not in intel_locks:
+                intel_locks[user_email] = threading.Lock()
+            return intel_locks[user_email]
