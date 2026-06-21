@@ -37,7 +37,7 @@ Powered by a high-precision, hybrid architecture combining **rule-based expert h
 ## 📂 Repository Structure
 
 ```
-AICOE_EDUCATION/
+EducationBatch5/
 ├── backend/                   # FastAPI Backend
 │   ├── main.py                # Uvicorn compatibility bridge
 │   ├── Dockerfile             # Container image definition
