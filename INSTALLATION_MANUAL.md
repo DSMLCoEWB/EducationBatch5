@@ -1,6 +1,6 @@
-# 📋 Comprehensive Installation Manual — EPIC (Email & Policy Intelligence Copilot)
+# 📋 Comprehensive Installation Manual — EPIC – Email-based Public Interaction & Case Management
 
-Welcome to the definitive setup and installation manual for the **EPIC (Email & Policy Intelligence Copilot)**. This document outlines how to install, configure, secure, and run the application natively on **any operating system** (Windows, Linux, macOS) or inside **Docker containers**.
+Welcome to the definitive setup and installation manual for the **EPIC – Email-based Public Interaction & Case Management**. This document outlines how to install, configure, secure, and run the application natively on **any operating system** (Windows, Linux, macOS) or inside **Docker containers**.
 
 > [!IMPORTANT]
 > **Branch Notice:** Please ensure you are cloning and operating from the `main` branch, as it contains the most up-to-date and verified codebase.
@@ -54,7 +54,7 @@ To unlock automated email synchronization and LLM classification, you must confi
 > [!NOTE]
 > **Understanding Google Credentials in this System**
 > You will generate two completely different types of credentials from your Google Cloud Project:
-> 1. **Vertex AI Service Account (JSON):** Server-to-Server authentication for the backend to run Enterprise Gemini models.
+> 1. **Enterprise Agent Platform Service Account (JSON):** Server-to-Server authentication for the backend to run Enterprise Gemini models.
 > 2. **OAuth 2.0 Client (ID & Secret):** User-to-Server authentication to power the "Sign in with Google" popup for Gmail sync.
 
 ### 2.1 Enable Google APIs
@@ -62,28 +62,32 @@ To unlock automated email synchronization and LLM classification, you must confi
 2. Create or select a Google Cloud project.
 3. Search for and enable the following APIs:
    * **Gmail API** (if syncing Gmail)
-   * **Vertex AI API** (if using Enterprise Vertex AI routing)
-   * **Generative Language API** (only if using Fallback/Developer Free-Tier API Keys)
+   * **Gemini Enterprise Agent Platform API** (formerly Vertex AI API - required if using enterprise routing)
+   * **Generative Language API** (only if using Fallback/Developer Standard API Keys - Paid or Free tier)
 
-### 2.2 Get an Enterprise Gemini API Key (Google Cloud)
-To ensure strict data privacy and compliance with government regulations, the system is engineered to route AI traffic through **Google Cloud Vertex AI** (Enterprise tier). This guarantees that citizen grievance data is **never** used to train Google's models.
+### 2.2 Configure Enterprise Gemini Agent Platform Authentication (Google Cloud)
+To ensure strict data privacy and compliance with government regulations, the system is engineered to route AI traffic through the **Gemini Enterprise Agent Platform** (formerly Google Cloud Vertex AI). This guarantees that citizen grievance data is **never** used to train Google's public models.
+
+> [!NOTE]
+> **Enterprise Security Model:** The Enterprise Agent Platform uses cryptographic Service Account Identity and Access Management (IAM) keys instead of standard developer API strings.
 
 1. **Create a Project:** Go to the [Google Cloud Console](https://console.cloud.google.com/). If you are new to GCP, you will need to set up a billing account. Click the **Project Dropdown** at the top left to create a "New Project".
 2. **Set the Project ID:** On your Project Dashboard, locate the **Project ID** (e.g., `my-education-project-123`). Open your `backend/.env` file and set `VERTEX_AI_PROJECT=your-project-id`.
-3. **Enable the API:** Use the top search bar in the console to search for **"Vertex AI API"**. Click on it and hit the blue **Enable** button.
+3. **Enable the API:** Use the top search bar in the console to search for the **"Gemini Enterprise Agent Platform API"** (this replaces the legacy Vertex AI API). Click on it and hit the blue **Enable** button.
 4. **Set Data Residency:** To comply with Indian data sovereignty laws, open your `backend/.env` file and set `VERTEX_AI_LOCATION=asia-south1`. This forces the system to strictly route all AI processing to the Mumbai data centers.
 5. **Create a Service Account:** 
    * In the left-hand navigation menu, go to **IAM & Admin > Service Accounts**.
    * Click **+ CREATE SERVICE ACCOUNT** at the top. Give it a name (e.g., "vertex-ai-bot") and click **Create and Continue**.
-   * Under "Select a role", search for and select **Vertex AI User**. Click **Continue**, then **Done**.
+   * Under "Select a role", search for and select **Vertex AI User** (`roles/aiplatform.user`). Click **Continue**, then **Done**.
 6. **Generate the JSON Key:**
    * Click on the email address of the newly created Service Account in the list.
    * Go to the **Keys** tab at the top.
    * Click **Add Key > Create new key**. Select **JSON** and click **Create**. The key file will automatically download to your computer.
+   * *Note: While Google encourages Keyless ADC, using a Service Account JSON key ensures your production server achieves 100% uptime without being tied to a human user session that might unexpectedly expire.*
 7. **Secure the Key:** Move that downloaded JSON file into your server at `backend/storage/keys/` and rename it to exactly `vertex-key.json`. *(Create the `keys` folder if it doesn't exist).*
 8. **Link the Key:** Finally, in your `backend/.env` file, set `GOOGLE_APPLICATION_CREDENTIALS=storage/keys/vertex-key.json`. (This relative path works seamlessly for both Native Windows and Docker environments).
 
-> *(Fallback/Development Mode)*: If you do not have a full Vertex AI Service Account ready, you can still test the system by generating a standard API key. Navigate to **APIs & Services** > **Credentials** > **Create Credentials** > **API key**. Copy the key and configure it as `GOOGLE_API_KEY` and `GEMINI_API_KEY`. The system will automatically fall back to Developer API routing if `VERTEX_AI_PROJECT` is left blank.
+> *(Fallback/Development Mode)*: If you do not have an Enterprise Google Cloud project ready, you can still test the system using standard API keys. Go to **[Google AI Studio](https://aistudio.google.com/)** and click **Get API Key**. Ensure you set up a billing account for the **Paid Tier** to guarantee data privacy; otherwise, Free Tier data may be used by Google for model training. Copy the key and configure it as `GOOGLE_API_KEY` and `GEMINI_API_KEY` in your `.env` file. The system will automatically fall back to Developer API routing if `VERTEX_AI_PROJECT` is left blank.
 
 ### 2.3 Configure the Google Auth Platform (OAuth Consent Screen)
 *Google requires configuring the consent screen before generating OAuth client keys.*

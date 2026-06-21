@@ -783,17 +783,17 @@ def get_chatbot_response(user_message: str, user_email: str, session_id: str = "
                 from config import VERTEX_AI_PROJECT, VERTEX_AI_LOCATION
                 if VERTEX_AI_PROJECT:
                     try:
-                        from langchain_google_vertexai import ChatVertexAI
                         logger.info(f"🔒 Initializing Enterprise Vertex AI Chatbot (Project: {VERTEX_AI_PROJECT})")
-                        llm = ChatVertexAI(
-                            model_name=model_name,
+                        llm = ChatGoogleGenerativeAI(
+                            model=model_name,
+                            vertexai=True,
                             project=VERTEX_AI_PROJECT,
                             location=VERTEX_AI_LOCATION,
                             temperature=0.2
                         )
-                    except ImportError:
-                        logger.error("❌ langchain-google-vertexai not installed but VERTEX_AI_PROJECT is configured. Enterprise privacy cannot be guaranteed.")
-                        raise RuntimeError("Strict Enterprise Privacy Mode failed: langchain-google-vertexai is missing.")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to initialize ChatGoogleGenerativeAI for Vertex AI: {str(e)}")
+                        raise RuntimeError(f"Strict Enterprise Privacy Mode failed: {str(e)}")
                 else:
                     llm = ChatGoogleGenerativeAI(
                         model=model_name,

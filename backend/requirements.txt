@@ -22,7 +22,6 @@ google-api-python-client
 PyJWT
 langgraph
 langchain-google-genai
-langchain-google-vertexai
 langchain-core
 psutil
 

@@ -1,4 +1,4 @@
-# Comprehensive Solution Document: EPIC (Email & Policy Intelligence Copilot)
+# Comprehensive Solution Document: EPIC – Email-based Public Interaction & Case Management
 *A Proposal for Modernizing Government Administrative Workflows with Secure AI*
 
 ---

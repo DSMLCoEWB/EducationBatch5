@@ -1,4 +1,4 @@
-# 🎓 EPIC (Email & Policy Intelligence Copilot)
+# 🎓 EPIC – Email-based Public Interaction & Case Management
 
 A full-stack, state-of-the-art enterprise web application for **synchronizing, parsing, categorizing, prioritizing, and generating policy-compliant replies** for Education Department grievance emails. 
 
