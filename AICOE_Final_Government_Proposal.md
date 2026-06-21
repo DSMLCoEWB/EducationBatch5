@@ -1,6 +1,12 @@
 # Comprehensive Solution Document: EPIC – Email-based Public Interaction & Case Management
 *A Proposal for Modernizing Government Administrative Workflows with Secure AI*
 
+**Authors:** Anshu Nandi, Debajit Guha, Aditya Ghosh  
+*(Project Interns, Center of Excellence on Data Science & Machine Learning)*
+
+**Project Declaration:**  
+*This proposal and the accompanying system have been prepared as part of our internship project at the Center of Excellence on Data Science & Machine Learning, Department of IT & Electronics, Government of West Bengal, under the mentorship of Dr. Saptarsi Goswami Sir.*
+
 ---
 
 ## 1. Introduction: The Administrative Challenge

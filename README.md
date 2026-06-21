@@ -128,3 +128,15 @@ The application provides auto-generated, interactive API documentation. Once the
 *   **Network Security:** Strict HTTP headers (`X-Frame-Options: DENY`, `HSTS`) and `CORS` are inherently enforced.
 *   **Dependency Hardening:** Audited and hardened against supply-chain vulnerabilities (e.g., RCE) in the frontend and backend.
 *   **AI Guardrails:** Vector search results are automatically validated against a minimal trust threshold (`0.35`) before drafting responses.
+
+---
+
+## 👥 Authors & Acknowledgments
+
+**Project Interns:**
+*   Anshu Nandi
+*   Aditya Ghosh
+*   Debajit Guha
+
+**Project Declaration:**
+*This system has been developed as an internship project at the Center of Excellence on Data Science & Machine Learning, Department of IT & Electronics, Government of West Bengal, under the mentorship of Dr. Saptarsi Goswami Sir.*
