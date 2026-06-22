@@ -27,8 +27,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onMicrosoftLogin,
           <div className="inline-flex items-center justify-center p-4 rounded-2xl bg-white dark:bg-card shadow-elevated border border-border mb-3 transition-colors">
             <img src="/Seal_of_West_Bengal.svg" alt="Government of West Bengal" className="w-14 h-14 object-contain dark:invert dark:brightness-200" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-            AICOE <span className="text-primary">Grievance</span>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl whitespace-nowrap">
+            EPIC <span className="text-primary">Grievance Intelligence</span>
           </h1>
           <p className="text-muted-foreground text-sm font-medium">
             Government of West Bengal • Secure Access Portal

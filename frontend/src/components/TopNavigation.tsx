@@ -60,7 +60,7 @@ export function TopNavigation({
 
         {/* Title */}
         <div className="flex-shrink-0 mr-1 sm:mr-2 min-w-0">
-          <h1 className="text-sm sm:text-lg font-bold text-primary-foreground leading-tight truncate">Grievance Intelligence</h1>
+          <h1 className="text-sm sm:text-lg font-bold text-primary-foreground leading-tight truncate">EPIC - Grievance Intelligence</h1>
           <p className="text-[10px] sm:text-xs text-primary-foreground/60 hidden sm:block">Education Department</p>
         </div>
 
