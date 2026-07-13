@@ -12,9 +12,9 @@ logger = get_logger("services.ocr")
 def extract_text_from_attachment_ai(path: str) -> str:
     """Uses Gemini Vision to extract text from images and scanned PDFs via fallback-safe generation."""
     try:
-        from config import GEMINI_API_KEY
+        from config import GEMINI_API_KEY, AI_PREFER_LOCAL
         client = get_genai_client(api_key=GEMINI_API_KEY)
-        if not client:
+        if not client and not AI_PREFER_LOCAL:
             return ""
         
         with open(path, "rb") as f:
