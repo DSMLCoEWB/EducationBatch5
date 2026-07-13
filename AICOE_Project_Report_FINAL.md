@@ -35,7 +35,6 @@ The architecture, code, and analytical methodologies described herein represent 
 
 ---
 
-
 <div style="display: flex; justify-content: space-between; margin-top: 50px;">
   <div style="text-align: left;">
     _______________________________________<br>
@@ -64,7 +63,6 @@ at the **Centre of Excellence on Data Science and Machine Learning, Information 
 The work presented in this project report is a bonafide record of the system design, development, and evaluation carried out by the interns. The report is found to be technically comprehensive, methodologically sound, and practically valuable for digital governance applications.
 
 ---
-
 
 <div style="margin-top: 50px; text-align: right;">
   _______________________________________<br>
@@ -217,9 +215,8 @@ At its core, EPIC integrates a Multi-Modal Intelligence Tier driven by a LangGra
     - [9.2.3 Log File Directories](#923-log-file-directories)
   - [9.3 Project Team and Technologies](#93-project-team-and-technologies)
   - [9.4 Repository Structure](#94-repository-structure)
-  - [Appendix A: Complete API Reference](#appendix-a-complete-api-reference)
-  - [Appendix B: Glossary](#appendix-b-glossary)
-- [Appendix B: Glossary of Terms](#appendix-b-glossary-of-terms)
+- [Appendix A: Complete API Reference](#appendix-a-complete-api-reference)
+- [Appendix B: Glossary](#appendix-b-glossary)
 
 # Chapter 1: Introduction
 
@@ -901,10 +898,10 @@ def process_intelligence_backlog(user_email: str):
             unprocessed_attachments = get_unprocessed_attachments(user_email, limit=10)
             if unprocessed_attachments:
                 logger.info(f"🔍 [Worker] Found {len(unprocessed_attachments)} pending attachments for OCR.")
-              
+            
             for att in unprocessed_attachments:
                 if worker_manager.should_stop_intelligence(user_email): return
-              
+            
                 logger.info(f"🛰️ [OCR-Worker] Processing: {att['filename']}")
                 try:
                     text = extract_attachment_text(att['local_path'])
@@ -920,7 +917,7 @@ def process_intelligence_backlog(user_email: str):
                         user_email, att['email_id'], "[OCR FAILED]", 
                         att['filename'], att.get('original_name')
                     )
-                  
+                
         except Exception as ocr_err:
             logger.error(f"⚠️ [Enrichment] OCR Phase failed: {ocr_err}")
 ```
@@ -1498,17 +1495,19 @@ The platform was designed, optimized, and developed for the implementation workf
 
 The framework's core technology stack choices are categorized below:
 
-| **Infrastructure Technology Module** | **System Performance and Operational Role**    |
-| ------------------------------------------ | ---------------------------------------------------- |
-| FastAPI (Python 3.10+)                     | High-performance asynchronous web routing engine     |
-| coordinating logic gateways.               |                                                      |
-| PostgreSQL (PgBouncer)                     | High-concurrency robust database store optimizing    |
-| relational indexing layers.                |                                                      |
-| FAISS (Facebook AI)                        | Ultra-low latency dense matrix indexing database for |
-| localized vector retrieval.                |                                                      |
-| SentenceTransformer                        | all-MiniLM-L6-v2 model forced to CPU execution to    |
-| optimize system memory.                    |                                                      |
-| Google GenAI SDK                           | Coordinates high-precision cloud inference pipelines |
+| **Infrastructure Technology Module** | **System Performance and Operational Role** |
+| ------------------------------------ | ------------------------------------------- |
+| React & Vite (TypeScript)            | High-performance Single Page Application (SPA) frontend framework and ultra-fast build tooling. |
+| Tailwind CSS                         | Utility-first CSS framework for rapid, responsive, and consistent UI styling. |
+| FastAPI (Python 3.10+)               | High-performance asynchronous web routing engine coordinating logic gateways. |
+| PostgreSQL (PgBouncer)               | High-concurrency robust database store optimizing relational indexing layers. |
+| Celery & Redis                       | Distributed task queue and in-memory message broker for offloading asynchronous background jobs (OCR, triage). |
+| LangGraph & LangChain                | Frameworks for building stateful, multi-actor AI applications and executing ReAct agent reasoning loops. |
+| Ollama                               | Local inference engine used for running open-weight LLMs without external API dependencies. |
+| FAISS (Facebook AI)                  | Ultra-low latency dense matrix indexing database for localized vector retrieval. |
+| SentenceTransformer                  | all-MiniLM-L6-v2 model forced to CPU execution to optimize system memory. |
+| Google GenAI SDK                     | Coordinates high-precision cloud inference pipelines. |
+| NGINX                                | Master API gateway, reverse proxy, and static file server handling domain routing and security hardening. |
 
 ## 9.4 Repository Structure
 
@@ -1554,7 +1553,7 @@ EducationBatch5/
 └── docker-compose.yml         # Distributed enterprise orchestration
 ```
 
-## Appendix A: Complete API Reference
+# Appendix A: Complete API Reference
 
 This is the comprehensive API reference generated directly from the live OpenAPI specification of the backend system.
 
@@ -2354,31 +2353,26 @@ Powers the autocomplete suggestions in Compose and Reply modals.
 | :--------- | :--------- |
 | `status` | `string` |
 
-## Appendix B: Glossary
+# Appendix B: Glossary
 
 - **AI Resource Manager (ARM):** The core custom thread controller (AI_RESOURCE_MANAGER in backend/core/resource_manager.py) that manages VRAM usage. It places a global GPU lock when human-interactive tasks (like chatbot queries or reply generation) are active, pausing low-priority background workers (OCR, triage) to prevent system memory crashes.
 - **Anchor Turn Handshake:** The conversation window strategy that links the last official department reply with the incoming citizen question that triggered it. This provides the LLM with complete dialogue states, preventing repetitive advice or redundant queries.
+- **CID (Content-ID):** A header specification used to uniquely identify inline attachment resources within multipart MIME email payloads.
 - **Collision Guard:** The upload validation mechanism (policy_routes.py) that computes digital cryptographic SHA-256 hashes of incoming policy documents, skipping re-indexing if files match existing hashes.
 - **Cosine Similarity Re-Ranking:** The high-precision retrieval mechanism used inside rag_service.py. It computes explicit cosine similarity metrics (np.dot) across candidate FAISS text blocks, discarding context matches scoring below the strict RAG_MIN_SCORE threshold of 0.40.
 - **Cross-Account Protection (RISC):** The security framework (security_routes.py) that processes Google's real-time security notifications, immediately revoking local user session cookies if Google flags credentials as breached or disabled.
 - **Double-Tier Embedding Mode:** A design strategy that isolates processes. Generating SentenceTransformer embeddings (all-MiniLM-L6-v2) is forced on the host CPU, preserving 100% of GPU VRAM for the main LLM execution and avoiding DirectML/CUDA host conflicts.
-- **Dynamic Jitter:** In background worker routines, the strategy of adding a random ± offset variance (configured by SYNC_JITTER_SECONDS) to polling intervals. This breaks fixed polling patterns and mimics human interaction to protect against API throttling.
+- **Dynamic Jitter:** In background worker routines, the strategy of adding a random offset variance (configured by SYNC_JITTER_SECONDS) to polling intervals. This breaks fixed polling patterns and mimics human interaction to protect against API throttling.
 - **Expert Keyword Heuristics:** Tier-1 instant priority classification (triage_service.py). It uses normalized regular expressions defined in configuration variables to instantly flag urgent tickets (court orders, CMO references) before invoking background LLMs.
-- **FAISS (Facebook AI Similarity Search):** The high-density vector library (faiss) used to index policy documents per-user (rag_index.faiss), allowing multi-tenant, sub-millisecond semantic similarity searches.
+- **FAISS (Facebook AI Similarity Search):** A highly optimized library for efficient similarity search and clustering of dense vectors, utilized here as the primary localized vector database for institutional policies (rag_index.faiss), allowing multi-tenant, sub-millisecond semantic similarity searches.
 - **Fernet Symmetric Cryptography:** The encryption protocol (cryptography.fernet) used to encrypt Google OAuth refresh tokens at rest in {user_hash}.enc folders, ensuring credential safety.
-- **Night Mode Floor:** An automated scaling mechanism that detects local times between 11 PM and 7 AM, automatically backing down the sync polling interval to 1 hour to conserve server resources during low-activity hours.
-- **SLA Breach Guard:** The automated escalation rule that flags a thread as a high priority if the citizen's unanswered follow-up message count exceeds 3, ensuring long-delayed cases bubble up on the unified table.
-- **Server-Sent Events (SSE):** The unidirectional HTTP communication protocol (StreamingResponse on /emails/events) used by the backend to push instant, lightweight heartbeats (sync_started, sync_complete) to active frontend panels.
-- **Surgical "3+2" Conversation Windowing:** A proprietary context-filtering algorithm. When generating grounded replies, it feeds the LLM exactly the Last 3 Unreplied Citizen Emails + 2 Anchor History Turns, eliminating chat history bloat and focusing retrieval context on the immediate issue.
-- **v_threads (PostgreSQL / SQLite View):** The database view structure that aggregates emails, categories, and thread counts. It serves as the single source of truth for dashboard tables and chatbot tools, ensuring UI parity across both Postgres and local SQLite deployments.
-
-# Appendix B: Glossary of Terms
-
-- **RAG (Retrieval-Augmented Generation):** An AI framework that retrieves facts from an external knowledge base to ground large language models (LLMs) on accurate, up-to-date information, drastically reducing hallucination.
-- **FAISS (Facebook AI Similarity Search):** A highly optimized library for efficient similarity search and clustering of dense vectors, utilized here as the primary localized vector database for institutional policies.
-- **VRAM (Video Random Access Memory):** The dedicated memory pool utilized by GPUs to store tensor structures and execute matrix multiplications during AI inference.
-- **LangGraph:** A framework extending LangChain designed to build stateful, multi-actor applications with LLMs through cyclical graph structures, powering the ReAct Chatbot.
-- **CID (Content-ID):** A header specification used to uniquely identify inline attachment resources within multipart MIME email payloads.
-- **SSE (Server-Sent Events):** A server push technology enabling a client to receive automatic, unilateral updates via HTTP connections, utilized for syncing status indicators.
-- **OAuth 2.0:** An industry-standard protocol for authorization, allowing the application to access Microsoft and Google APIs on behalf of nodal officers without ever storing raw passwords.
 - **HMR (Hot Module Replacement):** A web development feature (used by Vite) that injects updated modules directly into the active browser runtime without a full page refresh.
+- **LangGraph:** A framework extending LangChain designed to build stateful, multi-actor applications with LLMs through cyclical graph structures, powering the ReAct Chatbot.
+- **Night Mode Floor:** An automated scaling mechanism that detects local times between 11 PM and 7 AM, automatically backing down the sync polling interval to 1 hour to conserve server resources during low-activity hours.
+- **OAuth 2.0:** An industry-standard protocol for authorization, allowing the application to access Microsoft and Google APIs on behalf of nodal officers without ever storing raw passwords.
+- **RAG (Retrieval-Augmented Generation):** An AI framework that retrieves facts from an external knowledge base to ground large language models (LLMs) on accurate, up-to-date information, drastically reducing hallucination.
+- **Server-Sent Events (SSE):** A server push technology enabling a client to receive automatic, unilateral updates via HTTP connections (StreamingResponse on /emails/events), utilized for syncing status indicators (sync_started, sync_complete) to active frontend panels.
+- **SLA Breach Guard:** The automated escalation rule that flags a thread as a high priority if the citizen's unanswered follow-up message count exceeds 3, ensuring long-delayed cases bubble up on the unified table.
+- **Surgical "3+2" Conversation Windowing:** A proprietary context-filtering algorithm. When generating grounded replies, it feeds the LLM exactly the Last 3 Unreplied Citizen Emails + 2 Anchor History Turns, eliminating chat history bloat and focusing retrieval context on the immediate issue.
+- **VRAM (Video Random Access Memory):** The dedicated memory pool utilized by GPUs to store tensor structures and execute matrix multiplications during AI inference.
+- **v_threads (PostgreSQL / SQLite View):** The database view structure that aggregates emails, categories, and thread counts. It serves as the single source of truth for dashboard tables and chatbot tools, ensuring UI parity across both Postgres and local SQLite deployments.
